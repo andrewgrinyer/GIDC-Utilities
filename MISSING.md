@@ -40,14 +40,9 @@ recovered (23 Oct), in `supabase/functions/send-goback/index.ts`. `send-order` (
 `dealer-sync` (new, 23 Oct) is also in the repo, in
 `supabase/functions/dealer-sync/index.ts`.
 
-The TypeScript for `send-order-function` was not here until 23 Oct; it is now recovered as `send-order`. **The deployed versions are live and
-working** inside Supabase, and their code can be read and copied out of
-the Supabase dashboard under Edge Functions. That is the only remaining
-copy of each.
-
-Worth doing as its own small job: open each one, copy the code out, and
-put it in this archive. Until that happens there is exactly one copy of
-that function, and it is in Supabase.
+Every edge function now has its source in this repo. If one is ever
+changed in the Supabase editor directly, copy it back here the same day,
+or this goes stale again.
 
 ## The older SQL
 

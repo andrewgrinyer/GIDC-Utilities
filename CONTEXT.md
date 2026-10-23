@@ -71,7 +71,8 @@ edge functions for anything needing an admin key.
 
 | name | what it does | needs |
 |---|---|---|
-| `create-dealer-user` | makes, edits, repasswords and removes logins | service role |
+| `create-dealer-user` | makes logins by invitation, edits and removes them, sends password and address links; administrators only | service role, `RESEND_API_KEY` |
+| `account-link` | forgot my password, send me my address link, and confirm, the only thing that sets `email_verified_at`; JWT verification off | service role, `RESEND_API_KEY` |
 | `kpi-import` | the only door numbers come in through | `KPI_IMPORT_KEY` |
 | `send-goback` | emails a go back to the office | `RESEND_API_KEY` |
 | `send-order-function` | emails a dealer order | `RESEND_API_KEY` |
@@ -110,6 +111,19 @@ the measurement app depends on it. Fixed in `sql/security-tighten.sql`.
 get an invitation link and set their own, which verifies the address in
 the same act. Replaces the old flow where an administrator picked a
 password and handed it over.
+
+**Every emailed link opens one page.** `dealers.gidc.ca/account`, because
+it is the one address every login can reach; the tools site is behind
+Cloudflare Access. The link carries a token and the page spends it only
+when the person presses the button, so a mail scanner that opens links
+cannot use it up, and Supabase needs no redirect URLs. Confirm trusts a
+session only if it was started by a link in the last half hour.
+
+**Logins are made in one place.** The tools landing page, People and
+logins, for the team and for dealers. The dealer portal and the
+measurement app no longer manage logins. Team access is `role`, dealer
+access is `dealer_role` plus `dealer_id`, and a login may have either,
+both or neither.
 
 **Verification has its own record, not Supabase's flag.** Every existing
 login was created with `email_confirm: true`, so Supabase believes all
@@ -194,6 +208,7 @@ not an error, which hid two silent failures. An RPC without
 - Rotate the service role key pasted in a transcript in September.
 - Change the password that was posted in a transcript.
 - Turn off self signup in Supabase once logins are made on the tools site.
+- The login change goes live in one pass: `docs/login-rollout.md`.
 - The Apps Script hourly trigger: Google switched it off on 15 October and
   pasting new code does not restore it. Run `turnItOn`.
 - Two things may be writing `web_leads`: the sheet and the office import.
