@@ -3,7 +3,7 @@
 > **Update 23 Oct 2026, after the move to GitHub.** Now in the repo:
 > `tools-site/` (gidc-tools-2.9.zip), `dealer-portal/` (dealer-portal-1.99.zip)
 > and `measurement-app/` (measurement-app-1.9.zip, 16 Oct 2026). Still
-> missing: one of the four edge functions (`create-dealer-user`, `kpi-import` and `send-goback` recovered 23 Oct), `portal.src.html` and `build.py`, the
+> missing: none of the four edge functions (`create-dealer-user`, `kpi-import`, `send-goback` and `send-order` recovered 23 Oct); `portal.src.html` and `build.py`, the
 > older SQL, and the test suites.
 
 Being straight about the gaps, because a backup you trust wrongly is
@@ -34,11 +34,13 @@ gone and would need rebuilding.
 **Update 23 Oct 2026:** `create-dealer-user` is now recovered, in
 `supabase/functions/create-dealer-user/index.ts`. `kpi-import` is also
 recovered (23 Oct), in `supabase/functions/kpi-import/index.ts`. `send-goback` is also
-recovered (23 Oct), in `supabase/functions/send-goback/index.ts`. One remains.
+recovered (23 Oct), in `supabase/functions/send-goback/index.ts`. `send-order` (called
+`send-order-function` below) is also recovered (23 Oct), in
+`supabase/functions/send-order/index.ts`. None remain.
 `dealer-sync` (new, 23 Oct) is also in the repo, in
 `supabase/functions/dealer-sync/index.ts`.
 
-The TypeScript for `send-order-function` is not here. **The deployed versions are live and
+The TypeScript for `send-order-function` was not here until 23 Oct; it is now recovered as `send-order`. **The deployed versions are live and
 working** inside Supabase, and their code can be read and copied out of
 the Supabase dashboard under Edge Functions. That is the only remaining
 copy of each.
