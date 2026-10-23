@@ -4937,11 +4937,15 @@ function packHeight(r){
   const p = panelPlan(r);
   return p.height != null ? p.height : num(r.height);
 }
-function packPanels(r, order){
+/* line is the door's place on its order, counted from 0. A door typed in
+   by hand carries no opening number, and the order screen and the order
+   form both call it by its line number instead, so the packing list does
+   the same rather than printing it with no number at all. */
+function packPanels(r, order, line){
   const dt = String(r.doorType || ""), q = doorsFor(r);
   const plan = panelPlan(r);
   const w = plan.width != null ? plan.width : num(r.width);
-  const open = r.opening || r.xmlOpen || "";
+  const open = r.opening || r.xmlOpen || String(line + 1);
   const core = /hollow/i.test(String(r.productType || "")) ? "HC" : "SC";
   const base = {
     customer: (order.order_ref || order.customer_name || "").trim(),
@@ -4963,8 +4967,8 @@ function packPanels(r, order){
 function packSequence(orders){
   let rows = [];
   orders.forEach(o => {
-    ((o.form && o.form.rows) || []).forEach(r => {
-      packPanels(r, o).forEach(p => {
+    ((o.form && o.form.rows) || []).forEach((r, i) => {
+      packPanels(r, o, i).forEach(p => {
         const b = PACK_BANDS.find(x => x.test(p.height)) || PACK_BANDS[2];
         p.bandIdx = b.i; p.hband = b.label;
         rows.push(p);
