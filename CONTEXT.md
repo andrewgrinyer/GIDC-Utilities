@@ -142,6 +142,11 @@ These cost the most to find and are invisible in the code.
 OrderNo 5067 and OrderID 5069; Cortes 4273 and 4275. `access_order_id`
 stores the **ID**. Getting this wrong links an order to the wrong job.
 
+**`access_order_no` holds the No, `access_order_id` the ID.** Added 23
+October with `sql/dealer-order-number.sql`. People type the No, the job
+number on the Access screen; the database finds the ID from the staged
+Access rows and the sync follows the ID. See `docs/dealer-sync.md`.
+
 **Style names do not match between the price list and what dealers type.**
 The list says "Clear 1-Lite", dealers type "Clear 1 Lite". The portal
 normalises with `pnorm`, lowercase with every non alphanumeric stripped.

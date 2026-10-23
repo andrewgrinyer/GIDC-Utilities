@@ -12,6 +12,19 @@ tested in every order against a copy of the live shape.
    switch. Refuses to run before step 2. Changes nobody's access until
    you turn the switch on.
 
+**dealer-order-number.sql** adds the Access order number to dealer
+orders: shown on the portal's order list, set there by administrators,
+and used by the hourly sync before it tries to match by name. Needs the
+dealer-sync edge function from this same change. Independent of the
+login files. `tests/order-number.sh` tests it locally.
+
+**dealer-sync-check.sql** is read only. It says when the office server
+last got orders through and how many portal orders are linked, and
+prints the sync function's code so it can be put in the repo.
+
+**dealer-sync-unmatched.sql** is read only. It lists the portal orders
+the sync cannot match, with the Access jobs that carry the same surname.
+
 **security-audit.sql** is read only and can be run any time. It reports
 what is actually exposed rather than what anybody remembers writing.
 

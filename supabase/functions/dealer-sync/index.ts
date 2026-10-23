@@ -28,6 +28,12 @@
 //   may move actually lives. This function holds no rules of its own, so
 //   changing the status mapping is a line of SQL and never a redeploy.
 //
+//   Either side of that it runs gidc_link_dealer_orders_by_no(), so an
+//   order given an Access order number in the portal is linked to that
+//   job first, and gidc_fill_access_order_no(), so every linked order
+//   shows its number. Both come with sql/dealer-order-number.sql and are
+//   skipped, with a line in the log, until it has run.
+//
 // WHAT IT CANNOT DO
 //   Move an order the portal has as a draft, or move anything on a key
 //   that fits more than one order. Both of those are refused by the SQL
@@ -166,12 +172,33 @@ Deno.serve(async (req) => {
     if (!put.ok)
       return json({ error: "Could not write the staging table", detail: await put.text() }, 500);
 
+    /* THE ACCESS ORDER NUMBER GOES FIRST
+       An order somebody has given a job number to is linked to that job
+       by id before the sync looks at anything, and the sync already
+       follows an id before it tries a name. Soft: before
+       dealer-order-number.sql has run the function is not there, and
+       the sync carries on exactly as it did. */
+    let linkedByNumber: number | null = null;
+    const pre = await call("link by number",
+      `${url}/rest/v1/rpc/gidc_link_dealer_orders_by_no`,
+      { method: "POST", headers: asAdmin, body: "{}" });
+    if (pre.ok) linkedByNumber = Number(await pre.json());
+    else console.log("link by number skipped:", await pre.text());
+
     /* and the rules, which live in SQL */
     const ran = await call("sync", `${url}/rest/v1/rpc/gidc_sync_dealer_orders`,
       { method: "POST", headers: asAdmin, body: "{}" });
     if (!ran.ok)
       return json({ error: "The sync itself failed", detail: await ran.text() }, 500);
     const changes = await ran.json();
+
+    /* and every order linked by id shows its number on the list */
+    let numbersFilled: number | null = null;
+    const post = await call("fill numbers",
+      `${url}/rest/v1/rpc/gidc_fill_access_order_no`,
+      { method: "POST", headers: asAdmin, body: "{}" });
+    if (post.ok) numbersFilled = Number(await post.json());
+    else console.log("fill numbers skipped:", await post.text());
 
     const left = await call("unmatched",
       `${url}/rest/v1/dealer_orders_unmatched?select=order_ref`,
@@ -190,6 +217,8 @@ Deno.serve(async (req) => {
       changed: Array.isArray(changes) ? changes.length : 0,
       changes,
       unmatched,
+      linked_by_number: linkedByNumber,
+      numbers_filled: numbersFilled,
     });
   } catch (e) {
     console.log("failed:", (e as Error)?.message ?? e);
