@@ -184,8 +184,9 @@ function isAdmin(){ return !!ME && ME.role === 'admin'; }
 
 /* An installer reads the list and does not work it. The status, the note
    and Delete are all left off their view, because offering a control the
-   database will refuse is worse than not offering it at all. */
-function canWork(){ return !!ME && ME.role !== 'installer'; }
+   database will refuse is worse than not offering it at all. Written as who
+   may, so a role added later does not get the controls by default. */
+function canWork(){ return !!ME && GIDCAuth.isStaff(ME); }
 
 /* A bare date from Postgres is a day, and a timestamp is an instant. Both
    are shown in Toronto time, because that is where everyone reading this

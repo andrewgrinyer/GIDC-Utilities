@@ -231,6 +231,57 @@ begin
            and (p.role in ('admin','user','sales','manufacturing')
                 or p.dealer_role = 'dealer'));
     $b$ $f$, act);
+
+  -- Added 23 October on rechecking. Every rule in the database compares
+  -- dealer_id against my_dealer(), so without this one the switch would
+  -- refuse an unverified dealer nothing at all: the helpers above would
+  -- say no and the rules would never ask them. An unverified login acts
+  -- for no dealer.
+  execute format($f$
+    create or replace function public.my_dealer()
+    returns uuid language sql stable security definer set search_path = public as $b$
+      select case
+               when not public.email_ok() then null
+               when p.dealer_role is not null and p.dealer_id is not null
+                 then p.dealer_id
+               when p.role = 'user'
+                 then (select d.id from public.dealers d
+                        where lower(regexp_replace(d.slug, '[^a-zA-Z0-9]', '', 'g')) = 'grinyer'
+                        order by d.active desc nulls last, d.slug
+                        limit 1)
+               else null
+             end
+        from public.profiles p
+       where p.id = auth.uid() %s;
+    $b$ $f$, act);
+
+  -- The rest of the helpers, so that no question about access can be
+  -- answered yes by an unverified login once the switch is on.
+  execute format($f$
+    create or replace function public.is_dealer_admin()
+    returns boolean language sql stable security definer set search_path = public as $b$
+      select public.email_ok() and exists (
+        select 1 from public.profiles p
+         where p.id = auth.uid() %s and p.dealer_role = 'dealer_admin');
+    $b$ $f$, act);
+
+  execute format($f$
+    create or replace function public.is_team_no_installer()
+    returns boolean language sql stable security definer set search_path = public as $b$
+      select public.email_ok() and exists (
+        select 1 from public.profiles p
+         where p.id = auth.uid() %s
+           and p.role in ('admin','user','sales','manufacturing'));
+    $b$ $f$, act);
+
+  execute format($f$
+    create or replace function public.is_buying_dealer()
+    returns boolean language sql stable security definer set search_path = public as $b$
+      select public.email_ok() and exists (
+        select 1 from public.profiles p
+         where p.id = auth.uid() %s
+           and p.dealer_role = 'dealer' and p.dealer_id is not null);
+    $b$ $f$, act);
 end $$;
 
 do $$
@@ -238,7 +289,9 @@ declare f text;
 begin
   foreach f in array array['verification_required()','email_ok()','is_team()','is_admin()',
                            'is_staff()','is_installer()','is_production()',
-                           'has_dealer_access()','can_order()','can_see_prices()']
+                           'has_dealer_access()','can_order()','can_see_prices()',
+                           'my_dealer()','is_dealer_admin()','is_team_no_installer()',
+                           'is_buying_dealer()']
   loop
     begin
       execute 'grant execute on function public.' || f || ' to authenticated';

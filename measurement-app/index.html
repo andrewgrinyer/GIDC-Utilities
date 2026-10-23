@@ -498,8 +498,14 @@ async function sbSignIn(email, password){
 async function sbProfile(){
   if(!session || !session.user) return null;
   try{
-    const r = await sb('/rest/v1/profiles?select=name,role&id=eq.' + session.user.id,
-                       {headers: sbHeaders()});
+    /* dealer_role arrives with two-sided-access.sql. Asked for first, and
+       dropped if the column is not there yet, because a 400 here would keep
+       every rep out of the app over a column. */
+    let r = await sb('/rest/v1/profiles?select=name,role,dealer_role&id=eq.' + session.user.id,
+                     {headers: sbHeaders()});
+    if(r.status === 400)
+      r = await sb('/rest/v1/profiles?select=name,role&id=eq.' + session.user.id,
+                   {headers: sbHeaders()});
     if(!r.ok) return null;
     const rows = await r.json();
     /* No profile row used to mean a sales representative, which was a hole:
@@ -540,40 +546,20 @@ const NO_PROFILE =
    needs an administrator. */
 function whyNot(prof){
   const role = prof && prof.role;
+  /* A dealer is in dealer_role since two-sided-access.sql, in role before. */
+  if(prof && prof.dealer_role && !role) return NOT_STAFF;
   if(!role) return NO_PROFILE;
   if(role === 'dealer' || role === 'dealer_admin') return NOT_STAFF;
   return NOT_HERE;
 }
 
-/* ---- managing people, without the dashboard ----
-   Creating a login normally needs the service_role key, which can never go in a
-   web page. The signup endpoint works with the publishable key instead, so the
-   app can create the account and then set the role on the profile, which the
-   "admins manage profiles" policy permits. The new person's session that signup
-   hands back is discarded: the admin stays signed in as themselves. */
-async function sbListUsers(){
-  const r = await sb('/rest/v1/profiles?select=id,name,role&order=name.asc',
-                     {headers: sbHeaders()});
-  if(!r.ok) throw new Error('Could not read the account list (' + r.status + ')');
-  return r.json();
-}
-async function sbCreateUser(email, password, name, role){
-  const r = await fetch(CONFIG.supabaseUrl + '/auth/v1/signup', {
-    method:'POST', headers:{apikey:CONFIG.supabaseAnonKey,'Content-Type':'application/json'},
-    body: JSON.stringify({email, password, data:{name}})});
-  const j = await r.json().catch(() => ({}));
-  if(!r.ok) throw new Error(j.msg || j.error_description || ('Signup refused (' + r.status + ')'));
-  const id = (j.user && j.user.id) || (j.id);
-  if(!id) throw new Error('Account made, but Supabase did not return an id. Set the role by hand.');
-  if(role === 'admin') await sbSetRole(id, 'admin');
-  return id;
-}
-async function sbSetRole(id, role){
-  const r = await sb('/rest/v1/profiles?id=eq.' + encodeURIComponent(id),
-    {method:'PATCH', headers: Object.assign(sbHeaders(true), {Prefer:'return=minimal'}),
-     body: JSON.stringify({role})});
-  if(!r.ok) throw new Error('Could not change that role (' + r.status + ')');
-}
+/* ---- managing people ----
+   Not done here any more. Every login is made on the tools site, under
+   People and logins, and the person chooses their own password from an
+   emailed invitation. This app used to make logins through the public
+   signup endpoint, which only worked because anybody at all could sign
+   themselves up; that door is now shut in Supabase. The Accounts screen
+   below is only for the offline, this device only mode. */
 
 /* ---------------- one interface over both ---------------- */
 const Store = { name: SB ? 'your Supabase project' : Local.name };
@@ -1266,10 +1252,14 @@ function renderSignin(){
     '<input id="si-u" type="' + (SB ? 'email' : 'text') + '" autocapitalize="none" autocomplete="username"></div>' +
     '<div class="field"><label>Password</label>' +
     '<input id="si-p" type="password" autocomplete="current-password"></div>' +
-    (SB ? '<button class="btn btn-sm btn-ghost" data-diag="1">Test connection</button>' : ''),
+    (SB ? '<button class="btn btn-sm btn-ghost" data-diag="1">Test connection</button>' +
+          ' <a class="btn btn-sm btn-ghost" href="https://dealers.gidc.ca/account">' +
+          'Forgotten your password?</a>' : ''),
     '<button class="btn btn-primary" data-signin="1">Sign in</button>');
 }
 
+/* Only for the offline, this device only mode. With Supabase, logins are
+   made on the tools site. */
 function renderUsers(){
   $('#bar').innerHTML = '<button class="btn btn-ghost btn-sm" data-back="1">Back</button>' +
                         '<h1>Accounts</h1>';
@@ -1277,30 +1267,20 @@ function renderUsers(){
     '<div class="card"><div class="jobrow">' +
       '<div class="t"><b>' + esc(u.name) + '</b><span>' +
       (u.role === 'admin' ? 'Administrator' : 'Rep') + '</span></div>' +
-      (SB
-        ? (u.name === state.me.name ? '<span class="crumb">you</span>'
-           : '<button class="btn btn-ghost btn-sm" data-role="' + esc(u.id) + '" data-to="' +
-             (u.role === 'admin' ? 'user' : 'admin') + '">Make ' +
-             (u.role === 'admin' ? 'a rep' : 'an admin') + '</button>')
-        : (u.name === state.me.name ? '<span class="crumb">you</span>' :
-           '<button class="btn btn-ghost btn-sm" data-rmuser="' + esc(u.name) + '">Remove</button>')) +
+      (u.name === state.me.name ? '<span class="crumb">you</span>' :
+       '<button class="btn btn-ghost btn-sm" data-rmuser="' + esc(u.name) + '">Remove</button>') +
     '</div></div>').join('');
   $('#app').innerHTML = rows +
     '<div class="card"><div class="card-body" style="border-top:0;padding-top:14px">' +
-    (SB ? '<div class="field"><label>Full name</label><input id="nu-n" type="text"></div>' +
-          '<div class="field"><label>Email</label><input id="nu-u" type="email" autocapitalize="none"></div>'
-        : '<div class="field"><label>New username</label><input id="nu-u" type="text" autocapitalize="none"></div>') +
+    '<div class="field"><label>New username</label><input id="nu-u" type="text" autocapitalize="none"></div>' +
     '<div class="field"><label>Password</label><input id="nu-p" type="password"></div>' +
     '<div class="field"><label>Account type</label><select id="nu-r">' +
       '<option value="user">Rep</option><option value="admin">Administrator</option></select></div>' +
     '<button class="btn" data-adduser="1">Add account</button>' +
-    (SB ? '<p class="hint" style="margin-top:14px">The new person can sign in straight away ' +
-          'with the email and password you set. To remove a login altogether, use the ' +
-          'Supabase dashboard; here you can only change what someone is allowed to do.</p>'
-        : '<p class="hint" style="margin-top:14px">Accounts added here live on this device only. ' +
-          'To add one for everybody, press Make permanent and paste the line it gives you into ' +
-          'SEED_USERS near the top of index.html.</p>' +
-          '<button class="btn btn-sm" data-seed="1">Make permanent</button>') +
+    '<p class="hint" style="margin-top:14px">Accounts added here live on this device only. ' +
+    'To add one for everybody, press Make permanent and paste the line it gives you into ' +
+    'SEED_USERS near the top of index.html.</p>' +
+    '<button class="btn btn-sm" data-seed="1">Make permanent</button>' +
     '<pre id="seedout" style="white-space:pre-wrap;word-break:break-all;font-size:12px;' +
     'background:var(--paper);border:1px solid var(--rule);border-radius:9px;padding:10px;' +
     'margin-top:10px;display:none"></pre></div></div>';
@@ -1774,13 +1754,10 @@ document.addEventListener('click', async e => {
     state.view = 'signin'; return render();
   }
   if(d.users !== undefined){
-    try{ state.users = SB ? await sbListUsers() : await loadUsers(); }
+    if(SB){ location.href = 'https://tools.gidc.ca/'; return; }
+    try{ state.users = await loadUsers(); }
     catch(err){ return toast(err.message); }
     state.view = 'users'; return render(); }
-  if(d.role){
-    try{ await sbSetRole(d.role, d.to); state.users = await sbListUsers(); toast('Role changed'); }
-    catch(err){ return toast(err.message); }
-    return render(); }
   if(d.seed !== undefined){
     const u = $('#nu-u').value.trim(), p = $('#nu-p').value, r = $('#nu-r').value;
     if(!u || !p) return toast('Fill in the username and password first');
@@ -1790,18 +1767,6 @@ document.addEventListener('click', async e => {
   }
   if(d.adduser !== undefined){
     const u = $('#nu-u').value.trim(), p = $('#nu-p').value, r = $('#nu-r').value;
-    if(SB){
-      const nm = ($('#nu-n').value || '').trim() || u.split('@')[0];
-      if(!u || !p) return toast('Email and password are both needed');
-      if(p.length < 6) return toast('Supabase needs at least 6 characters');
-      toast('Creating the account...');
-      try{
-        await sbCreateUser(u, p, nm, r);
-        state.users = await sbListUsers();
-        toast(nm + ' can now sign in');
-      }catch(err){ return toast(err.message); }
-      return render();
-    }
     if(!u || !p) return toast('Username and password are both needed');
     if(state.users.some(x => x.name.toLowerCase() === u.toLowerCase()))
       return toast('That username is taken');

@@ -47,9 +47,13 @@ Icons available: ruler, doors, boxes, papers, receipt, chart, tag, globe, wrench
 ## Signing in
 
 The site uses the same accounts as the measurement app. Sign in on the landing
-page and every tool beside it opens, because they all share one address. Adding
-or removing people is done where it always was, in the measurement app under
-Accounts, or in Supabase.
+page and every tool beside it opens, because they all share one address.
+
+Every login, team and dealer alike, is made and changed on the landing page
+under People and logins, by an administrator. Nobody picks anybody else's
+password: a new login gets an invitation email and the person chooses their
+own on dealers.gidc.ca/account, which is also where Forgotten your password
+leads. The dealer portal and the measurement app no longer manage logins.
 
 Be clear about what this gate is and is not. These are static pages with no
 server of their own, so the sign in tidies the front door and shows who is

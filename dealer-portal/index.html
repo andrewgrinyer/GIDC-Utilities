@@ -418,9 +418,6 @@ td.acts .btn{margin-left:5px}
   border-radius:6px;font-family:inherit;color:var(--ink)}
 .btn.danger{color:var(--red);border-color:#F0C9C9;background:var(--red-soft)}
 .btn.danger:hover{background:#F8DADA}
-.pwn{display:block;margin:5px 0 0;font-size:12px}
-.pwn.short{color:var(--warn)}
-.pwn.fine{color:var(--ok)}
 table.people tbody tr.stranded td{background:#FBF1E7}
 table.people select.needs{border-color:var(--warn);background:#FFF8F0}
 small.trim{display:block;font-size:9px;color:#6E6E76;font-weight:600;line-height:1}
@@ -961,7 +958,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 1.99 · 19 Oct 2026";
+const BUILD  = "Dealer portal 2.01 · 23 Oct 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -1477,7 +1474,6 @@ const state = {
   moved: {},          // order id -> {status: was, ship: was}
   redo: null,         // while the reorder panel is up: ticks, reason, photos
   alink: null,        // the Access job search on the admin panel
-  editUser: null,     // the login whose name and address are being edited
   reopenRead: {}      // order id -> the reopen answer already read, at load
 };
 
@@ -1505,13 +1501,14 @@ const state = {
  */
 function clearPersonal(){
   state.me = null; state.dealer = null; state.dealers = [];
-  state.orders = []; state.unlocks = []; state.order = null; state.users = [];
+  state.orders = []; state.unlocks = []; state.order = null;
   state.pl = null; state.pallets = []; state.palletOrders = [];
   state.seen = {}; state.moved = {}; state.reopenRead = {};
   state.ticked = {}; state.palOpen = {}; state.packing = null;
   state.palShowShipped = false;
   state.order = null; state.ask = null; state.expanded = null;
   state.redo = null; state.notice = null;
+  const vb = document.getElementById("verify-banner"); if(vb) vb.remove();
   state.tab = "all";
   /* the filters, which are the ones that caused this */
   state.filter = "all"; state.q = ""; state.fDealer = null;
@@ -1582,14 +1579,30 @@ async function signIn(email, password){
   saveSession({access_token:j.access_token, refresh_token:j.refresh_token, user:j.user});
   return j;
 }
+/* What is asked for, newest shape first, dropping back a step at a time,
+   because a column that is not there yet is a 400 and would keep every
+   dealer out over a column. dealer_role arrives with two-sided-access.sql,
+   email_verified_at with email-verification.sql. */
+const WHOAMI = ["id,name,role,dealer_role,dealer_id,email_verified_at",
+                "id,name,role,dealer_role,dealer_id", "id,name,role,dealer_id"];
 async function whoami(){
   if(!session || !session.user) return null;
-  const r = await sb("/rest/v1/profiles?select=id,name,role,dealer_id&id=eq." + session.user.id,
-                     {headers: headers()});
-  if(!r.ok) return null;
-  const rows = await r.json();
-  if(!rows.length) return null;
-  return rows[0];
+  for(const cols of WHOAMI){
+    const r = await sb("/rest/v1/profiles?select=" + cols + "&id=eq." + session.user.id,
+                       {headers: headers()});
+    if(r.status === 400) continue;
+    if(!r.ok) return null;
+    const rows = await r.json();
+    if(!rows.length) return null;
+    const me = rows[0];
+    /* Before two-sided-access.sql a dealer was recorded in role. Read the
+       same way either side of it, so nothing here cares which has run. */
+    if(!("dealer_role" in me) && (me.role === "dealer" || me.role === "dealer_admin")){
+      me.dealer_role = me.role; me.role = null;
+    }
+    return me;
+  }
+  return null;
 }
 const isAdmin = () => !!(state.me && state.me.role === "admin");
 /* A DEALER LOGIN THAT WATCHES RATHER THAN ORDERS
@@ -1599,9 +1612,17 @@ const isAdmin = () => !!(state.me && state.me.role === "admin");
  * halves are rules in the database as well, in dealer-admin-role.sql: hiding
  * a button is a courtesy, a policy is the rule. Everything below is so the
  * screen does not offer what the database would refuse. */
-const isDealerAdmin = () => !!(state.me && state.me.role === "dealer_admin");
-const canOrder     = () => !isDealerAdmin();
-const canSeePrices = () => !isDealerAdmin();
+/* Each written as who may, never as who may not, and the same lists as
+   can_order() and can_see_prices() in the database. They were "anybody who
+   is not a dealer administrator", which let in every role invented later.
+   A login with Grinyer office access as well as dealer administrator access
+   orders as the office does, so it is not treated as watching only. */
+const TEAM_ORDERS = ["admin", "user"];
+const TEAM_PRICES = ["admin", "user", "sales", "manufacturing"];
+const teamIs = list => !!(state.me && list.indexOf(state.me.role) !== -1);
+const canOrder     = () => teamIs(TEAM_ORDERS) || !!(state.me && state.me.dealer_role === "dealer");
+const canSeePrices = () => teamIs(TEAM_PRICES) || !!(state.me && state.me.dealer_role === "dealer");
+const isDealerAdmin = () => !!(state.me && state.me.dealer_role === "dealer_admin") && !canOrder();
 /* Grinyer's own dealer record, the one the office orders against. The same
    short name appears in gidc-inhouse-setup.sql, and it is the only thing
    tying the two together. */
@@ -1673,16 +1694,6 @@ async function loadDealers(){
    name where sfdc reads as a typo. Everything that compares them does
    so with the case taken out, so changing this breaks nothing. */
 const slugify = s => String(s || "").toUpperCase().replace(/[^A-Z0-9]+/g, "").slice(0, 32);
-/* the same figure the create-dealer-user function insists on */
-const PW_MIN = 10;
-/* Sixteen characters, no letters or digits anyone misreads over the phone. */
-function madePassword(){
-  const a = "ABCDEFGHJKLMNPQRSTUVWXYZ", b = "abcdefghijkmnpqrstuvwxyz", n = "23456789";
-  const pick = set => set[Math.floor(Math.random() * set.length)];
-  let pw = "";
-  for(let i = 0; i < 4; i++) pw += pick(a) + pick(b) + pick(b) + pick(n);
-  return pw;
-}
 async function createDealer(body){
   const r = await sb("/rest/v1/dealers", {
     method:"POST", headers: Object.assign(headers(true), {Prefer:"return=representation"}),
@@ -1843,63 +1854,9 @@ async function flushFiles(o, dealerId){
   return o.files || [];
 }
 
-async function loadUsers(){
-  const r = await sb("/rest/v1/portal_users?select=*&order=name", {headers: headers()});
-  if(!r.ok) throw new Error(await friendlyError(r, "read the list of people"));
-  return r.json();
-}
-async function patchUser(id, patch){
-  const r = await sb("/rest/v1/profiles?id=eq." + encodeURIComponent(id), {
-    method:"PATCH", headers: Object.assign(headers(true), {Prefer:"return=representation"}),
-    body: JSON.stringify(patch)});
-  if(!r.ok) throw new Error(await friendlyError(r, "change that login"));
-  return (await r.json())[0];
-}
-/* the login itself is made by an edge function, because the key that can do
-   it must never be in this page */
-/* Making a login, changing its password and removing it all need a key that
-   administers accounts, so all three go through the same function. */
-async function userAction(body, what){
-  let r;
-  try{
-    r = await sb("/functions/v1/create-dealer-user", {
-      method:"POST", headers: headers(true), body: JSON.stringify(body)});
-  }catch(net){
-    /* same as send-order: a failed fetch says nothing about which of the two
-       it is, so neither does this */
-    throw new Error("The create-dealer-user function did not answer. Either it is " +
-      "not deployed, or it is deployed and stopped before it could reply. In " +
-      "Supabase, Edge Functions, create-dealer-user, the Invocations tab shows what " +
-      "each request returned and the Logs tab shows why.");
-  }
-  let out = null;
-  try{ out = await r.json(); }catch(e){}
-  if(r.status === 404)
-    throw new Error("The create-dealer-user function is not deployed yet. " +
-      "Until it is, add the login under Authentication in Supabase and it will " +
-      "appear here to be linked.");
-  if(!r.ok){
-    let msg = (out && out.error) || ("Could not " + what);
-    /* the older function only knew how to create a login, and answers a
-       Remove by complaining about the email address it was never sent */
-    if(body.action && /email address|Give the person a name|at least 10 characters/i.test(msg))
-      msg = "The create-dealer-user function in Supabase is the older version, which can " +
-            "only create logins. Paste the newer index.ts over it and deploy again, then " +
-            "Password and Remove will work.";
-    throw new Error(msg);
-  }
-  return out;
-}
-const createUser  = body      => userAction(body, "create that login");
-const setPassword = (id, pw)  => userAction({action:"password", id:id, password:pw},
-                                            "change that password");
-const removeUser  = id        => userAction({action:"delete", id:id}, "remove that login");
-/* Andrew, 19 October: an edit button for a login's name and details. The
-   name and the address go together through the one call, because the
-   address is what they sign in with: changing it on the profile alone
-   would leave the list showing an address that cannot sign in. */
-const updateUser  = (id, name, email) =>
-  userAction({action:"update", id:id, name:name, email:email}, "save that login");
+/* Logins are no longer made or changed here. They are made on the tools site,
+   under People and logins, for team and dealers alike, and the person
+   chooses their own password from an emailed invitation. */
 async function loadOrders(){
   /* The total is not asked for where it is not to be shown. The row carries
      it either way, since a row somebody may read they may read every column
@@ -1916,9 +1873,18 @@ async function loadOrders(){
      together: a portal running against a database without them loses
      those features and nothing else, and the list still draws. */
   const extra = ",search_text,redo_of,redo_seq,redo_reason,created_by_name";
+  /* the Access order number arrives with dealer-order-number.sql, and is
+     dropped on its own first, so a database without it loses that column
+     and keeps the search and the redo marks */
+  const accno = ",access_order_no";
   const url = s => "/rest/v1/dealer_orders?select=" + s + "&order=created_at.desc";
-  let r = await sb(url(sel + extra), {headers: headers()});
-  if(!r.ok) r = await sb(url(sel), {headers: headers()});
+  let r = await sb(url(sel + extra + accno), {headers: headers()});
+  if(r.ok) state.hasAccNo = true;
+  else {
+    state.hasAccNo = false;
+    r = await sb(url(sel + extra), {headers: headers()});
+    if(!r.ok) r = await sb(url(sel), {headers: headers()});
+  }
   if(!r.ok) throw new Error("Could not load your orders");
   return r.json();
 }
@@ -5328,26 +5294,64 @@ function renderSignin(){
     '<input id="si-p" type="password" autocomplete="current-password"></div>' +
     '<button class="btn primary" id="si-go" style="width:100%;justify-content:center">Sign in</button>' +
     '<div class="err" id="si-err"></div>' +
+    '<p class="hint" style="margin:14px 0 0"><a href="/account">Forgotten your password?</a></p>' +
     '</div></div></div>';
 }
 
-const ROLES = [["dealer","Dealer"],["dealer_admin","Dealer administrator"],
-               ["user","Grinyer staff"],["admin","Grinyer administrator"]];
-/* both of these belong to one dealer and are meaningless without one */
-const NEEDS_DEALER = ["dealer", "dealer_admin"];
+/* CONFIRMING AN EMAIL ADDRESS
+ *
+ * A login whose address has not been proven gets a banner across the top,
+ * with a button that emails them the link again. Before
+ * email-verification.sql has run there is no such field and no banner. Once
+ * Grinyer requires a confirmed address, the database shows an unconfirmed
+ * login nothing, and the banner says so, because an empty list with no
+ * reason given looks like lost orders. Outside #app so a redraw leaves it. */
+async function verifyBanner(me){
+  const old = $("verify-banner");
+  if(old) old.remove();
+  if(!me || !("email_verified_at" in me) || me.email_verified_at) return;
+  let required = false;
+  try{
+    const r = await sb("/rest/v1/app_settings?select=value&key=eq.require_verified_email",
+                       {headers: headers()});
+    if(r.ok){ const rows = await r.json(); required = !!rows.length && rows[0].value === "true"; }
+  }catch(e){}
+  const b = document.createElement("div");
+  b.id = "verify-banner";
+  b.className = "note warn";
+  b.style.cssText = "margin:0;border-radius:0;display:flex;flex-wrap:wrap;gap:10px;align-items:center";
+  const draw = said => {
+    b.innerHTML = '<span style="flex:1;min-width:240px"><b>Please confirm your email address.</b> ' +
+      (required ? "Until you do, your orders will not load. "
+                : "It takes one press of a button in an email we send you. ") +
+      (said ? "<b>" + esc(said) + "</b>" : "") + "</span>" +
+      '<button class="btn sm" id="verify-go">Email me the link</button>';
+    $("verify-go").onclick = async () => {
+      $("verify-go").disabled = true; $("verify-go").textContent = "Sending…";
+      try{
+        const r = await sb("/functions/v1/account-link", {method:"POST", headers: headers(true),
+                                                          body: JSON.stringify({action:"resend"})});
+        const j = await r.json().catch(() => ({}));
+        draw(j.said || j.error || "Sent.");
+      }catch(e){ draw("Could not send it. Try again in a minute."); }
+    };
+  };
+  document.body.insertBefore(b, document.body.firstChild);
+  draw("");
+}
 
 function renderUsers(){
   /* the database refuses a dealer anyway, but there is no reason to draw them
      a screen full of other people's details in the first place */
   if(!isAdmin()){ state.view = "list"; return renderList(); }
-  const us = state.users || [];
   let h = '<div class="row" style="margin:0 0 14px">' +
     '<button class="btn ghost" data-back="1">← All orders</button></div>' +
-    "<h1>Dealers and logins</h1>" +
-    '<p class="lede">Every dealer on the portal and every login, and which one ' +
-    "belongs to which. Only you can see this page.</p>";
+    "<h1>Dealers</h1>" +
+    '<p class="lede">Every dealer on the portal. Only you can see this page. ' +
+    'Logins, for dealers and for the team, are made on the tools site under ' +
+    '<a href="https://tools.gidc.ca/">People and logins</a>.</p>';
 
-  /* add a dealer. This comes first because a login has to point at one. */
+  /* add a dealer */
   h += '<div class="card"><div class="card-b">' +
     '<h2 style="margin:0 0 12px;font-size:16px">Add a dealer</h2>' +
     '<div class="grid2">' +
@@ -5406,90 +5410,6 @@ function renderUsers(){
        "add their logo to the build. Turning one off leaves their orders alone and " +
        "stops them being offered for new ones.</p>";
 
-  /* add someone */
-  h += '<div class="card"><div class="card-b">' +
-    "<h2 style=\"margin:0 0 12px;font-size:16px\">Add a login</h2>" +
-    '<div class="grid2">' +
-    '<div class="field"><label>Name</label><input type="text" id="nu-name" placeholder="Mike Pohl"></div>' +
-    '<div class="field"><label>Email</label><input type="email" id="nu-email" autocapitalize="none" placeholder="mike@example.com"></div>' +
-    '<div class="field"><label>Password</label>' +
-      '<div class="row" style="gap:6px;flex-wrap:nowrap">' +
-      '<input type="text" id="nu-pw" placeholder="at least 10 characters" style="flex:1;min-width:0">' +
-      '<button class="btn sm" data-genpw="1" type="button">Make one</button></div>' +
-      '<span class="hint pwn" id="nu-pwn"></span></div>' +
-    '<div class="field"><label>Role</label><select id="nu-role">' +
-      ROLES.map(r => '<option value="' + r[0] + '">' + r[1] + "</option>").join("") + "</select></div>" +
-    '<div class="field" style="grid-column:1/-1"><label>Dealer</label><select id="nu-dealer">' +
-      '<option value="">Choose a dealer</option>' +
-      state.dealers.map(d => '<option value="' + esc(d.id) + '">' + esc(d.name) + "</option>").join("") +
-      "</select></div>" +
-    "</div>" +
-    '<div class="row" style="margin-top:12px">' +
-    '<button class="btn primary" data-adduser="1">Create the login</button>' +
-    '<span class="hint" style="margin:0">They can sign in straight away with that password. ' +
-    "Tell them to change it once they are in.</span></div>" +
-    '<div class="err" id="nu-err"></div>' +
-    "</div></div>";
-
-  /* everyone */
-  h += '<div class="tablewrap" style="margin-top:16px"><table class="people"><thead><tr>' +
-    "<th>Name</th><th>Email</th><th>Role</th><th>Dealer</th><th>Added</th><th></th>" +
-    "</tr></thead><tbody>";
-  if(!us.length) h += '<tr><td colspan="6" class="nolines">Nobody yet.</td></tr>';
-  const stranded = us.filter(u => NEEDS_DEALER.indexOf(u.role) !== -1 && !u.dealer_id).length;
-  if(stranded)
-    h += '<div class="note warn" style="margin:16px 0 0"><b>' + stranded + " login" +
-      (stranded === 1 ? "" : "s") + " cannot see anything.</b> A dealer login with no " +
-      "dealer attached has no orders it is allowed to look at, so it signs in to an " +
-      "empty screen. Give " + (stranded === 1 ? "it" : "them") +
-      " a dealer below, or set " + (stranded === 1 ? "it" : "them") + " to Grinyer staff.</div>";
-
-  us.forEach(u => {
-    const self = state.me && u.id === state.me.id;
-    const lost = NEEDS_DEALER.indexOf(u.role) !== -1 && !u.dealer_id && !self;
-    const editing = state.editUser === u.id;
-    h += '<tr' + (lost ? ' class="stranded"' : "") + (editing ? ' class="editing"' : "") + ">" +
-      (editing
-        ? '<td><input type="text" id="eu-name" value="' + esc(u.name || "") + '"></td>' +
-          '<td><input type="email" id="eu-email" autocapitalize="none" value="' +
-            esc(u.email || "") + '"></td>'
-        : "<td>" + esc(u.name || "—") + "</td><td>" + esc(u.email || "—") + "</td>") +
-      "<td>" + (self ? esc(u.role) + ' <span class="hint" style="margin:0">(you)</span>'
-        : '<select data-urole="' + esc(u.id) + '">' +
-          ROLES.map(r => '<option value="' + r[0] + '"' + (u.role===r[0]?" selected":"") + ">" +
-                         r[1] + "</option>").join("") + "</select>") + "</td>" +
-      "<td>" + (self || u.role !== "dealer" ? esc(u.dealer_name || "—")
-        : '<select class="' + (u.dealer_id ? "" : "needs") + '" data-udealer="' +
-          esc(u.id) + '"><option value="">Choose a dealer</option>' +
-          state.dealers.map(d => '<option value="' + esc(d.id) + '"' +
-            (u.dealer_id===d.id?" selected":"") + ">" + esc(d.name) + "</option>").join("") +
-          "</select>") + "</td>" +
-      "<td>" + fmtDate(u.created_at) + "</td>" +
-      '<td class="acts">' + (self
-        ? '<span class="hint" style="margin:0">that is you</span>'
-        : (state.pwFor === u.id
-            ? '<span class="pwbox">' +
-              '<input type="text" id="pw-new" placeholder="new password">' +
-              '<button class="btn sm" data-pwmake="1" type="button">Make one</button>' +
-              '<button class="btn sm primary" data-pwsave="' + esc(u.id) + '">Save</button>' +
-              '<button class="btn sm ghost" data-pwcancel="1">Cancel</button></span>'
-            : editing
-            ? '<button class="btn sm primary" data-usave="' + esc(u.id) + '">Save</button>' +
-              '<button class="btn sm ghost" data-ucancel="1">Cancel</button>'
-            : '<button class="btn sm" data-uedit="' + esc(u.id) + '">Edit</button>' +
-              '<button class="btn sm" data-pwfor="' + esc(u.id) + '">Change password</button>' +
-              '<button class="btn sm danger" data-rmuser="' + esc(u.id) + '">Remove</button>')) +
-      "</td></tr>";
-  });
-  h += "</tbody></table></div>";
-  h += '<p class="hint">Edit changes the name and the address this person signs in ' +
-       "with, and both move together so the list can never show an address that will " +
-       "not work. Change password sets a new one straight away: tell them what it is, " +
-       "and tell them to change it once they are in. " +
-       'Removing a login leaves that dealer\u2019s orders alone: an ' +
-       "order belongs to the dealer, not to whoever typed it, so the history stays. " +
-       'A change to a role or a dealer saves as soon as you make it. ' +
-       "A Grinyer login is never tied to a dealer, so choosing one of those clears it.</p>";
   $("app").innerHTML = h;
 }
 
@@ -5724,7 +5644,7 @@ function renderList(){
 
   h += '<div class="row" style="margin:0 0 14px">' +
        (canOrder() ? '<button class="btn primary" data-new="1">New order</button>' : "") +
-       (isAdmin() ? '<button class="btn" data-users="1">Dealers and logins</button>' : "") +
+       (isAdmin() ? '<button class="btn" data-users="1">Dealers</button>' : "") +
        (isAdmin() ? '<button class="btn" data-pallets="1">Pallets' +
           (state.pallets.length ? " (" + state.pallets.length + ")" : "") + "</button>" : "") +
        "</div>";
@@ -5822,7 +5742,14 @@ function renderList(){
           '<input type="checkbox" data-tickall="1" title="Tick every order on this screen"' +
           (mine.length && mine.every(o => state.ticked[o.id]) ? " checked" : "") + "></th>"
         : "") +
-      "<th>Customer</th><th>Dealer ID</th>" + (isAdmin() ? "<th>Dealer</th>" : "") +
+      /* THE ACCESS ORDER NUMBER, BETWEEN CUSTOMER AND DEALER ID
+         Andrew, 23 October: on the main screen, and changeable here, so
+         an order is tied to the right job in Access. It is the job
+         number off the Access screen, never the OrderID two along; the
+         database works the id out from it. */
+      "<th>Customer</th>" +
+      (state.hasAccNo ? '<th style="' + (isAdmin() ? "min-width:90px" : "") + '">Order #</th>' : "") +
+      "<th>Dealer ID</th>" + (isAdmin() ? "<th>Dealer</th>" : "") +
       '<th>Ordered</th><th class="num">Doors</th><th class="num">Panels</th>' +
       (anyPallet ? "<th>Pallet</th>" : "") +
       (canSeePrices() ? '<th class="num">Estimate</th>' : "") +
@@ -5845,6 +5772,14 @@ function renderList(){
               esc((REDO_LABEL[o.redo_reason] || "A reorder") +
                   ". The doors came off an earlier shipped order.") + '">redo</span>'
             : "") + "</td>" +
+        (!state.hasAccNo ? ""
+          : isAdmin()
+          ? '<td data-noopen="1"><input class="inline" type="text" inputmode="numeric" ' +
+            'data-oaccno="' + o.id + '" value="' + esc(o.access_order_no || "") + '" ' +
+            'placeholder="—" title="The Access order number, as on the Access ' +
+            'screen. The hourly sync takes this order\'s status and ship date from ' +
+            'that job. Empty it to go back to matching by name."></td>'
+          : "<td>" + esc(o.access_order_no || "—") + "</td>") +
         "<td>" + esc(o.customer_name || "—") + "</td>" +
         (isAdmin() ? "<td>" + esc(dealer ? dealer.name : "—") + "</td>" : "") +
         "<td>" + fmtDate(o.submitted_at || o.created_at) + "</td>" +
@@ -6090,6 +6025,7 @@ function renderOrder(){
 
   h += '<div class="cards">' +
     stat(doors, "Doors") + stat(panels, "Panels") +
+    (o.access_order_no ? stat(esc(o.access_order_no), "Order #") : "") +
     stat(esc(o.customer_name || "—"), "Dealer ID") +
     stat(fmtDate(o.submitted_at || o.created_at), "Order date") +
     /* WHO PLACED IT
@@ -8046,100 +7982,7 @@ document.addEventListener("click", async e => {
     return;
   }
 
-  if(d.users !== undefined){
-    try{ state.users = await loadUsers(); state.view = "users"; render(); }
-    catch(err){ toast(err.message); }
-    return;
-  }
-  if(d.genpw !== undefined){
-    $("nu-pw").value = madePassword();
-    $("nu-pw").dispatchEvent(new Event("input", {bubbles:true}));
-    return;
-  }
-  if(d.pwfor !== undefined){
-    state.editUser = null; state.pwFor = d.pwfor; return render(); }
-  if(d.pwcancel !== undefined){ state.pwFor = null; return render(); }
-  if(d.pwmake !== undefined){ $("pw-new").value = madePassword(); return; }
-  /* EDITING A LOGIN'S NAME AND ADDRESS
-     Andrew, 19 October. Behind a button rather than always editable, the
-     way the dealers above are: an address typed over by accident is a
-     person who cannot sign in, which is a worse morning than a dealer
-     with a wrong phone number. */
-  if(d.uedit !== undefined){
-    state.editUser = d.uedit; state.pwFor = null;
-    render();
-    const box = $("eu-name"); if(box){ box.focus(); box.select(); }
-    return;
-  }
-  if(d.ucancel !== undefined){ state.editUser = null; return render(); }
-  if(d.usave !== undefined){
-    const name = ($("eu-name") || {}).value || "";
-    const email = ($("eu-email") || {}).value || "";
-    const u = (state.users || []).find(x => x.id === d.usave) || {};
-    if(name.trim().length < 2) return toast("Give the person a name");
-    if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()))
-      return toast("That is not an email address");
-    /* changing what somebody signs in with is worth one question, because
-       the person it happens to is not the person doing it */
-    if(email.trim().toLowerCase() !== String(u.email || "").toLowerCase()){
-      const ok = await sure({
-        title: "Change what they sign in with?",
-        what: (u.name || "This login") + " signs in as " + (u.email || "?") + ".",
-        detail: "From now on they sign in as " + email.trim().toLowerCase() +
-                " instead. Their password does not change. Tell them, because " +
-                "the old address stops working as soon as you save this.",
-        go: "Change it"
-      });
-      if(!ok) return;
-    }
-    const btn = t.closest("button");
-    if(btn){ btn.disabled = true; btn.textContent = "Saving…"; }
-    try{
-      const out = await updateUser(d.usave, name.trim(), email.trim().toLowerCase());
-      state.editUser = null;
-      state.users = await loadUsers();
-      toast((out && out.email_changed)
-        ? "Saved. " + name.trim() + " signs in as " + email.trim().toLowerCase() + " now."
-        : "Saved.");
-      render();
-    }catch(err){
-      if(btn){ btn.disabled = false; btn.textContent = "Save"; }
-      toast(err.message);
-    }
-    return;
-  }
-  if(d.pwsave !== undefined){
-    const pw = $("pw-new").value;
-    if(pw.length < PW_MIN)
-      return toast("The password needs " + PW_MIN + " characters. That one has " + pw.length + ".");
-    const btn = t.closest("button");
-    btn.disabled = true; btn.textContent = "Saving…";
-    try{
-      await setPassword(d.pwsave, pw);
-      state.pwFor = null;
-      const u = (state.users || []).find(x => x.id === d.pwsave) || {};
-      toast("New password set for " + (u.name || "that login") + ". Tell them what it is.");
-      render();
-    }catch(err){ btn.disabled = false; btn.textContent = "Save"; toast(err.message); }
-    return;
-  }
-  if(d.rmuser !== undefined){
-    const u = (state.users || []).find(x => x.id === d.rmuser) || {};
-    /* Named out loud, because the row you meant and the row you clicked are
-       not always the same thing on a long list. */
-    if(!confirm("Remove the login for " + (u.name || "this person") +
-        " (" + (u.email || "") + ")?\n\nThey will not be able to sign in again. " +
-        "Their dealer's orders are not affected.")) return;
-    const btn = t.closest("button");
-    btn.disabled = true; btn.textContent = "Removing…";
-    try{
-      await removeUser(d.rmuser);
-      state.users = await loadUsers();
-      toast((u.name || "That login") + " can no longer sign in");
-      render();
-    }catch(err){ btn.disabled = false; btn.textContent = "Remove"; toast(err.message); }
-    return;
-  }
+  if(d.users !== undefined){ state.view = "users"; return render(); }
   if(d.adddealer !== undefined){
     const err = $("nd-err"), btn = t.closest("button");
     err.classList.remove("show");
@@ -8157,36 +8000,6 @@ document.addEventListener("click", async e => {
       render();
     }catch(e){
       btn.disabled = false; btn.textContent = "Add the dealer";
-      err.textContent = e.message; err.classList.add("show");
-    }
-    return;
-  }
-  if(d.adduser !== undefined){
-    const err = $("nu-err"), btn = t.closest("button");
-    err.classList.remove("show");
-    /* say it here rather than after a round trip, and count it out so nobody
-       has to wonder which character was the ninth */
-    const pw = $("nu-pw").value;
-    if(pw.length < PW_MIN){
-      err.textContent = "The password needs " + PW_MIN + " characters. That one has " +
-        pw.length + ", so " + (PW_MIN - pw.length) + " more.";
-      err.classList.add("show");
-      $("nu-pw").focus();
-      return;
-    }
-    const body = {
-      name: $("nu-name").value.trim(), email: $("nu-email").value.trim(),
-      password: $("nu-pw").value, role: $("nu-role").value,
-      dealer_id: $("nu-dealer").value || null
-    };
-    btn.disabled = true; btn.textContent = "Creating…";
-    try{
-      await createUser(body);
-      state.users = await loadUsers();
-      toast(body.name + " can now sign in");
-      render();
-    }catch(e){
-      btn.disabled = false; btn.textContent = "Create the login";
       err.textContent = e.message; err.classList.add("show");
     }
     return;
@@ -8684,6 +8497,45 @@ document.addEventListener("change", async e => {
   if(d.fdealer !== undefined){ state.fDealer = t.value || null; return render(); }
   if(d.ffrom !== undefined){ state.fFrom = t.value || null; return render(); }
   if(d.fto   !== undefined){ state.fTo   = t.value || null; return render(); }
+  /* THE ACCESS ORDER NUMBER, FROM THE LIST
+     Saved through gidc_set_access_order_no, which also links the order
+     to that job when the sync has pulled it down, and says which job it
+     found so the person typing can see it is the right one. */
+  if(d.oaccno !== undefined){
+    const id = d.oaccno;
+    const o = state.orders.find(x => x.id === id);
+    const typed = t.value.trim();
+    if(o && typed === (o.access_order_no || "")) return;
+    try{
+      const r = await sb("/rest/v1/rpc/gidc_set_access_order_no", {
+        method: "POST", headers: headers(true),
+        body: JSON.stringify({p_order: id, p_no: typed})});
+      if(!r.ok) throw new Error(await friendlyError(r, "save that order number"));
+      const res = await r.json() || {};
+      if(o){
+        o.access_order_no = res.order_no || null;
+        o.access_order_id = res.linked ? res.order_id : null;
+      }
+      state.notice = null;
+      toast(res.cleared
+        ? "Order number cleared. The sync goes back to matching this order by name."
+        : res.linked
+        ? "Linked to Access job " + res.order_no + ", " + (res.last_name || "") +
+          (res.street_number ? " " + res.street_number : "") +
+          ". The next sync takes the status and ship date from it."
+        : "Order number " + res.order_no + " saved. Access has not sent that job " +
+          "yet, so it links the hour it turns up. Check the number if it never does.");
+      render();
+    }catch(err){
+      if(o) t.value = o.access_order_no || "";
+      const why = String(err.message || "").trim();
+      state.notice = {kind: "err", head: "The order number was not saved.",
+        text: (/[.!?]$/.test(why) ? why : why + ".") + " The order still reads " +
+              (o && o.access_order_no ? o.access_order_no : "no number") + "."};
+      render();
+    }
+    return;
+  }
   if(d.ostatus !== undefined || d.oship !== undefined){
     const id = d.ostatus || d.oship;
     const isStatus = d.ostatus !== undefined;
@@ -8758,22 +8610,6 @@ document.addEventListener("change", async e => {
     }catch(err){ toast(err.message); render(); }
     return;
   }
-  if(d.urole !== undefined || d.udealer !== undefined){
-    const id = d.urole || d.udealer;
-    const u  = (state.users || []).find(x => x.id === id) || {};
-    const role = d.urole !== undefined ? t.value : u.role;
-    const dealer = d.udealer !== undefined ? (t.value || null) : u.dealer_id;
-    const needs = NEEDS_DEALER.indexOf(role) !== -1;
-    const patch = {role: role, dealer_id: needs ? dealer : null};
-    if(needs && !patch.dealer_id) return toast("Choose which dealer first");
-    try{
-      await patchUser(id, patch);
-      state.users = await loadUsers();
-      toast("Saved");
-      render();
-    }catch(err){ toast(err.message); }
-    return;
-  }
   if(d.combo){
     const fixed = comboResolve(d.combo, t.value);
     const open = t.parentNode && t.parentNode.classList && t.parentNode.classList.contains("open");
@@ -8825,15 +8661,6 @@ document.addEventListener("input", e => {
   if(e.target.dataset && e.target.dataset.note !== undefined && state.order){
     state.order.form = state.order.form || {};
     state.order.form.note = e.target.value;
-  }
-  if(e.target.id === "nu-pw"){
-    const n = e.target.value.length, el = $("nu-pwn");
-    if(el){
-      el.textContent = !n ? "" : (n < PW_MIN
-        ? n + " characters, " + (PW_MIN - n) + " more needed"
-        : n + " characters, long enough");
-      el.className = "hint pwn" + (n && n < PW_MIN ? " short" : (n ? " fine" : ""));
-    }
   }
 });
 document.addEventListener("focusin", e => {
@@ -8912,6 +8739,7 @@ async function afterSignin(){
   const me = await whoami();
   if(!me) throw new Error("Signed in, but this account is not set up for the dealer portal yet");
   state.me = me;
+  verifyBanner(me);
   state.dealers = await loadDealers();
   /* A dealer login orders for the dealer it is linked to. A Grinyer staff
      login orders for Grinyer's own record, so the office reviews and submits

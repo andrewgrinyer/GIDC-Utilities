@@ -41,26 +41,34 @@
   }
   /* Ask the database who this is. A token that no longer works is thrown away,
      so a stale session cannot leave someone looking signed in but broken. */
-  function whoami(cols){
+  /* What is asked for, newest shape first. Each column arrived with a SQL
+     file, and asking for one that is not there yet is a 400, which would lock
+     the whole team out of the site over a column, so the ask drops back one
+     step at a time to what has always been there.
+       dealer_role         two-sided-access.sql
+       email_verified_at   email-verification.sql
+       active              the installer roles */
+  var ASK = ['id,name,role,dealer_role,active,email_verified_at',
+             'id,name,role,dealer_role,active', 'id,name,role,active', 'id,name,role'];
+  function whoami(step){
     if(!session || !session.user) return Promise.resolve(null);
-    /* active arrived with the installer roles. Asked for before that SQL has
-       been run it is a 400, which would lock the whole team out of the site
-       over a column, so the ask drops back to what has always been there. */
-    cols = cols || 'name,role,active';
+    step = step || 0;
+    var cols = ASK[step];
     var url = CONFIG.supabaseUrl+'/rest/v1/profiles?select='+cols+'&id=eq.'+session.user.id;
     var hdr = {apikey:CONFIG.supabaseAnonKey, Authorization:'Bearer '+session.access_token};
     return fetch(url,{headers:hdr}).then(function(r){
-      if(r.status===401) return refresh().then(function(ok){ return ok ? whoami(cols) : null; });
-      if(!r.ok) return cols === 'name,role' ? null : whoami('name,role');
+      if(r.status===401) return refresh().then(function(ok){ return ok ? whoami(step) : null; });
+      if(!r.ok) return step + 1 < ASK.length ? whoami(step + 1) : null;
       return r.json().then(function(rows){
         /* No profile row used to mean a sales representative, so any login at
            all became one. A login with no profile is now nobody, and isStaff
            below turns it away. */
-        var me = rows.length ? rows[0] : {name: session.user.email, role:null};
+        var me = rows.length ? rows[0]
+               : {id: session.user.id, name: session.user.email, role:null};
         /* Someone stood down keeps their login and their history but stops
            getting in. Treated as no role at all, so every check below refuses
            without any of them needing to know about it. */
-        if(me.active === false) me.role = null;
+        if(me.active === false){ me.role = null; me.dealer_role = null; }
         /* Remember the role, so the offline path below has a real one to go on
            rather than inventing a generous default. */
         if(session){ session.role = me.role; save(session); }
@@ -69,9 +77,51 @@
       // offline: go on the role last seen, rather than locking someone out of
       // a tool that needs no connection anyway. No role ever seen, no entry.
       return session.user
-        ? {name: session.user.email, role: session.role || null, offline:true}
+        ? {id: session.user.id, name: session.user.email, role: session.role || null, offline:true}
         : null;
     });
+  }
+
+  /* ---- confirming an email address ----
+     A login whose address has not been proven gets a banner on every page,
+     with a button that emails them the link again. Before
+     email-verification.sql has run there is no such field, so no banner.
+     Once Andrew turns the switch on, the database shows an unconfirmed
+     login nothing at all, and the banner says so plainly, because an empty
+     page with no reason is the worst thing to be shown. */
+  function verifyBanner(me){
+    if(!me || me.offline || !('email_verified_at' in me) || me.email_verified_at) return;
+    if(document.getElementById('gidc-verify')) return;
+    var b = document.createElement('div');
+    b.id = 'gidc-verify';
+    b.style.cssText = 'position:sticky;top:0;z-index:2147483646;display:flex;flex-wrap:wrap;' +
+      'gap:10px;align-items:center;padding:10px 16px;background:#FBF1E7;color:#9A4A12;' +
+      'border-bottom:1px solid #EBD3BC;font:14px/1.4 -apple-system,BlinkMacSystemFont,' +
+      '"Segoe UI",Roboto,Helvetica,Arial,sans-serif';
+    function draw(required, said){
+      b.innerHTML = '<span style="flex:1;min-width:240px"><b>Please confirm your email address.</b> ' +
+        (required ? 'Until you do, nothing will load for you. '
+                  : 'It takes one press of a button in an email we send you. ') +
+        (said ? '<b>' + said + '</b>' : '') + '</span>' +
+        '<button id="gidc-verify-go" style="font:inherit;font-weight:600;padding:6px 12px;' +
+        'border-radius:8px;border:1px solid #9A4A12;background:#fff;color:#9A4A12;cursor:pointer">' +
+        'Email me the link</button>';
+      document.getElementById('gidc-verify-go').onclick = function(){
+        this.disabled = true; this.textContent = 'Sending';
+        api('/functions/v1/account-link', {method:'POST', headers:headers(true),
+                                           body: JSON.stringify({action:'resend'})})
+          .then(function(r){ return r.json().catch(function(){ return {}; }); })
+          .then(function(j){ draw(required, String(j.said || j.error || 'Sent.')
+            .replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; })); })
+          .catch(function(){ draw(required, 'Could not send it. Try again in a minute.'); });
+      };
+    }
+    document.body.insertBefore(b, document.body.firstChild);
+    draw(false, '');
+    api('/rest/v1/app_settings?select=value&key=eq.require_verified_email', {headers:headers()})
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(rows){ if(rows.length && rows[0].value === 'true') draw(true, ''); })
+      .catch(function(){});
   }
 
   /* ---- who this site is for ----
@@ -139,6 +189,15 @@
   window.GIDCAuth = {
     load:load, save:save, signIn:signIn, whoami:whoami,
     isStaff:isStaff, isInstaller:isInstaller, mayOpen:mayOpen, GROUPS:GROUPS,
+    verifyBanner:verifyBanner,
+    /* Why somebody signed in is not let in, in words they can act on. */
+    whyNot:function(me){
+      return me && me.dealer_role ? window.GIDCAuth.NOT_STAFF
+           : (me && me.role === 'dealer' || me && me.role === 'dealer_admin')
+             ? window.GIDCAuth.NOT_STAFF          // before two-sided-access.sql
+           : 'That login is not set up for this site. Ask an administrator.';
+    },
+    FORGOT_URL: 'https://dealers.gidc.ca/account',
     NOT_STAFF:
       'That login belongs to a dealer account, which is for the ordering ' +
       'portal at dealers.gidc.ca. This site is for the Grinyer team.',
