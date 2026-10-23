@@ -52,7 +52,8 @@ h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:
 #whoami.show{display:flex}
 /* People and logins. Employee accounts are managed here now, on the page
    everyone already starts from, rather than inside the measurement app. */
-#people{display:none;max-width:980px;margin:0 auto 28px;background:var(--card);
+#people{display:none;width:min(1120px, calc(100vw - 32px));position:relative;left:50%;
+  transform:translateX(-50%);margin:0 0 28px;background:var(--card);
   border:1px solid var(--rule);border-radius:14px;padding:20px 22px}
 #people.show{display:block}
 #people h2{margin:0 0 4px;font-size:19px}
@@ -80,8 +81,22 @@ h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:
   padding:10px 12px;border:1px solid var(--rule);border-radius:10px;font-size:14px}
 #people .verify .switch{margin-left:auto}
 #people .sub{color:var(--muted);font-size:13px}
-#people td.acts{white-space:normal;width:1%;min-width:250px}
-#people td.acts .mini{margin:2px 0 2px 4px}
+#people .scroll{overflow-x:auto}
+#people td.who b{white-space:nowrap}
+#people td.who .mail{display:block;color:var(--muted);font-size:13px;max-width:280px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#people td.who input{display:block;margin:2px 0;width:240px}
+#people .dealer{display:flex;gap:6px;align-items:center}
+#people .dealer select[data-dealerof]{max-width:300px}
+#people td.acts{white-space:nowrap;width:1%}
+#people td.acts .mini{margin-left:4px}
+#people details.more{display:inline-block;position:relative}
+#people details.more summary{list-style:none;display:inline-block;cursor:pointer}
+#people details.more summary::-webkit-details-marker{display:none}
+#people details.more .menu{position:absolute;right:0;top:calc(100% + 4px);z-index:5;
+  display:flex;flex-direction:column;gap:4px;padding:6px;background:var(--card);
+  border:1px solid var(--rule);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+#people details.more .menu .mini{margin:0;text-align:left;white-space:nowrap}
 #people select.needs{border-color:#C80000}
 #whoami button{margin-left:auto;border:1px solid var(--rule);background:var(--card);
   border-radius:8px;padding:7px 12px;font:inherit;font-size:13px;color:var(--muted);cursor:pointer}
@@ -473,10 +488,13 @@ function drawPeople(loading, err){
       '</span></div>';
   }
 
-  h += '<table><thead><tr><th>Name</th><th>Email</th><th>Team access</th>' +
+  /* One line per person: name with the address under it, then the two
+     kinds of access, then two buttons and a More menu for the rest. Wider
+     than the tiles above it, because a dealer's name is long. */
+  h += '<div class="scroll"><table><thead><tr><th>Person</th><th>Team access</th>' +
     '<th>Dealer access</th>' + (PEOPLE.verify !== null ? '<th>Address</th>' : '') +
     '<th></th></tr></thead><tbody>';
-  if(!PEOPLE.rows.length) h += '<tr><td colspan="6">Nobody yet.</td></tr>';
+  if(!PEOPLE.rows.length) h += '<tr><td colspan="5">Nobody yet.</td></tr>';
   PEOPLE.rows.forEach(function(u){
     var self = ME && u.id === ME.id;
     var editing = PEOPLE.editing === u.id;
@@ -484,23 +502,23 @@ function drawPeople(loading, err){
     var needsDealer = want && !u.dealer_id;
     h += '<tr>' +
       (editing
-        ? '<td><input id="eu-name" type="text" value="' + esc(u.name || '') + '"></td>' +
-          '<td><input id="eu-email" type="email" autocapitalize="none" value="' +
+        ? '<td class="who"><input id="eu-name" type="text" value="' + esc(u.name || '') + '">' +
+          '<input id="eu-email" type="email" autocapitalize="none" value="' +
             esc(u.email || '') + '"></td>'
-        : '<td><b>' + esc(u.name || '—') + '</b>' +
+        : '<td class="who"><b>' + esc(u.name || '—') + '</b>' +
+          (self ? ' <span class="sub">(you)</span>' : '') +
           (u.active === false ? ' <span class="sub">stood down</span>' : '') +
-          (self ? ' <span class="sub">(you)</span>' : '') + '</td>' +
-          '<td>' + esc(u.email || '—') + '</td>') +
+          '<span class="mail">' + esc(u.email || '—') + '</span></td>') +
       /* Your own team access is not yours to change here: one slip and the
          last administrator is gone. */
       '<td>' + (self ? esc(TEAM_LABEL[u.role] || u.role || 'None')
         : '<select data-team="' + esc(u.id) + '">' +
           options(TEAM_PICK, TEAM_LABEL, u.role || '', 'None') + '</select>') + '</td>' +
-      '<td><select data-dealerrole="' + esc(u.id) + '">' +
+      '<td><div class="dealer"><select data-dealerrole="' + esc(u.id) + '">' +
         options(DEALER_PICK, DEALER_LABEL, want, 'None') + '</select>' +
-        (want ? ' <select class="' + (needsDealer ? 'needs' : '') + '" data-dealerof="' +
+        (want ? '<select class="' + (needsDealer ? 'needs' : '') + '" data-dealerof="' +
                 esc(u.id) + '">' + dealerOptions(u.dealer_id || '') + '</select>' : '') +
-      '</td>' +
+      '</div></td>' +
       (PEOPLE.verify !== null
         ? '<td>' + (u.email_verified ? '<span class="ok">Confirmed</span>'
                                      : '<span class="sub">Not yet</span>') + '</td>'
@@ -512,17 +530,21 @@ function drawPeople(loading, err){
         : '<button class="mini" data-uedit="' + esc(u.id) + '">Edit</button>' +
           '<button class="mini" data-reset="' + esc(u.id) + '" title="Emails them a link ' +
             'to choose a password">Password link</button>' +
-          (PEOPLE.verify !== null && !u.email_verified
-            ? '<button class="mini" data-verify="' + esc(u.id) + '" title="Emails them a link that confirms their address">Address check</button>'
-            : '') +
-          (self ? '' :
-            '<button class="mini" data-active="' + esc(u.id) + '" data-to="' +
-              (u.active === false ? '1' : '0') + '">' +
-              (u.active === false ? 'Bring back' : 'Stand down') + '</button>' +
-            '<button class="mini bad" data-rm="' + esc(u.id) + '">Remove</button>')) +
+          (self && !(PEOPLE.verify !== null && !u.email_verified) ? '' :
+            '<details class="more"><summary class="mini">More</summary><div class="menu">' +
+            (PEOPLE.verify !== null && !u.email_verified
+              ? '<button class="mini" data-verify="' + esc(u.id) + '" title="Emails them a ' +
+                'link that confirms their address">Send address check</button>'
+              : '') +
+            (self ? '' :
+              '<button class="mini" data-active="' + esc(u.id) + '" data-to="' +
+                (u.active === false ? '1' : '0') + '">' +
+                (u.active === false ? 'Bring back' : 'Stand down') + '</button>' +
+              '<button class="mini bad" data-rm="' + esc(u.id) + '">Remove</button>') +
+            '</div></details>')) +
       '</td></tr>';
   });
-  h += '</tbody></table>';
+  h += '</tbody></table></div>';
 
   h += '<div class="add"><div class="row">' +
     '<div><label>Full name</label><input id="nu-name" type="text" placeholder="Sanchita Kaur"></div>' +
