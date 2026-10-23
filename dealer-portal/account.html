@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="referrer" content="no-referrer">
+<title>Grinyer login</title>
+<meta name="theme-color" content="#C80000">
+<meta name="color-scheme" content="light">
+<style>
+:root{
+  --paper:#F4F3F1; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --red:#C80000; --red-soft:#FCECEC; --ok:#2F6B3A; --ok-soft:#ECF5EE;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--paper);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-font-smoothing:antialiased}
+main{max-width:440px;margin:0 auto;padding:48px 16px}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:26px 22px}
+h1{font-size:21px;margin:0 0 6px}
+p{margin:0 0 14px}
+.sub{color:var(--muted)}
+label{display:block;font-size:13px;font-weight:600;margin:14px 0 5px}
+input{width:100%;font:inherit;padding:10px 12px;border:1px solid var(--rule);border-radius:9px;background:#fff}
+input:focus{outline:2px solid var(--ink);outline-offset:-1px}
+button,.go{display:inline-block;margin-top:18px;font:inherit;font-weight:600;padding:11px 18px;
+  border-radius:9px;border:0;background:var(--ink);color:#fff;cursor:pointer;text-decoration:none}
+button:disabled{opacity:.55;cursor:default}
+.go.ghost{background:#fff;color:var(--ink);border:1px solid var(--rule);margin-left:8px}
+.msg{margin-top:14px;padding:10px 12px;border-radius:9px;display:none}
+.msg.bad{display:block;background:var(--red-soft);color:var(--red)}
+.msg.ok{display:block;background:var(--ok-soft);color:var(--ok)}
+.foot{margin-top:18px;font-size:13px;color:var(--muted)}
+.foot a{color:inherit}
+</style>
+</head>
+<body>
+<main><div class="card" id="box"><p class="sub">One moment.</p></div>
+<p class="foot">Grinyer. Trouble with this page? Email the office and say what it showed you.</p></main>
+<script>
+/* THE ONE PAGE EVERY EMAILED LINK OPENS
+ *
+ * An invitation, a password reset and an address check all arrive here with
+ * ?k=<kind>&t=<token>. Nothing happens on arrival: the token is only spent
+ * when the person presses the button, so a mail scanner that opens every
+ * link in an inbox cannot use it up before they get to it.
+ *
+ * Opened with nothing on the address, it is the forgot my password form.
+ *
+ * It lives on the dealer portal's address because that is the one address
+ * every login can reach. The tools site sits behind Cloudflare Access, which
+ * a dealer cannot get through. */
+(function(){
+  var CONFIG = {
+    supabaseUrl: 'https://baakegbtuygtldksmant.supabase.co',
+    supabaseAnonKey: 'sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj'
+  };
+  var SESSION = 'gidc:session';          // the portal's own, so a dealer arrives signed in
+  var PW_MIN = 10;
+  var q = new URLSearchParams(location.search);
+  var kind = q.get('k') || '', token = q.get('t') || '';
+  /* The token has done its job once it is read. Off the address bar, so it
+     is not left in the history or copied into a message by accident. */
+  if(token) history.replaceState(null, '', location.pathname);
+
+  var box = document.getElementById('box');
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function say(text, good){ var m = $('msg'); m.textContent = text; m.className = 'msg ' + (good ? 'ok' : 'bad'); }
+
+  function post(path, body, bearer){
+    var h = {apikey: CONFIG.supabaseAnonKey, 'Content-Type': 'application/json'};
+    if(bearer) h.Authorization = 'Bearer ' + bearer;
+    return fetch(CONFIG.supabaseUrl + path, {method:'POST', headers:h, body:JSON.stringify(body)})
+      .then(function(r){ return r.json().catch(function(){ return {}; })
+        .then(function(j){ return {ok:r.ok, status:r.status, j:j}; }); });
+  }
+
+  /* Trades the emailed token for a session. Fails if it has been used or
+     has run out, which is said plainly with a way to get a new one. */
+  var held = null;   // kept, so a second try does not spend a spent token
+  function spend(){
+    if(held) return Promise.resolve(held);
+    return post('/auth/v1/verify', {type: kind, token_hash: token}).then(function(r){
+      if(!r.ok || !r.j.access_token)
+        throw new Error('This link has already been used or has run out. ' +
+                        'Ask for a new one below, or ask Grinyer to send another.');
+      held = r.j;
+      return r.j;
+    });
+  }
+  /* Records that this person proved their address. Only works with a
+     session that a link has just started, which is what this is. */
+  function confirm(s){
+    return post('/functions/v1/account-link', {action:'confirm'}, s.access_token)
+      .catch(function(){ return null; });   // their password is set either way
+  }
+  function whereTo(s){
+    return fetch(CONFIG.supabaseUrl + '/rest/v1/profiles?select=role,dealer_role&id=eq.' + s.user.id,
+      {headers:{apikey:CONFIG.supabaseAnonKey, Authorization:'Bearer ' + s.access_token}})
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .then(function(rows){ return rows[0] || {}; })
+      .catch(function(){ return {}; });
+  }
+  function done(title, line, s){
+    return whereTo(s).then(function(p){
+      var team = !!p.role, dealer = !!p.dealer_role;
+      /* A dealer goes straight on to the portal signed in. Somebody with
+         team access signs in on the tools site, which is a different
+         address and keeps its own sign in. */
+      if(dealer){
+        try{ localStorage.setItem(SESSION, JSON.stringify(
+          {access_token:s.access_token, refresh_token:s.refresh_token, user:s.user})); }catch(e){}
+      }
+      box.innerHTML = '<h1>' + esc(title) + '</h1><p>' + esc(line) + '</p>' +
+        (dealer ? '<a class="go" href="/">Open the dealer portal</a>' : '') +
+        (team ? '<a class="go' + (dealer ? ' ghost' : '') + '" href="https://tools.gidc.ca/">' +
+                'Open the Grinyer tools</a>' : '') +
+        (!team && !dealer ? '<p class="sub">Your login has no access yet. Grinyer will ' +
+                            'set it up and let you know.</p>' : '');
+    });
+  }
+
+  function choosePassword(){
+    var first = kind === 'invite';
+    box.innerHTML =
+      '<h1>' + (first ? 'Choose your password' : 'Set a new password') + '</h1>' +
+      '<p class="sub">At least ' + PW_MIN + ' characters. A short sentence you will ' +
+      'remember is better than a word with symbols in it.</p>' +
+      '<label for="p1">Password</label><input id="p1" type="password" autocomplete="new-password">' +
+      '<label for="p2">The same again</label><input id="p2" type="password" autocomplete="new-password">' +
+      '<button id="go">' + (first ? 'Set my password' : 'Save it') + '</button>' +
+      '<div class="msg" id="msg"></div>';
+    $('go').onclick = function(){
+      var p1 = $('p1').value, p2 = $('p2').value;
+      if(p1.length < PW_MIN) return say('It has to be at least ' + PW_MIN + ' characters.');
+      if(p1 !== p2) return say('The two do not match.');
+      $('go').disabled = true; $('go').textContent = 'Saving';
+      var s;
+      spend().then(function(got){
+        s = got;
+        return fetch(CONFIG.supabaseUrl + '/auth/v1/user', {method:'PUT',
+          headers:{apikey:CONFIG.supabaseAnonKey, Authorization:'Bearer ' + s.access_token,
+                   'Content-Type':'application/json'},
+          body: JSON.stringify({password: p1})});
+      }).then(function(r){
+        if(!r.ok) return r.json().catch(function(){ return {}; }).then(function(j){
+          throw new Error(j.msg || j.error_description ||
+            'Supabase would not take that password. Try a longer one.'); });
+        return confirm(s);
+      }).then(function(){
+        return done('You are all set', 'Your password is saved and your email address is confirmed.', s);
+      }).catch(function(e){
+        $('go').disabled = false; $('go').textContent = 'Try again';
+        say(e.message);
+        if(/already been used|run out/.test(e.message)) forgotBelow();
+      });
+    };
+  }
+
+  function confirmAddress(){
+    box.innerHTML = '<h1>Confirm your email address</h1>' +
+      '<p class="sub">Press the button and that is all. Nothing else changes.</p>' +
+      '<button id="go">Confirm my address</button><div class="msg" id="msg"></div>';
+    $('go').onclick = function(){
+      $('go').disabled = true; $('go').textContent = 'Confirming';
+      spend().then(function(s){
+        return confirm(s).then(function(r){
+          if(!r || !r.ok || r.j.recorded === false)
+            throw new Error('The link worked but the confirmation did not save. ' +
+                            'Ask Grinyer to send another.');
+          return done('Thank you', 'Your email address is confirmed. Sign in as usual.', s);
+        });
+      }).catch(function(e){
+        $('go').disabled = false; $('go').textContent = 'Try again';
+        say(e.message);
+      });
+    };
+  }
+
+  function forgotForm(intro){
+    return (intro ? '' : '<h1>Forgotten your password?</h1>') +
+      '<p class="sub">Put in the address you sign in with and we will email you a link ' +
+      'to set a new one.</p>' +
+      '<label for="fe">Email</label><input id="fe" type="email" autocapitalize="none" autocomplete="email">' +
+      '<button id="fgo">Send me a link</button><div class="msg" id="fmsg"></div>';
+  }
+  function wireForgot(){
+    $('fgo').onclick = function(){
+      var e = $('fe').value.trim(), m = $('fmsg');
+      $('fgo').disabled = true;
+      post('/functions/v1/account-link', {action:'forgot', email:e}).then(function(r){
+        m.textContent = r.ok ? r.j.said : (r.j.error || 'That did not work. Try again in a minute.');
+        m.className = 'msg ' + (r.ok ? 'ok' : 'bad');
+        $('fgo').disabled = false;
+      }).catch(function(){
+        m.textContent = 'Could not reach Grinyer. Check the connection and try again.';
+        m.className = 'msg bad'; $('fgo').disabled = false;
+      });
+    };
+  }
+  function forgotBelow(){
+    if($('fe')) return;
+    box.insertAdjacentHTML('beforeend', '<hr style="border:0;border-top:1px solid var(--rule);margin:22px 0">' +
+                           forgotForm(true));
+    wireForgot();
+  }
+
+  if(token && (kind === 'invite' || kind === 'recovery')) choosePassword();
+  else if(token && (kind === 'magiclink' || kind === 'email')) confirmAddress();
+  else { box.innerHTML = forgotForm(false); wireForgot(); }
+})();
+</script>
+</body>
+</html>
