@@ -210,7 +210,9 @@ button:disabled{opacity:.55;cursor:default}
   }
 
   if(token && (kind === 'invite' || kind === 'recovery')) choosePassword();
-  else if(token && (kind === 'magiclink' || kind === 'email')) confirmAddress();
+  /* Supabase may call an address link signup rather than magiclink when the
+     login has never been used. Either way it only proves the address. */
+  else if(token && (kind === 'magiclink' || kind === 'email' || kind === 'signup')) confirmAddress();
   else { box.innerHTML = forgotForm(false); wireForgot(); }
 })();
 </script>
