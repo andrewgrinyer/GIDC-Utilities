@@ -19,6 +19,16 @@ whole order, with a test pass, is in `docs/login-rollout.md`.
 database, in any order and twice, and prints what each kind of login can
 see. Never pointed at Supabase.
 
+**dealer-order-number.sql** adds the Access order number to dealer
+orders: shown on the portal's order list, set there by administrators,
+and used by the hourly sync before it tries to match by name. Needs the
+dealer-sync edge function from this same change. Independent of the
+login files. `tests/order-number.sh` tests it locally.
+
+**dealer-sync-check.sql** is read only. It says when the office server
+last got orders through and how many portal orders are linked, and
+prints the sync function's code so it can be put in the repo.
+
 **security-audit.sql** is read only and can be run any time. It reports
 what is actually exposed rather than what anybody remembers writing.
 

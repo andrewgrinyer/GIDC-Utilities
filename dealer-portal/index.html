@@ -958,7 +958,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.0 · 23 Oct 2026";
+const BUILD  = "Dealer portal 2.01 · 23 Oct 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -1873,9 +1873,18 @@ async function loadOrders(){
      together: a portal running against a database without them loses
      those features and nothing else, and the list still draws. */
   const extra = ",search_text,redo_of,redo_seq,redo_reason,created_by_name";
+  /* the Access order number arrives with dealer-order-number.sql, and is
+     dropped on its own first, so a database without it loses that column
+     and keeps the search and the redo marks */
+  const accno = ",access_order_no";
   const url = s => "/rest/v1/dealer_orders?select=" + s + "&order=created_at.desc";
-  let r = await sb(url(sel + extra), {headers: headers()});
-  if(!r.ok) r = await sb(url(sel), {headers: headers()});
+  let r = await sb(url(sel + extra + accno), {headers: headers()});
+  if(r.ok) state.hasAccNo = true;
+  else {
+    state.hasAccNo = false;
+    r = await sb(url(sel + extra), {headers: headers()});
+    if(!r.ok) r = await sb(url(sel), {headers: headers()});
+  }
   if(!r.ok) throw new Error("Could not load your orders");
   return r.json();
 }
@@ -5733,7 +5742,14 @@ function renderList(){
           '<input type="checkbox" data-tickall="1" title="Tick every order on this screen"' +
           (mine.length && mine.every(o => state.ticked[o.id]) ? " checked" : "") + "></th>"
         : "") +
-      "<th>Customer</th><th>Dealer ID</th>" + (isAdmin() ? "<th>Dealer</th>" : "") +
+      /* THE ACCESS ORDER NUMBER, BETWEEN CUSTOMER AND DEALER ID
+         Andrew, 23 October: on the main screen, and changeable here, so
+         an order is tied to the right job in Access. It is the job
+         number off the Access screen, never the OrderID two along; the
+         database works the id out from it. */
+      "<th>Customer</th>" +
+      (state.hasAccNo ? '<th style="' + (isAdmin() ? "min-width:90px" : "") + '">Order #</th>' : "") +
+      "<th>Dealer ID</th>" + (isAdmin() ? "<th>Dealer</th>" : "") +
       '<th>Ordered</th><th class="num">Doors</th><th class="num">Panels</th>' +
       (anyPallet ? "<th>Pallet</th>" : "") +
       (canSeePrices() ? '<th class="num">Estimate</th>' : "") +
@@ -5756,6 +5772,14 @@ function renderList(){
               esc((REDO_LABEL[o.redo_reason] || "A reorder") +
                   ". The doors came off an earlier shipped order.") + '">redo</span>'
             : "") + "</td>" +
+        (!state.hasAccNo ? ""
+          : isAdmin()
+          ? '<td data-noopen="1"><input class="inline" type="text" inputmode="numeric" ' +
+            'data-oaccno="' + o.id + '" value="' + esc(o.access_order_no || "") + '" ' +
+            'placeholder="—" title="The Access order number, as on the Access ' +
+            'screen. The hourly sync takes this order\'s status and ship date from ' +
+            'that job. Empty it to go back to matching by name."></td>'
+          : "<td>" + esc(o.access_order_no || "—") + "</td>") +
         "<td>" + esc(o.customer_name || "—") + "</td>" +
         (isAdmin() ? "<td>" + esc(dealer ? dealer.name : "—") + "</td>" : "") +
         "<td>" + fmtDate(o.submitted_at || o.created_at) + "</td>" +
@@ -6001,6 +6025,7 @@ function renderOrder(){
 
   h += '<div class="cards">' +
     stat(doors, "Doors") + stat(panels, "Panels") +
+    (o.access_order_no ? stat(esc(o.access_order_no), "Order #") : "") +
     stat(esc(o.customer_name || "—"), "Dealer ID") +
     stat(fmtDate(o.submitted_at || o.created_at), "Order date") +
     /* WHO PLACED IT
@@ -8472,6 +8497,45 @@ document.addEventListener("change", async e => {
   if(d.fdealer !== undefined){ state.fDealer = t.value || null; return render(); }
   if(d.ffrom !== undefined){ state.fFrom = t.value || null; return render(); }
   if(d.fto   !== undefined){ state.fTo   = t.value || null; return render(); }
+  /* THE ACCESS ORDER NUMBER, FROM THE LIST
+     Saved through gidc_set_access_order_no, which also links the order
+     to that job when the sync has pulled it down, and says which job it
+     found so the person typing can see it is the right one. */
+  if(d.oaccno !== undefined){
+    const id = d.oaccno;
+    const o = state.orders.find(x => x.id === id);
+    const typed = t.value.trim();
+    if(o && typed === (o.access_order_no || "")) return;
+    try{
+      const r = await sb("/rest/v1/rpc/gidc_set_access_order_no", {
+        method: "POST", headers: headers(true),
+        body: JSON.stringify({p_order: id, p_no: typed})});
+      if(!r.ok) throw new Error(await friendlyError(r, "save that order number"));
+      const res = await r.json() || {};
+      if(o){
+        o.access_order_no = res.order_no || null;
+        o.access_order_id = res.linked ? res.order_id : null;
+      }
+      state.notice = null;
+      toast(res.cleared
+        ? "Order number cleared. The sync goes back to matching this order by name."
+        : res.linked
+        ? "Linked to Access job " + res.order_no + ", " + (res.last_name || "") +
+          (res.street_number ? " " + res.street_number : "") +
+          ". The next sync takes the status and ship date from it."
+        : "Order number " + res.order_no + " saved. Access has not sent that job " +
+          "yet, so it links the hour it turns up. Check the number if it never does.");
+      render();
+    }catch(err){
+      if(o) t.value = o.access_order_no || "";
+      const why = String(err.message || "").trim();
+      state.notice = {kind: "err", head: "The order number was not saved.",
+        text: (/[.!?]$/.test(why) ? why : why + ".") + " The order still reads " +
+              (o && o.access_order_no ? o.access_order_no : "no number") + "."};
+      render();
+    }
+    return;
+  }
   if(d.ostatus !== undefined || d.oship !== undefined){
     const id = d.ostatus || d.oship;
     const isStatus = d.ostatus !== undefined;
