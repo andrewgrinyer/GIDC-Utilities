@@ -1,0 +1,9 @@
+# Nothing here may be replayed from a browser's own store without asking first.
+#
+# On 23 Sep 2026 a refusal from the edge was kept by Chrome and handed back on
+# every later visit, with no request ever reaching the server. Clearing site
+# settings did not touch it, because that clears cookies and storage, not the
+# file cache. no-cache still lets a browser keep its copy. It just has to
+# check with us before using it, so a stale refusal can never stick again.
+/*
+  Cache-Control: no-cache
