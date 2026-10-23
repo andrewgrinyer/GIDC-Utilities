@@ -3,7 +3,7 @@
 > **Update 23 Oct 2026, after the move to GitHub.** Now in the repo:
 > `tools-site/` (gidc-tools-2.9.zip), `dealer-portal/` (dealer-portal-1.99.zip)
 > and `measurement-app/` (measurement-app-1.9.zip, 16 Oct 2026). Still
-> missing: three of the four edge functions (`create-dealer-user` recovered 23 Oct), `portal.src.html` and `build.py`, the
+> missing: two of the four edge functions (`create-dealer-user` and `kpi-import` recovered 23 Oct), `portal.src.html` and `build.py`, the
 > older SQL, and the test suites.
 
 Being straight about the gaps, because a backup you trust wrongly is
@@ -32,19 +32,19 @@ gone and would need rebuilding.
 ## The edge functions
 
 **Update 23 Oct 2026:** `create-dealer-user` is now recovered, in
-`supabase/functions/create-dealer-user/index.ts`. Three remain.
+`supabase/functions/create-dealer-user/index.ts`. `kpi-import` is also
+recovered (23 Oct), in `supabase/functions/kpi-import/index.ts`. Two remain.
 `dealer-sync` (new, 23 Oct) is also in the repo, in
 `supabase/functions/dealer-sync/index.ts`.
 
-The TypeScript for `kpi-import`, `send-goback` and
-`send-order-function` is not here. **The deployed versions are live and
+The TypeScript for `send-goback` and `send-order-function` is not here. **The deployed versions are live and
 working** inside Supabase, and their code can be read and copied out of
 the Supabase dashboard under Edge Functions. That is the only remaining
 copy of each.
 
 Worth doing as its own small job: open each one, copy the code out, and
 put it in this archive. Until that happens there is exactly one copy of
-each of those three functions, and it is in Supabase.
+each of those two functions, and it is in Supabase.
 
 ## The older SQL
 
