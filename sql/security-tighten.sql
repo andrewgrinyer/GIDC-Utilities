@@ -109,6 +109,15 @@ end $$;
 --
 -- The on conflict clause keeps an existing role untouched, so running
 -- this cannot demote anybody who already has one.
+--
+-- Added 23 October on rechecking: if role was ever declared not null,
+-- writing a profile with no role would fail, and because the trigger
+-- runs inside the account insert, every new login would fail with it,
+-- the ones made on the tools site included. Nothing in the repo says
+-- whether that constraint exists, so this makes sure it does not.
+-- Harmless if it was never there, and harmless run twice.
+alter table public.profiles alter column role drop not null;
+
 create or replace function public.handle_new_user()
 returns trigger language plpgsql security definer set search_path = public as $$
 begin
