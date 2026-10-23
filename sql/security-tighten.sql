@@ -51,44 +51,38 @@
 -- ====================================================================
 
 -- ---------- 0. who works here ----------------------------------------
--- One allowlist, used by everything below. Written twice because the
--- active column arrived with the installer roles and naming a column
--- that is not there is an error rather than a null. An error inside a
+-- One allowlist, used by everything below. The active column is named
+-- only when it exists, because it arrived with the installer roles and
+-- naming a column that is not there is an error rather than a null. An error inside a
 -- policy fails the whole query, so it would lock everybody out rather
 -- than let anybody in.
 do $$
-declare has_active boolean;
+declare act text;
 begin
-  select exists (
-    select 1 from information_schema.columns
-     where table_schema = 'public' and table_name = 'profiles'
-       and column_name = 'active'
-  ) into has_active;
-
-  if has_active then
-    execute $fn$
-      create or replace function public.is_team()
-      returns boolean language sql stable security definer set search_path = public as $body$
-        select exists (
-          select 1 from public.profiles p
-           where p.id = auth.uid()
-             and coalesce(p.active, true)
-             and p.role in ('admin', 'user', 'sales', 'manufacturing', 'installer')
-        );
-      $body$
-    $fn$;
-  else
-    execute $fn$
-      create or replace function public.is_team()
-      returns boolean language sql stable security definer set search_path = public as $body$
-        select exists (
-          select 1 from public.profiles p
-           where p.id = auth.uid()
-             and p.role in ('admin', 'user', 'sales', 'manufacturing', 'installer')
-        );
-      $body$
-    $fn$;
+  select case when exists (
+           select 1 from information_schema.columns
+            where table_schema = 'public' and table_name = 'profiles'
+              and column_name = 'active')
+         then 'and coalesce(p.active, true)' else '' end
+    into act;
+  -- If email-verification.sql has already run, its rule has to survive
+  -- this file being run again. email_ok() is always true while the
+  -- switch is off, so adding it changes nothing until then.
+  if exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace
+              where n.nspname = 'public' and f.proname = 'email_ok')
+  then act := act || ' and public.email_ok()';
   end if;
+
+  execute format($fn$
+    create or replace function public.is_team()
+    returns boolean language sql stable security definer set search_path = public as $body$
+      select exists (
+        select 1 from public.profiles p
+         where p.id = auth.uid() %s
+           and p.role in ('admin', 'user', 'sales', 'manufacturing', 'installer')
+      );
+    $body$
+  $fn$, act);
 end $$;
 
 comment on function public.is_team is
@@ -158,6 +152,10 @@ begin
      where table_schema = 'public' and table_name = 'profiles'
        and column_name = 'active') into has_active;
   act := case when has_active then 'and coalesce(p.active, true)' else '' end;
+  if exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace
+              where n.nspname = 'public' and f.proname = 'email_ok')
+  then act := act || ' and public.email_ok()';
+  end if;
 
   execute format($fn$
     create or replace function public.is_team_no_installer()
