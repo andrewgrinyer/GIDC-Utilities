@@ -80,6 +80,8 @@ h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:
   padding:10px 12px;border:1px solid var(--rule);border-radius:10px;font-size:14px}
 #people .verify .switch{margin-left:auto}
 #people .sub{color:var(--muted);font-size:13px}
+#people td.acts{white-space:normal;width:1%;min-width:250px}
+#people td.acts .mini{margin:2px 0 2px 4px}
 #people select.needs{border-color:#C80000}
 #whoami button{margin-left:auto;border:1px solid var(--rule);background:var(--card);
   border-radius:8px;padding:7px 12px;font:inherit;font-size:13px;color:var(--muted);cursor:pointer}
@@ -372,7 +374,7 @@ function togglePeople(){
   PEOPLE.open = !PEOPLE.open;
   $('people').classList.toggle('show', PEOPLE.open);
   $('grid').classList.toggle('show', !PEOPLE.open);
-  if(PEOPLE.open) loadPeople();
+  if(PEOPLE.open){ PEOPLE.msg = null; loadPeople(); }
 }
 function getJSON(path){
   return GIDCAuth.api(path, {headers: GIDCAuth.headers()})
@@ -509,9 +511,9 @@ function drawPeople(loading, err){
           '<button class="mini" data-ucancel="1">Cancel</button>'
         : '<button class="mini" data-uedit="' + esc(u.id) + '">Edit</button>' +
           '<button class="mini" data-reset="' + esc(u.id) + '" title="Emails them a link ' +
-            'to choose a password">Send password link</button>' +
+            'to choose a password">Password link</button>' +
           (PEOPLE.verify !== null && !u.email_verified
-            ? '<button class="mini" data-verify="' + esc(u.id) + '">Send address check</button>'
+            ? '<button class="mini" data-verify="' + esc(u.id) + '" title="Emails them a link that confirms their address">Address check</button>'
             : '') +
           (self ? '' :
             '<button class="mini" data-active="' + esc(u.id) + '" data-to="' +
@@ -532,10 +534,11 @@ function drawPeople(loading, err){
     '<div><label>For which dealer</label><select id="nu-dealer">' + dealerOptions('') +
       '</select></div>' +
     '<div><button class="mini go" data-add="1">Send the invitation</button></div>' +
-    '</div><p class="note" id="nu-msg"></p>' +
+    '</div><p class="note ' + (PEOPLE.msg && PEOPLE.msg.good ? 'ok' : 'bad') + '" id="nu-msg">' +
+      esc(PEOPLE.msg ? PEOPLE.msg.text : '') + '</p>' +
     '<p class="note">They get an email with a link to choose their own password, and ' +
     'following it confirms their address. The link works once and runs out after a while; ' +
-    'Send password link on their row sends a fresh one. Team access opens this site and the ' +
+    'Password link on their row sends a fresh one. Team access opens this site and the ' +
     'measurement app. Dealer access opens the dealer portal for that one dealer: a Dealer ' +
     'orders and sees prices, a Dealer administrator follows orders and sees no prices. ' +
     'Removing a login leaves that dealer’s orders alone.</p>' +
@@ -543,9 +546,12 @@ function drawPeople(loading, err){
   $('people').innerHTML = h;
 }
 
+/* Kept as well as shown, because most actions reload the list straight
+   after, and the reload draws the screen again from nothing. */
 function peopleMsg(text, good){
+  PEOPLE.msg = {text: text || '', good: !!good};
   var el = $('nu-msg');
-  if(el){ el.textContent = text || ''; el.className = 'note ' + (good ? 'ok' : 'bad'); }
+  if(el){ el.textContent = PEOPLE.msg.text; el.className = 'note ' + (good ? 'ok' : 'bad'); }
 }
 function rowOf(id){ return PEOPLE.rows.filter(function(x){ return x.id === id; })[0] || {}; }
 
