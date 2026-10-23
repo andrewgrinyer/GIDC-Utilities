@@ -29,6 +29,9 @@ login files. `tests/order-number.sh` tests it locally.
 last got orders through and how many portal orders are linked, and
 prints the sync function's code so it can be put in the repo.
 
+**dealer-sync-unmatched.sql** is read only. It lists the portal orders
+the sync cannot match, with the Access jobs that carry the same surname.
+
 **security-audit.sql** is read only and can be run any time. It reports
 what is actually exposed rather than what anybody remembers writing.
 
