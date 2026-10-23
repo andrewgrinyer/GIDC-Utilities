@@ -33,6 +33,8 @@ gone and would need rebuilding.
 
 **Update 23 Oct 2026:** `create-dealer-user` is now recovered, in
 `supabase/functions/create-dealer-user/index.ts`. Three remain.
+`dealer-sync` (new, 23 Oct) is also in the repo, in
+`supabase/functions/dealer-sync/index.ts`.
 
 The TypeScript for `kpi-import`, `send-goback` and
 `send-order-function` is not here. **The deployed versions are live and
