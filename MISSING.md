@@ -1,5 +1,11 @@
 # What is not in this archive
 
+> **Update 23 Oct 2026, after the move to GitHub.** Now in the repo:
+> `tools-site/` (gidc-tools-2.9.zip), `dealer-portal/` (dealer-portal-1.99.zip)
+> and `measurement-app/` (measurement-app-1.9.zip, 16 Oct 2026). Still
+> missing: the four edge functions, `portal.src.html` and `build.py`, the
+> older SQL, and the test suites.
+
 Being straight about the gaps, because a backup you trust wrongly is
 worse than one you know the shape of.
 

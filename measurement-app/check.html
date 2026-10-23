@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GIDC orders - diagnostics</title>
+<style>
+body{font:16px/1.5 system-ui,sans-serif;margin:0;padding:20px;background:#F6F6F7;color:#17171A}
+.wrap{max-width:720px;margin:0 auto}
+h1{font-size:19px;margin:0 0 4px}
+p.sub{margin:0 0 20px;color:#6E6E76;font-size:14px}
+.row{background:#fff;border:1px solid #E2E2E6;border-radius:10px;padding:12px 14px;margin:8px 0}
+.row b{display:block;font-size:14px}
+.row span{font-size:13px;color:#6E6E76;word-break:break-all}
+.ok{border-left:4px solid #1B8A3A}
+.bad{border-left:4px solid #C80000}
+.warn{border-left:4px solid #C08A00}
+pre{background:#fff;border:1px solid #E2E2E6;border-radius:10px;padding:12px;
+    font-size:12px;white-space:pre-wrap;word-break:break-all}
+button{font:inherit;padding:10px 16px;border:1px solid #17171A;background:#17171A;color:#fff;
+       border-radius:9px;cursor:pointer}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Door orders diagnostics</h1>
+  <p class="sub">Every check runs on its own, so a failure here points at one thing.</p>
+  <div id="out"></div>
+  <p><button id="copy">Copy all of this</button></p>
+  <pre id="raw"></pre>
+</div>
+<script>
+const URL_ = 'https://baakegbtuygtldksmant.supabase.co';
+const KEY  = 'sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj';
+const out = document.getElementById('out');
+const lines = [];
+function add(cls, title, detail){
+  const d = document.createElement('div');
+  d.className = 'row ' + cls;
+  d.innerHTML = '<b>' + title + '</b><span>' + (detail || '') + '</span>';
+  out.appendChild(d);
+  lines.push((cls === 'ok' ? 'OK   ' : cls === 'bad' ? 'FAIL ' : 'WARN ') + title +
+             (detail ? ' :: ' + detail : ''));
+}
+
+add('ok', 'Page loaded', 'so hosting and the file itself are fine');
+add(location.protocol === 'https:' ? 'ok' : 'bad',
+    'Served over ' + location.protocol,
+    location.protocol === 'https:' ? location.host
+      : 'Supabase will refuse requests from here. Open the Cloudflare https address.');
+add(window.isSecureContext ? 'ok' : 'bad', 'Secure context',
+    window.isSecureContext ? 'yes' : 'no, crypto and storage are restricted');
+add(window.crypto && window.crypto.subtle ? 'ok' : 'bad', 'crypto.subtle available',
+    window.crypto && window.crypto.subtle ? 'yes' : 'missing');
+try { localStorage.setItem('t','1'); localStorage.removeItem('t');
+      add('ok','Local storage writable','yes'); }
+catch(e){ add('bad','Local storage writable', e.message + ' (private mode?)'); }
+add(typeof fetch === 'function' ? 'ok' : 'bad', 'fetch available', typeof fetch);
+add('ok', 'Browser', navigator.userAgent);
+
+(async () => {
+  // 1. can we reach the project at all
+  try {
+    const r = await fetch(URL_ + '/rest/v1/', {headers:{apikey:KEY}});
+    add(r.status < 500 ? 'ok' : 'warn', 'Reached Supabase', 'HTTP ' + r.status);
+  } catch(e) {
+    add('bad', 'Reached Supabase', e.message + ' - wrong URL, no internet, or blocked');
+  }
+  // 2. does the jobs table exist and is it locked down
+  try {
+    const r = await fetch(URL_ + '/rest/v1/jobs?select=id&limit=1', {headers:{apikey:KEY}});
+    const body = await r.text();
+    if(r.status === 200)
+      add('warn', 'jobs table readable without signing in',
+          'the table exists, but check row security is on');
+    else if(r.status === 401 || r.status === 403)
+      add('ok', 'jobs table exists and is protected', 'HTTP ' + r.status + ' as expected');
+    else if(r.status === 404)
+      add('bad', 'No jobs table', 'supabase-setup.sql has not been run');
+    else add('warn', 'jobs table check', 'HTTP ' + r.status + ' ' + body.slice(0,160));
+  } catch(e){ add('bad', 'jobs table check', e.message); }
+  // 3. is the auth endpoint alive
+  try {
+    const r = await fetch(URL_ + '/auth/v1/settings', {headers:{apikey:KEY}});
+    add(r.ok ? 'ok' : 'warn', 'Authentication reachable', 'HTTP ' + r.status);
+  } catch(e){ add('bad', 'Authentication reachable', e.message); }
+
+  document.getElementById('raw').textContent = lines.join('\n');
+})();
+
+document.getElementById('copy').onclick = () => {
+  const t = lines.join('\n');
+  navigator.clipboard ? navigator.clipboard.writeText(t) : null;
+  document.getElementById('copy').textContent = 'Copied';
+};
+</script>
+</body>
+</html>
