@@ -11,8 +11,9 @@
 #
 #      powershell -ExecutionPolicy Bypass -File "C:\GIDC\gidc-schedule-dealer-sync.ps1"
 #
-#  It asks for the account to run as, for the same reason the KPI task
-#  does: the sync reads the database over a network share, and a task
+#  It asks, in this window, for the account to run as (no pop up box,
+#  which on the server opened out of sight), for the same reason the KPI
+#  task does: the sync reads the database over a network share, and a task
 #  with no stored password cannot reach a share. Use the account the KPI
 #  import task already runs as. The password goes straight to Windows
 #  and is not written down, logged, or kept by this script.
@@ -35,6 +36,7 @@ param(
 
 $ErrorActionPreference = "Stop"
 function Fail($why) { Write-Host $why -ForegroundColor Red; exit 1 }
+Write-Host "Setting up the GIDC dealer sync task. Checking this machine first..." -ForegroundColor Cyan
 
 if (-not (Get-Command Register-ScheduledTask -ErrorAction SilentlyContinue)) {
   Fail "This machine has no ScheduledTasks module, so the task cannot be set up from here. Use Task Scheduler by hand."
@@ -70,9 +72,11 @@ Write-Host ""
 
 $cred = $null
 if (-not $AsSystem -and -not $WhatIf) {
-  $cred = Get-Credential -Message "The account the hourly dealer sync should run as" `
-                         -UserName ([Environment]::UserName)
-  if (-not $cred) { Fail "No account given, so nothing was changed." }
+  Write-Host "Which account should the task run as? Use the one the KPI import task uses." -ForegroundColor Yellow
+  $who = Read-Host ("Account, for example GIDC\{0}" -f [Environment]::UserName)
+  if (-not $who) { Fail "No account given, so nothing was changed." }
+  $pw = Read-Host "Password for $who (nothing shows as you type)" -AsSecureString
+  $cred = New-Object System.Management.Automation.PSCredential($who, $pw)
 }
 
 $action = New-ScheduledTaskAction -Execute "powershell.exe" -Argument $argLine `
