@@ -1,0 +1,418 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Grinyer · Go Back Required</title>
+
+<!-- gidc-guard
+     who: team. Installers get this one tool and nothing else on the site,
+     and it has to be set before guard.js runs, which is why it is up here. -->
+<script>window.GIDC_TOOL = {who: 'team'};</script>
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<style>
+:root{
+  --paper:#F6F6F7; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --rule-soft:#EFEFF2;
+  --brass:#C80000; --brass-soft:#FCECEC; --brass-line:#C80000;
+  --ok:#2F6B3A; --ok-soft:#ECF5EE;
+  --skip:#A6A6AE; --pad:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding:0 var(--pad) 120px;-webkit-text-size-adjust:100%}
+.wrap{max-width:640px;margin:0 auto}
+
+h1{font-size:23px;margin:22px 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:14px;margin:0 0 20px}
+
+.card{background:var(--card);border:1px solid var(--rule);border-radius:12px;
+  padding:18px;margin:0 0 16px}
+.card h2{font-size:15px;margin:0 0 14px;text-transform:uppercase;
+  letter-spacing:.06em;color:var(--muted);font-weight:600}
+
+label.f{display:block;font-size:13px;color:var(--muted);margin:0 0 6px;font-weight:600}
+.field{margin:0 0 16px}
+.field:last-child{margin-bottom:0}
+input[type=text],input[type=number],select,textarea{
+  width:100%;padding:12px;border:1px solid var(--rule);border-radius:9px;
+  font:inherit;background:var(--card);color:var(--ink);min-height:46px}
+textarea{min-height:110px;resize:vertical;line-height:1.45}
+input:focus,select:focus,textarea:focus{
+  outline:2px solid var(--brass);outline-offset:-1px;border-color:var(--brass)}
+.hint{font-size:12.5px;color:var(--muted);margin:6px 0 0}
+
+/* Installers on site. A list of taps rather than a multiple select, which is
+   close to unusable on a phone, and a phone is where this gets filled in. */
+.people{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.person{display:flex;align-items:center;gap:9px;padding:11px 12px;
+  border:1px solid var(--rule);border-radius:9px;cursor:pointer;background:var(--card);
+  font-size:15px;user-select:none;min-height:46px}
+.person input{width:18px;height:18px;margin:0;accent-color:var(--brass);flex:none}
+.person.on{border-color:var(--brass);background:var(--brass-soft)}
+.none{color:var(--muted);font-size:14px}
+
+/* Company Cam. Two buttons, because it is a yes or a no and nothing else. */
+.pair{display:flex;gap:10px}
+.pair label{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;
+  padding:12px;border:1px solid var(--rule);border-radius:9px;cursor:pointer;
+  background:var(--card);font-size:15px;min-height:46px}
+.pair label.on{border-color:var(--brass);background:var(--brass-soft);font-weight:600}
+.pair input{position:absolute;opacity:0;pointer-events:none}
+
+.money{position:relative}
+.money span{position:absolute;left:12px;top:50%;transform:translateY(-50%);
+  color:var(--muted);pointer-events:none}
+.money input{padding-left:26px}
+
+.dock{position:fixed;left:0;right:0;bottom:0;background:var(--card);
+  border-top:1px solid var(--rule);padding:12px var(--pad);
+  padding-bottom:calc(12px + env(safe-area-inset-bottom));z-index:50}
+.dock .in{max-width:640px;margin:0 auto;display:flex;align-items:center;gap:12px}
+.dock .who{color:var(--muted);font-size:13px;flex:1;min-width:0}
+button.go{border:0;border-radius:10px;background:var(--brass);color:#fff;
+  font:600 16px/1 inherit;padding:14px 22px;min-height:48px;cursor:pointer}
+button.go:disabled{opacity:.55;cursor:default}
+
+.msg{padding:12px 14px;border-radius:10px;font-size:14.5px;margin:0 0 16px;line-height:1.45}
+.msg.bad{background:var(--brass-soft);color:var(--brass)}
+.msg.good{background:var(--ok-soft);color:var(--ok)}
+.msg b{display:block;margin-bottom:3px}
+
+.done{text-align:center;padding:34px 18px}
+.done .tick{width:54px;height:54px;border-radius:50%;background:var(--ok-soft);
+  color:var(--ok);display:grid;place-items:center;margin:0 auto 14px;font-size:27px}
+.done h2{font-size:19px;margin:0 0 6px;text-transform:none;letter-spacing:0;color:var(--ink)}
+.done p{color:var(--muted);font-size:14.5px;margin:0 0 20px}
+button.again{border:1px solid var(--rule);background:var(--card);color:var(--ink);
+  border-radius:10px;font:600 15px/1 inherit;padding:13px 20px;min-height:46px;cursor:pointer}
+
+.gidc-build{position:fixed;right:10px;bottom:76px;z-index:60;font-size:11px;line-height:1;
+  color:#8E8E99;opacity:.7;pointer-events:none;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.hide{display:none}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Go Back Required</h1>
+  <p class="sub">Fill this in before you leave site. It is filed and emailed to
+    goback@grinyer.ca as soon as you send it.</p>
+
+  <div id="msg" class="hide"></div>
+
+  <form id="form">
+    <div class="card">
+      <h2>The job</h2>
+
+      <div class="field">
+        <label class="f" for="customer">Customer name</label>
+        <input type="text" id="customer" autocomplete="off" placeholder="Smith 112">
+        <p class="hint">However it reads on the order. It becomes the subject of the email.</p>
+      </div>
+
+      <div class="field">
+        <label class="f">Installers on site</label>
+        <div class="people" id="people"><p class="none">Loading the list…</p></div>
+      </div>
+
+      <div class="field">
+        <label class="f" for="held">Amount held back</label>
+        <div class="money"><span>$</span>
+          <input type="number" id="held" inputmode="decimal" step="0.01" min="0" placeholder="0.00">
+        </div>
+        <p class="hint">Leave empty if nothing was held back.</p>
+      </div>
+
+      <div class="field">
+        <label class="f">Photos of the issue in Company Cam</label>
+        <div class="pair">
+          <label id="cam-y"><input type="radio" name="cam" value="yes">Yes</label>
+          <label id="cam-n"><input type="radio" name="cam" value="no">No</label>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>What went wrong</h2>
+
+      <div class="field">
+        <label class="f" for="reason">Cause of go back</label>
+        <select id="reason">
+          <option value="">Choose one…</option>
+        </select>
+      </div>
+
+      <div class="field hide" id="otherwrap">
+        <label class="f" for="other">Say what it was</label>
+        <input type="text" id="other" autocomplete="off" placeholder="In a few words">
+      </div>
+
+      <div class="field">
+        <label class="f" for="cause">What happened</label>
+        <textarea id="cause" placeholder="What you found, and anything the office needs to know."></textarea>
+      </div>
+
+      <div class="field">
+        <label class="f" for="materials">New materials required</label>
+        <textarea id="materials" placeholder="Sizes, finishes, quantities. Be exact: this is what gets made."></textarea>
+      </div>
+    </div>
+  </form>
+
+  <div id="done" class="card done hide">
+    <div class="tick">✓</div>
+    <h2>Sent</h2>
+    <p id="done-note">It is filed and the email has gone to goback@grinyer.ca.</p>
+    <button class="again" id="another">File another one</button>
+  </div>
+</div>
+
+<div class="dock" id="dock">
+  <div class="in">
+    <span class="who" id="who"></span>
+    <button class="go" id="send">Send the go back</button>
+  </div>
+</div>
+
+<div class="gidc-build">Go Back 1.1 · 08 Oct 2026</div>
+
+<script>
+(function(){
+'use strict';
+
+/* The causes, in the order Andrew listed them. The stored word is the label
+   itself: there is nothing else carrying these, and a sentence reads better
+   in the email than a code would. "Other" is the one that opens a box. */
+var REASONS = [
+  'Damaged product from supplier',
+  'Wrong size product from supplier',
+  'Damaged product during loading or installing',
+  'Measurement issue',
+  'Incorrect design',
+  'Wrong product supplied',
+  'Other'
+];
+
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; });
+}
+
+var ME = null;
+var INSTALLERS = [];      /* [{id, name}] */
+var PICKED = {};          /* id -> true */
+var busy = false;
+
+/* ---- the form ------------------------------------------------------- */
+REASONS.forEach(function(r){
+  var o = document.createElement('option');
+  o.value = r; o.textContent = r;
+  $('reason').appendChild(o);
+});
+
+$('reason').addEventListener('change', function(){
+  var other = this.value === 'Other';
+  $('otherwrap').classList.toggle('hide', !other);
+  if(other) $('other').focus();
+});
+
+/* The Company Cam pair are radios underneath, so the browser keeps them
+   exclusive; this only moves the highlight onto the chosen one. */
+['cam-y','cam-n'].forEach(function(id){
+  $(id).addEventListener('click', function(){
+    setTimeout(function(){
+      $('cam-y').classList.toggle('on', $('cam-y').querySelector('input').checked);
+      $('cam-n').classList.toggle('on', $('cam-n').querySelector('input').checked);
+    }, 0);
+  });
+});
+
+function drawPeople(){
+  if(!INSTALLERS.length){
+    $('people').innerHTML = '<p class="none">No active installers are set up yet. ' +
+      'An administrator adds them on the tools page.</p>';
+    return;
+  }
+  $('people').innerHTML = INSTALLERS.map(function(p){
+    return '<label class="person' + (PICKED[p.id] ? ' on' : '') + '" data-pick="' +
+      esc(p.id) + '"><input type="checkbox"' + (PICKED[p.id] ? ' checked' : '') +
+      '>' + esc(p.name) + '</label>';
+  }).join('');
+}
+
+$('people').addEventListener('change', function(e){
+  var lab = e.target.closest && e.target.closest('[data-pick]');
+  if(!lab) return;
+  var id = lab.dataset.pick;
+  if(e.target.checked) PICKED[id] = true; else delete PICKED[id];
+  lab.classList.toggle('on', !!PICKED[id]);
+});
+
+function message(kind, head, text){
+  var m = $('msg');
+  if(!kind){ m.className = 'hide'; m.innerHTML = ''; return; }
+  m.className = 'msg ' + kind;
+  m.innerHTML = (head ? '<b>' + esc(head) + '</b>' : '') + esc(text || '');
+  m.scrollIntoView({behavior:'smooth', block:'nearest'});
+}
+
+/* ---- reading the installer list -------------------------------------
+   Through a function in the database rather than off the profiles table,
+   so filling this form never means being able to read everyone's login. */
+function loadInstallers(){
+  return GIDCAuth.api('/rest/v1/rpc/active_installers',
+      {method:'POST', headers: GIDCAuth.headers(true), body:'{}'})
+    .then(function(r){
+      if(!r.ok) throw new Error('Could not read the list of installers (' + r.status + ')');
+      return r.json();
+    })
+    .then(function(rows){ INSTALLERS = rows || []; drawPeople(); })
+    .catch(function(err){
+      $('people').innerHTML = '<p class="none">' + esc(err.message) + '</p>';
+      message('bad', 'The installer list did not load.',
+        'You can still fill the rest in, but name who was on site in What happened.');
+    });
+}
+
+/* ---- sending --------------------------------------------------------- */
+function gather(){
+  var picked = INSTALLERS.filter(function(p){ return PICKED[p.id]; });
+  var cam = document.querySelector('input[name=cam]:checked');
+  var held = $('held').value.trim();
+  return {
+    customer_name:   $('customer').value.trim(),
+    installer_ids:   picked.map(function(p){ return p.id; }),
+    installer_names: picked.map(function(p){ return p.name; }),
+    amount_held:     held === '' ? null : Number(held),
+    photos_in_cam:   cam ? cam.value === 'yes' : null,
+    reason:          $('reason').value,
+    reason_other:    $('reason').value === 'Other' ? $('other').value.trim() : null,
+    cause:           $('cause').value.trim() || null,
+    materials:       $('materials').value.trim() || null,
+    filed_by_name:   (ME && ME.name) || null
+  };
+}
+
+function whatIsMissing(row){
+  if(!row.customer_name) return 'Put in the customer name. It is how the office finds the job.';
+  if(!row.installer_ids.length) return 'Say who was on site.';
+  if(!row.reason) return 'Choose the cause of the go back.';
+  if(row.reason === 'Other' && !row.reason_other) return 'Say what the other cause was.';
+  if(!row.cause) return 'Say what happened, even briefly.';
+  if(row.amount_held !== null && !isFinite(row.amount_held))
+    return 'The amount held back is not a number.';
+  return null;
+}
+
+function send(){
+  if(busy) return;
+  var row = gather();
+  var missing = whatIsMissing(row);
+  if(missing) return message('bad', 'Not sent yet.', missing);
+
+  busy = true;
+  $('send').disabled = true;
+  $('send').textContent = 'Sending…';
+  message(null);
+
+  /* The record goes in first and the email second, on purpose. If the email
+     fails the go back still exists and can be chased; the other way round a
+     lost email would mean no trace at all. */
+  GIDCAuth.api('/rest/v1/go_backs', {
+      method:'POST',
+      headers: Object.assign(GIDCAuth.headers(true), {Prefer:'return=representation'}),
+      body: JSON.stringify(row)})
+    .then(function(r){
+      if(!r.ok) return r.json().catch(function(){ return {}; }).then(function(j){
+        throw new Error(j.message || ('The database would not take it (' + r.status + ')'));
+      });
+      return r.json();
+    })
+    .then(function(rows){
+      if(!rows || !rows.length) throw new Error('Saved nothing. Tell Andrew.');
+      var id = rows[0].id;
+      /* Emailed by a function, because the key that sends mail can never sit
+         in a page. A refusal here is reported but does not lose the record.
+
+         What the function said is carried back and shown. It writes in plain
+         words, and "the email did not go" on its own sends somebody hunting
+         through logs for something the page already knew. */
+      return GIDCAuth.api('/functions/v1/send-goback', {
+          method:'POST', headers: GIDCAuth.headers(true),
+          body: JSON.stringify({id: id})})
+        .then(function(r){
+          if(r && r.ok) return true;
+          if(r && r.status === 404)
+            return 'There is no send-goback function in Supabase yet, so there ' +
+                   'was nothing to send the email.';
+          return r.json().catch(function(){ return {}; }).then(function(j){
+            return j.error || ('The email function answered ' + (r ? r.status : '?') + '.');
+          });
+        })
+        .catch(function(err){
+          return 'The email function could not be reached: ' + err.message;
+        });
+    })
+    .then(function(emailed){
+      $('form').classList.add('hide');
+      $('dock').classList.add('hide');
+      $('done').classList.remove('hide');
+      $('done-note').textContent = emailed === true
+        ? 'It is filed and the email has gone to goback@grinyer.ca.'
+        : 'It is filed, so nothing is lost. The email did not go: ' +
+          String(emailed) + ' Tell the office directly, and send Andrew ' +
+          'that sentence.';
+      message(null);
+      window.scrollTo({top:0, behavior:'smooth'});
+    })
+    .catch(function(err){
+      message('bad', 'Nothing was sent.', err.message +
+        ' Nothing you have typed has been lost, so you can try again.');
+    })
+    .then(function(){
+      busy = false;
+      $('send').disabled = false;
+      $('send').textContent = 'Send the go back';
+    });
+}
+
+$('send').addEventListener('click', send);
+
+$('another').addEventListener('click', function(){
+  $('form').reset();
+  PICKED = {};
+  drawPeople();
+  $('otherwrap').classList.add('hide');
+  $('cam-y').classList.remove('on');
+  $('cam-n').classList.remove('on');
+  $('done').classList.add('hide');
+  $('form').classList.remove('hide');
+  $('dock').classList.remove('hide');
+  message(null);
+  $('customer').focus();
+});
+
+/* Enter in a single line box moves on rather than sending, because sending
+   by accident on a phone is worse than an extra tap. */
+$('form').addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && e.target.tagName === 'INPUT') e.preventDefault();
+});
+
+/* ---- start ----------------------------------------------------------- */
+GIDCAuth.load();
+GIDCAuth.whoami().then(function(me){
+  ME = me;
+  if(!me) return;                       /* the guard is already holding the page */
+  $('who').textContent = 'Filing as ' + me.name;
+  loadInstallers();
+});
+})();
+</script>
+</body>
+</html>

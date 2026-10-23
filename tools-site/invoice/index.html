@@ -1,0 +1,573 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- gidc-guard -->
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grinyer · Contract → QuickBooks</title>
+<style>
+  :root{
+    --paper:#f3efe7; --card:#fbf9f4; --ink:#211c18; --muted:#6f655b;
+    --line:#ddd4c6; --garnet:#8f1d1d; --garnet-deep:#6e1414; --gold:#b08a3e;
+    --ok:#2f6b3a; --warn:#9a4a12; --field:#fff;
+    --shadow:0 1px 2px rgba(33,28,24,.06),0 8px 24px rgba(33,28,24,.07);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{
+    background:var(--paper); color:var(--ink);
+    font:15px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    -webkit-font-smoothing:antialiased; padding:32px 20px 80px;
+  }
+  .wrap{max-width:960px;margin:0 auto}
+  header.top{display:flex;align-items:baseline;gap:14px;border-bottom:2px solid var(--ink);padding-bottom:14px;margin-bottom:6px}
+  .mark{font-family:Georgia,"Times New Roman",serif;font-weight:700;font-size:30px;letter-spacing:.5px;color:var(--garnet)}
+  .mark b{color:var(--ink)}
+  h1{font:600 15px/1.3 ui-sans-serif,system-ui;letter-spacing:.14em;text-transform:uppercase;margin:0;color:var(--muted)}
+  .sub{color:var(--muted);font-size:13px;margin:10px 0 26px}
+  .sub b{color:var(--ink);font-weight:600}
+
+  /* drop zone */
+  .drop{
+    border:2px dashed var(--line);border-radius:14px;background:var(--card);
+    padding:46px 24px;text-align:center;cursor:pointer;transition:border-color .15s,background .15s;
+    box-shadow:var(--shadow)
+  }
+  .drop:hover,.drop.hot{border-color:var(--garnet);background:#fff}
+  .drop .big{font-size:18px;font-weight:600;margin:0 0 4px}
+  .drop .small{color:var(--muted);font-size:13px}
+  .drop .door{width:42px;height:60px;margin:0 auto 16px;border:2px solid var(--garnet);border-radius:4px;position:relative;background:
+    repeating-linear-gradient(0deg,transparent 0 9px,rgba(143,29,29,.10) 9px 10px)}
+  .drop .door:after{content:"";position:absolute;width:5px;height:5px;border-radius:50%;background:var(--gold);right:6px;top:50%;transform:translateY(-50%)}
+  input[type=file]{display:none}
+
+  .note{margin-top:14px;font-size:12.5px;color:var(--muted);text-align:center}
+
+  /* messages */
+  .msg{margin-top:18px;padding:12px 14px;border-radius:10px;font-size:13.5px;display:none}
+  .msg.err{display:block;background:#fbecea;border:1px solid #e7c3bd;color:var(--garnet-deep)}
+
+  /* result */
+  #result{display:none;margin-top:26px}
+  .panel{background:var(--card);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);overflow:hidden}
+  .panel + .panel{margin-top:18px}
+  .phead{display:flex;justify-content:space-between;align-items:center;padding:14px 18px;border-bottom:1px solid var(--line);background:#fff}
+  .phead h2{margin:0;font:600 12px/1 ui-sans-serif,system-ui;letter-spacing:.13em;text-transform:uppercase;color:var(--muted)}
+  .pbody{padding:18px}
+
+  .grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px 22px}
+  label.fld{display:flex;flex-direction:column;gap:5px;font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+  label.fld input{font-size:14.5px;padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--field);color:var(--ink);font-family:inherit;text-transform:none;letter-spacing:0}
+  label.fld input:focus{outline:none;border-color:var(--garnet);box-shadow:0 0 0 3px rgba(143,29,29,.12)}
+  .panelnote{margin:0 0 16px;font-size:13px;color:var(--muted);background:#fff;border:1px solid var(--line);border-left:3px solid var(--garnet);border-radius:8px;padding:9px 12px}
+  .panelnote b{color:var(--ink)}
+  label.req .reqstar{font-size:10px;letter-spacing:.08em;color:var(--garnet);font-weight:600}
+  label.fld input.missing{border-color:var(--garnet);box-shadow:0 0 0 3px rgba(143,29,29,.15)}
+
+  table{width:100%;border-collapse:collapse}
+  th{font:600 11px/1 ui-sans-serif;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);text-align:left;padding:0 8px 10px}
+  th.num,td.num{text-align:right}
+  td{padding:5px 8px;border-top:1px solid var(--line);vertical-align:middle}
+  td input{width:100%;border:1px solid transparent;background:transparent;padding:7px 8px;border-radius:7px;font:inherit;color:var(--ink)}
+  td input:hover{border-color:var(--line)}
+  td input:focus{outline:none;border-color:var(--garnet);background:#fff;box-shadow:0 0 0 3px rgba(143,29,29,.10)}
+  td input.unmatched{border-color:var(--garnet);background:#fbecea}
+  td input.unmatched:focus{background:#fff}
+  .cbpop{position:fixed;z-index:1000;max-height:280px;overflow-y:auto;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 30px rgba(33,28,24,.18);padding:4px}
+  .cbopt{padding:7px 10px;border-radius:6px;font-size:13.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cbopt:hover{background:#f3efe7}
+  .cbopt.on{background:rgba(143,29,29,.10);color:var(--garnet-deep);font-weight:600}
+  .cbempty{padding:8px 10px;font-size:13px;color:var(--muted)}
+  td.num input{text-align:right}
+  td .amt{font-variant-numeric:tabular-nums;color:var(--ink);padding-right:8px;display:block;text-align:right}
+  .neg{color:var(--garnet)}
+  .del{border:none;background:none;color:var(--muted);cursor:pointer;font-size:17px;line-height:1;padding:4px 6px;border-radius:6px}
+  .del:hover{background:#fbecea;color:var(--garnet)}
+  .addrow{margin-top:10px;border:1px dashed var(--line);background:none;color:var(--muted);padding:8px 12px;border-radius:8px;cursor:pointer;font:inherit;font-size:13px}
+  .addrow:hover{border-color:var(--garnet);color:var(--garnet)}
+
+  .totals{margin-top:6px;border-top:2px solid var(--ink);padding-top:12px;display:flex;flex-direction:column;gap:6px;align-items:flex-end;font-variant-numeric:tabular-nums}
+  .totals .row{display:flex;gap:34px;font-size:14px;color:var(--muted)}
+  .totals .row b{color:var(--ink);min-width:120px;text-align:right;font-weight:600}
+  .totals .grand{font-size:18px;color:var(--ink)}
+  .totals .grand b{font-weight:700}
+
+  .actions{display:flex;gap:12px;align-items:center;flex-wrap:wrap;margin-top:24px}
+  .btn{border:none;border-radius:10px;padding:13px 20px;font:600 14px/1 ui-sans-serif;letter-spacing:.02em;cursor:pointer}
+  .btn.primary{background:var(--garnet);color:#fff;box-shadow:0 6px 16px rgba(143,29,29,.25)}
+  .btn.primary:hover{background:var(--garnet-deep)}
+  .btn.ghost{background:none;color:var(--muted);border:1px solid var(--line)}
+  .btn.ghost:hover{border-color:var(--ink);color:var(--ink)}
+  .heads-up{font-size:12.5px;color:var(--warn);margin-left:2px;max-width:420px}
+
+  footer{margin-top:36px;font-size:12px;color:var(--muted);text-align:center;line-height:1.7}
+  @media(max-width:620px){.grid{grid-template-columns:1fr}.totals .row{gap:18px}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <span class="mark"><b>GRINYER</b> · Doors &amp; Closets</span>
+  </header>
+  <h1>Contract → QuickBooks Invoice</h1>
+  <p class="sub">Drop a contract workbook to pull its line items straight from the <b>Pricing Sheet</b>, review them, and export a CSV you can import into QuickBooks Online. Nothing leaves this page — it all runs on your computer, even offline.</p>
+
+  <div id="drop" class="drop" tabindex="0" role="button" aria-label="Choose a contract file">
+    <div class="door" aria-hidden="true"></div>
+    <p class="big">Drop a contract here</p>
+    <p class="small">or click to choose an .xlsx file</p>
+  </div>
+  <input id="file" type="file" accept=".xlsx">
+  <p class="note">Reads the <b>Door Price</b> column, the Installation / Factory Finish / Hardware tables, any rework adjustments, and the closet total.</p>
+
+  <div id="error" class="msg err"></div>
+
+  <div id="result">
+    <div class="panel">
+      <div class="phead"><h2>Invoice details</h2><span id="srcname" class="small" style="color:var(--muted);font-size:12px"></span></div>
+      <div class="pbody">
+        <p class="panelnote">This is <b>one</b> invoice. Every line item below shares the details here — the invoice number is what ties them together into a single invoice in QuickBooks.</p>
+        <div class="grid">
+          <label class="fld">Customer<input id="f_customer"></label>
+          <label class="fld req">Invoice number <span class="reqstar">required</span><input id="f_invno" placeholder="e.g. 462"></label>
+          <label class="fld">Invoice date<input id="f_invdate" type="date"></label>
+          <label class="fld">Due date<input id="f_due" type="date"></label>
+          <label class="fld">Terms<input id="f_terms" value="Due on receipt"></label>
+          <label class="fld">Tax code (must match QBO)<input id="f_tax" value="HST (13%)"></label>
+          <label class="fld" style="grid-column:1 / -1">Street address 1<input id="f_line1"></label>
+          <label class="fld" style="grid-column:1 / -1">Street address 2<input id="f_line2"></label>
+          <label class="fld">City<input id="f_city"></label>
+          <label class="fld">Province<input id="f_prov"></label>
+          <label class="fld">Postal Code<input id="f_postal"></label>
+          <label class="fld">Country<input id="f_country" value="Canada"></label>
+          <label class="fld">Email<input id="f_email"></label>
+          <label class="fld">Phone<input id="f_phone"></label>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="phead"><h2>Line items</h2><span class="small" style="color:var(--muted);font-size:12px">Each line is matched to your QuickBooks list — anything shaded red needs a pick</span></div>
+      <div class="pbody">
+        <table>
+          <thead><tr>
+            <th style="width:30%">Product / service</th>
+            <th style="width:30%">Description</th>
+            <th class="num" style="width:11%">Qty</th>
+            <th class="num" style="width:13%">Rate</th>
+            <th class="num" style="width:13%">Amount</th>
+            <th style="width:3%"></th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <button id="add" class="addrow">+ Add line</button>
+
+        <div class="totals">
+          <div class="row">Subtotal <b id="t_sub">$0.00</b></div>
+          <div class="row">HST (13%) <b id="t_tax">$0.00</b></div>
+          <div class="row grand">Total <b id="t_total">$0.00</b></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="download" class="btn primary">Download both CSVs</button>
+      <button id="downloadCust" class="btn ghost">Customer CSV only</button>
+      <button id="reset" class="btn ghost">Start over</button>
+      <button id="forget" class="btn ghost" title="Clear the item matches this tool has remembered">Forget saved matches</button>
+      <span id="heads" class="heads-up"></span>
+    </div>
+  </div>
+
+  <footer>
+    Grinyer Interior Doors &amp; Closets · contract converter<br>
+    Address, email and phone belong to the customer record, not the invoice — so import the <b>customer CSV</b> first (Settings ▸ Import data ▸ Customers), then the <b>invoice CSV</b>, which links to that customer by name. Your item picks are remembered on this computer. Note: QuickBooks' built-in importer can't be used with sales tax on, so for HST invoices use a third-party importer (e.g. SaasAnt, Business Importer).
+  </footer>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- offline .xlsx reader (ZIP + deflate-raw, no libraries) ---------- */
+async function inflateRaw(u8){
+  if(typeof DecompressionStream==="undefined") throw new Error("This browser can't unzip files. Please use a recent Chrome, Edge, Safari or Firefox.");
+  const ds=new DecompressionStream("deflate-raw");
+  const ab=await new Response(new Blob([u8]).stream().pipeThrough(ds)).arrayBuffer();
+  return new Uint8Array(ab);
+}
+async function readZip(buf){
+  const dv=new DataView(buf), u8=new Uint8Array(buf);
+  let i=u8.length-22;
+  for(;i>=0;i--){ if(dv.getUint32(i,true)===0x06054b50) break; }
+  if(i<0) throw new Error("Not a valid .xlsx file.");
+  const count=dv.getUint16(i+10,true), off=dv.getUint32(i+16,true);
+  let p=off; const out={};
+  const dec=new TextDecoder();
+  for(let n=0;n<count;n++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), compSize=dv.getUint32(p+20,true);
+    const nameLen=dv.getUint16(p+28,true), extraLen=dv.getUint16(p+30,true), commLen=dv.getUint16(p+32,true);
+    const lho=dv.getUint32(p+42,true);
+    const name=dec.decode(u8.subarray(p+46,p+46+nameLen));
+    const lNameLen=dv.getUint16(lho+26,true), lExtraLen=dv.getUint16(lho+28,true);
+    const ds=lho+30+lNameLen+lExtraLen;
+    const comp=u8.subarray(ds,ds+compSize);
+    out[name]= method===0 ? comp : await inflateRaw(comp);
+    p+=46+nameLen+extraLen+commLen;
+  }
+  return {files:out,dec};
+}
+function xmlDecode(s){return s==null?s:String(s).replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");}
+async function parseSheet(buf, sheetName){
+  const {files,dec}=await readZip(buf);
+  const t=k=> files[k]?dec.decode(files[k]):null;
+  const wb=t("xl/workbook.xml"), rels=t("xl/_rels/workbook.xml.rels");
+  if(!wb||!rels) throw new Error("This workbook is missing its core parts.");
+  const sheets=[...wb.matchAll(/<sheet[^>]*?name="([^"]+)"[^>]*?r:id="([^"]+)"/g)].map(m=>({name:xmlDecode(m[1]),rid:m[2]}));
+  const rel={}; [...rels.matchAll(/<Relationship[^>]*?Id="([^"]+)"[^>]*?Target="([^"]+)"/g)].forEach(m=>rel[m[1]]=m[2]);
+  const ps=sheets.find(s=>s.name===sheetName);
+  if(!ps) throw new Error('No "'+sheetName+'" tab found. Is this a Grinyer contract workbook?');
+  const tgt=rel[ps.rid].replace(/^\//,"").replace(/^xl\//,"");
+  const xml=t("xl/"+tgt);
+  const ssXml=t("xl/sharedStrings.xml");
+  const shared= ssXml ? [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m=>[...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x=>xmlDecode(x[1])).join("")) : [];
+  const cells={};
+  for(const m of xml.matchAll(/<c\s+r="([A-Z]+\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
+    const ref=m[1], attrs=m[2], inner=m[3]; if(inner===undefined) continue;
+    const tm=attrs.match(/t="([^"]+)"/), ty=tm?tm[1]:null;
+    if(ty==="inlineStr"){const im=inner.match(/<t[^>]*>([\s\S]*?)<\/t>/);if(im)cells[ref]=xmlDecode(im[1]);continue;}
+    const vm=inner.match(/<v>([\s\S]*?)<\/v>/); if(!vm) continue;
+    const v=vm[1];
+    cells[ref]= ty==="s" ? shared[+v] : (v!=="" && !isNaN(+v) ? +v : xmlDecode(v));
+  }
+  return cells;
+}
+
+/* ---------- extraction rules (validated against invoices 372 & 461) ---------- */
+function col(n){let s="";while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=(n-m-1)/26;}return s;}
+function shiftCol(letter,d){let n=0;for(const ch of letter)n=n*26+(ch.charCodeAt(0)-64);return col(n+d);}
+const round2=n=>Math.round((n+Number.EPSILON)*100)/100;
+
+/* ---------- QuickBooks Product/Service list + matching ---------- */
+const QBO_ITEMS=["145 Big Tex Flat Bed","2015 Chevy Tahoe","4 Post Lift","Accessories","Accessories:14 x 24 Metal Shelf","Accessories:1\" Snap Hook","Accessories:4\" Snap Hook","Accessories:6\" Snap Hook","Accessories:Baskets","Accessories:Baskets:12 x 18\" Basket","Accessories:Baskets:12 x 24\" Basket","Accessories:Baskets:3 x 12\" Basket","Accessories:Baskets:8 x 12\" Basket","Accessories:Bike Hook","Accessories:Bike Rack","Accessories:Double Hook","Accessories:Double Hook:4\" Double Hook","Accessories:Double Hook:8\" Double Hook","Accessories:Double Hook:Double Utility Hook","Accessories:J-Hook 6\"","Accessories:Large tip out bins","Accessories:Loop Hook","Accessories:Loop Hook:4\" Loop Hook","Accessories:Loop Hook:8\" Loop Hook","Accessories:Magnets","Accessories:Paper Towel Holder","Accessories:Screw Driver Rack","Accessories:Shelf","Accessories:S-Hook","Accessories:Ski Rack","Accessories:Small Tool Rack","Accessories:Sports Rack","Accessories:Storage Bins","Accessories:Storage Bins:6 - Tilt Bin","Accessories:Storage Bins:9 - Tilt Bin","Accessories:Wire shelves","Accessories:Wire shelves:14 x 24\" Shelf","Accessories:Wire shelves:14 x 48\" Shelf","Accessories:Wire shelves:Shoe Shelf","Adjustment","Adjustment2","A/R ADJ","AR-ADJ","Bad Debt","Barn Door","Cabinets","Cabinets:Barzel Steel-Doors","Cabinets:Barzel Steel-Drawers","Cabinets:Barzel Steel-Locker","Cabinets:Barzel Steel-Upper","Cabinets:Counter Top/Work Surface","Cabinets:Garage Cabinets","Closet","Closet:Closet Installation","Credit Card Fee","Delivery","Discount","Finance Charge","Finance it","GDL Door Line","GDL Door Line:Bi-fold","GDL Door Line:Mirror By-Pass Set","GDL Door Line:Privacy ByPass Set","GMD Doors","GMD Doors:10 Lite Clear","GMD Doors:15 Lite Clear","GMD Doors:1 Lite Clear","GMD Doors:1 Lite Mirror","GMD Doors:1 Lite Pantry","GMD Doors:1 Lite Privacy","GMD Doors:1 Lite Rain","GMD Doors:1 Lite Reed","GMD Doors:1 Panel","GMD Doors:1 Panel Shaker","GMD Doors:2 Panel Arch","GMD Doors:2 Panel Roman","GMD Doors:2 Panel Roman V-Groove","GMD Doors:2 Panel Shaker","GMD Doors:2 Panel Square","GMD Doors:3 Lite Clear","GMD Doors:3 Lite Privacy","GMD Doors:3 Panel","GMD Doors:3 Panel Equal Shaker","GMD Doors:3 Panel Shaker","GMD Doors:4 Lite Privacy","GMD Doors:4 Panel","GMD Doors:4 Panel Even","GMD Doors:4 Panel Shaker","GMD Doors:4 Panel True Shaker Door","GMD Doors:5 Lite Privacy","GMD Doors:5 Panel Shaker","GMD Doors:6 Panel Textured","GMD Doors:Aberdeen","GMD Doors:Alki","GMD Doors:Astragal","GMD Doors:Ballard HC Modern","GMD Doors:Barn Door","GMD Doors:Barn Door Tracking","GMD Doors:Berkley","GMD Doors:Bifold","GMD Doors:Birkdale","GMD Doors:By Pass Door Track","GMD Doors:Cheyenne","GMD Doors:Custom Paint","GMD Doors:Deman","GMD Doors:Door Disposal","GMD Doors:Flat Slab","GMD Doors:Flush White","GMD Doors:Installation","GMD Doors:Jamb/Trim","GMD Doors:Kingston","GMD Doors:Laurelhurst","GMD Doors:Lincoln Park","GMD Doors:Livingston","GMD Doors:Logans","GMD Doors:Madison","GMD Doors:Melrose","GMD Doors:Mercer","GMD Doors:Monroe Smooth","GMD Doors:Montlake","GMD Doors:Paint","GMD Doors:Paint-Custom","GMD Doors:Paint-Glass","GMD Doors:Pivot","GMD Doors:Plantation","GMD Doors:Plantation Over Panel","GMD Doors:Pocket Door","GMD Doors:Rerail","GMD Doors:Re Stile","GMD Doors:Riverside","GMD Doors:Robson","GMD Doors:Router & Stop","GMD Doors:Solid Core","GMD Doors:Standard Door","GMD Doors:Vanair","GMD Doors:Whitman","GMD Doors:Winslow","GMD Doors:Winthrop","GMD - Supply Only","GMD - Supply Only:Flat/Flush Slab","GMD-Wholesale","GMD-Wholesale:10-Lite Clear Glass","GMD-Wholesale:1 Lite Clear Glass","GMD-Wholesale:1 Lite Laminated","GMD-Wholesale:1 Lite Mirror (2 sided)","GMD-Wholesale:1 Lite \"Pantry\"","GMD-Wholesale:1 Panel Shaker S&R","GMD-Wholesale:1 Panel Stile & Rail Shaker Bi","GMD-Wholesale:2 Panel Arch Top","GMD-Wholesale:2 Panel Shaker S & R","GMD-Wholesale:3 Lite Clear Glass","GMD-Wholesale:3 Lite DWL","GMD-Wholesale:3 Panel Equal Shaker S & R","GMD-Wholesale:4 Lite Privacy","GMD-Wholesale:4 Panel Shaker S & R","GMD-Wholesale:5 Panel Shaker","GMD-Wholesale:Aberdeen HC","GMD-Wholesale:Benton HC","GMD-Wholesale:Berkley HC Modern","GMD-Wholesale:Bonniville/Columbia HC","GMD-Wholesale:Bonnville Bi Fold","GMD-Wholesale:Columbia HC","GMD-Wholesale:Columbia SC","GMD-Wholesale:Deman Modern HC","GMD-Wholesale:Deman Modern SC","GMD-Wholesale:Discount","GMD-Wholesale:Flat Flush","GMD-Wholesale:Kingston Bi Fold","GMD-Wholesale:Kingston HC","GMD-Wholesale:Kingston SC","GMD-Wholesale:Laurelhurst Modern HC","GMD-Wholesale:Livingston HC","GMD-Wholesale:Livingston SC","GMD-Wholesale:Melrose HC","GMD-Wholesale:Mercer HC","GMD-Wholesale:Mercer HC Bi Fold","GMD-Wholesale:Mercer SC","GMD-Wholesale:Meridian","GMD-Wholesale:Modern Alki HC","GMD-Wholesale:Modern Alki SC","GMD-Wholesale:Plantation Louver SC","GMD-Wholesale:Shop Work","GMD-Wholesale:Whitman HC","GMD-Wholesale:Whitman SC","GMD-Wholesale:Whittman Bi fold","GMD-Wholesale:Winthrop SC","GMD-Wholesale:Yarrow HC","GMD-Wholesale:Yarrow SC","GST (ITC)","Hardware","Hardware:Accent Lever","Hardware:Alexandria Crystal Knob","Hardware:Andover Knob","Hardware:Avanti Lever","Hardware:Avila Lever","Hardware:Barn Door Handle","Hardware:Bifold Knob","Hardware:Bowery Knob","Hardware:Broadway Lever","Hardware:Customer Supplied","Hardware:Dead Bolt","Hardware:Dover Lever","Hardware:Eller Lever","Hardware:EmTek","Hardware:Finger Pull","Hardware:Flair Lever","Hardware:Georgian Knob","Hardware:Halifax Sq","Hardware:Hinge","Hardware:Hobson Crystal Knob","Hardware:Latitude Lever","Hardware:Mag Catch","Hardware:Manhattan Lever","Hardware:Merano Lever","Hardware:Miscellaneous Hardware","Hardware:Northbrook","Hardware:Orbit","Hardware:Plymouth Knob","Hardware:Pocket Door Latch","Hardware:Reuse Handle","Hardware:Sienna Knob","Hardware:Taymor Vega","Hardware:Torino Lever","Hardware:T-Strikes","Hardware:Whitney","Home Depot Percentage","HST Adjustments","HST (ITC) Adjustments","HST (ON)","HST (ON) (ITC)","Hydroguard Installation/Repair","Hydroguard Install/Repair","Initial Deposit","Labour","PmntDiscount_Product","PmntDiscount_Supplies","Product","Product - Closets & Organizers","Product - Retail Doors","Products","Products:Custom Work","Products:Flooring","Products:Flooring:Flake","Products:Flooring:Floor Repair","Product - SGA Doors","Products:Overhead Storage","Products:Slatwall Panels","Product - Wholesale Doors","Refund","Reimb Group","Service Fee","Services","SFD Discount","Shipping","Shipping Pallet","Supplies","Travel Expenses","Trusscore Panels","Tuffboard","Victoria Mouldings","Victoria Mouldings:Klasik 3 Panel raised","Work Surfaces"];
+const QBO_SET=new Set(QBO_ITEMS);
+const QBO_BY_LEAF={};
+QBO_ITEMS.forEach(p=>{const leaf=p.split(":").pop().trim().toLowerCase(); if(!(leaf in QBO_BY_LEAF)) QBO_BY_LEAF[leaf]=p;});
+const LEVER_BY_MODEL={};
+QBO_ITEMS.filter(p=>p.startsWith("Hardware:")).forEach(p=>{const w=p.split(":").pop().trim().split(/\s+/)[0].toLowerCase(); if(!(w in LEVER_BY_MODEL)) LEVER_BY_MODEL[w]=p;});
+// fixed mappings: logical line name -> exact QBO path
+const FIXED_QBO={
+  "Installation":"GMD Doors:Installation","Paint":"GMD Doors:Paint","Paint-Glass":"GMD Doors:Paint-Glass",
+  "Door Disposal":"GMD Doors:Door Disposal","By Pass Door Track":"GMD Doors:By Pass Door Track","Router & Stop":"GMD Doors:Router & Stop",
+  "Re-Rail":"GMD Doors:Rerail","Re-Stile":"GMD Doors:Re Stile","Astragal & Flush Bolt":"GMD Doors:Astragal",
+  "4 5/8 FJ Jamb":"GMD Doors:Jamb/Trim","6 5/8 FJ Jamb":"GMD Doors:Jamb/Trim",
+  "Service Fee":"Service Fee","Pocket Door EX":"GMD Doors:Pocket Door",
+  "Finger Pull":"Hardware:Finger Pull","Mag Catch":"Hardware:Mag Catch","Hinge":"Hardware:Hinge",
+  "Customer SPLY Hardware":"Hardware:Customer Supplied","Customer Supplied":"Hardware:Customer Supplied",
+  "Discount":"Discount","Closet":"Closet"
+};
+// door style (sheet) -> QBO path; descriptions follow
+const DOOR_QBO={
+  "2 Panel True Shaker":{item:"GMD Doors:2 Panel Shaker",desc:"Style & Rail Shaker"},
+  "1 Lite Laminated":{item:"GMD Doors:1 Lite Privacy",desc:"Glass Panel"},
+  "2 Panel Roman Smooth":{item:"GMD Doors:2 Panel Roman",desc:"Raised Panel"}
+};
+function qboFix(name){ if(FIXED_QBO[name]) return FIXED_QBO[name]; if(QBO_SET.has(name)) return name; return QBO_BY_LEAF[name.toLowerCase()]||name; }
+function resolveDoor(style){ if(DOOR_QBO[style]) return DOOR_QBO[style]; if(QBO_SET.has("GMD Doors:"+style)) return {item:"GMD Doors:"+style,desc:style}; const leaf=QBO_BY_LEAF[style.toLowerCase()]; return {item:leaf||style,desc:style}; }
+function resolveLever(style){ const m=(style||"").replace(/^[A-Za-z]\s*-\s*/,"").trim().split(/\s+/)[0]; return (m&&LEVER_BY_MODEL[m.toLowerCase()])||"Hardware:Latitude Lever"; }
+const MR_MAP={"Disposal":"Door Disposal","Track/Rollers/Valance":"By Pass Door Track","Router & Door Stop":"Router & Stop"};
+
+function extract(c){
+  const g=(cc,r)=>c[col(cc)+r];
+  const num=v=>typeof v==="number"?v:0;
+  // door rows: col A int, col F style text, col C qty>0, col S price number — anywhere in the sheet
+  const doors={}, handleStyle={};
+  for(let r=1;r<=140;r++){
+    const a=g(1,r),st=g(6,r),q=g(3,r),pr=g(19,r);
+    if(typeof a==="number"&&typeof st==="string"&&st.trim()&&typeof q==="number"&&q>0&&typeof pr==="number"){
+      const k=st.trim(); (doors[k]=doors[k]||{q:0,amt:0,pr:pr}); doors[k].q+=q; doors[k].amt+=q*pr;
+      const ht=g(14,r), hs=g(15,r);                 // handle type (col N) + handle style (col O)
+      if(typeof ht==="string"&&ht.trim()&&!handleStyle[ht.trim()]&&typeof hs==="string"&&hs.trim())
+        handleStyle[ht.trim()]=hs.trim();
+    }
+  }
+  const lines=[];
+  const push=(key,o)=>{ o.key=key; if(learnedMap[key]) o.item=learnedMap[key]; lines.push(o); };
+  for(const st in doors){
+    const d=doors[st], m=resolveDoor(st);
+    push("door:"+st, {item:m.item,desc:m.desc,qty:d.q,rate:d.amt/d.q});
+  }
+  // Installation block (rows 46-48): Installation, Service Fee, Pocket Door EX. Label col A(1), qty C(3), price D(4), total E(5).
+  for(let r=46;r<=48;r++){
+    const label=g(1,r), tot=g(5,r);
+    if(typeof label==="string" && label.trim() && typeof tot==="number" && tot!==0){
+      const q=g(3,r), rate=g(4,r), nm=label.trim();
+      const cleanQ = (typeof q==="number" && q>0 && Math.abs(q-Math.round(q))<1e-9 && typeof rate==="number");
+      push("svc:"+nm, cleanQ ? {item:qboFix(nm),desc:nm,qty:q,rate:rate} : {item:qboFix(nm),desc:nm,qty:1,rate:tot});
+    }
+  }
+  if(num(g(5,51))) push("svc:Paint",{item:qboFix("Paint"),desc:"Standard Paint",qty:g(3,51),rate:g(4,51)});
+  if(num(g(5,52))) push("svc:Paint-Glass",{item:qboFix("Paint-Glass"),desc:"Paint-Glass/Mirror",qty:g(3,52),rate:g(4,52)});
+  // hardware: separate line per handle type. Item = lever model (from handle style), Description = "style — type".
+  for(const [r,type] of [[46,"Passage"],[47,"Privacy"],[48,"Dummy"]]){
+    const tot=num(g(16,r)), qn=num(g(15,r));
+    if(tot && qn){
+      const style=handleStyle[type]||handleStyle["Passage"]||handleStyle["Privacy"]||handleStyle["Dummy"]||"";
+      push("lever:"+style, {item:resolveLever(style),desc:(style?style+" — ":"")+type,qty:qn,rate:tot/qn});
+    }
+  }
+  if(num(g(16,49))) push("svc:Finger Pull",{item:qboFix("Finger Pull"),desc:"Finger Pull",qty:g(15,49),rate:25});
+  if(num(g(16,52))) push("svc:Mag Catch",{item:qboFix("Mag Catch"),desc:"Mag Catch Upgrade",qty:g(15,52),rate:40});
+  if(num(g(16,53))) push("svc:Hinge",{item:qboFix("Hinge"),desc:"Hinge",qty:g(15,53),rate:20});
+  // materials & rework rows 46–56: item col F(6), price col J(10), qty col K(11), total col L(12)
+  for(let r=46;r<=56;r++){
+    const item=g(6,r), tot=g(12,r);
+    if(typeof tot==="number"&&tot!==0){
+      let nm=(item||"").trim();
+      if(tot<0){ push("discount", {item:qboFix("Discount"),desc:nm||"Discount",qty:1,rate:round2(Math.abs(tot)),disc:true}); } // positive in export; subtracts in totals
+      else { const mapped=MR_MAP[nm]||nm; push("mr:"+nm, {item:qboFix(mapped),desc:mapped,qty:g(11,r)||1,rate:g(10,r)}); }
+    }
+  }
+  if(num(g(21,46))) push("closet",{item:qboFix("Closet"),desc:"Closet, as per design.",qty:1,rate:g(21,46)});
+  return lines;
+}
+function extractCustomer(c){
+  function valAfter(label){
+    for(const ref in c){
+      if((""+c[ref]).trim()===label){
+        const m=ref.match(/([A-Z]+)(\d+)/), cl=m[1], row=m[2];
+        for(let d=1;d<=4;d++){const k=shiftCol(cl,d)+row; if(c[k]!=null && (""+c[k]).trim()!=="") return ""+c[k];}
+      }
+    }
+    return "";
+  }
+  const clean=v=>{ v=(v||"").trim(); return v==="0" ? "" : v; };  // blank placeholder cells read as 0
+  const line1=clean(valAfter("Address:"));
+  let city=clean(valAfter("City:")), postal="";
+  const pm=city.match(/([A-Za-z]\d[A-Za-z])\s*(\d[A-Za-z]\d)/);   // Canadian postal code, often baked into the city line
+  if(pm){ postal=(pm[1]+" "+pm[2]).toUpperCase(); city=city.replace(pm[0],"").replace(/[\s,]+$/,"").trim(); }
+  return {
+    name: clean(valAfter("Customer Name:")),
+    line1, city, province:"ON", postal,          // province isn't on the sheet; default to ON, editable
+    phone: clean(valAfter("Phone:")),
+    email: clean(valAfter("Email:"))
+  };
+}
+
+/* ---------- UI ---------- */
+const $=id=>document.getElementById(id);
+let lines=[];
+let exportOverride=false;
+let lastCells=null;
+
+// learned item matches — remembered between sessions (works when the file is saved & opened locally)
+const LS_KEY="grinyer_qbo_matches";
+function loadLearned(){ try{ return JSON.parse(localStorage.getItem(LS_KEY))||{}; }catch(e){ return {}; } }
+function saveLearned(){ try{ localStorage.setItem(LS_KEY, JSON.stringify(learnedMap)); }catch(e){} }
+let learnedMap=loadLearned();
+function learnMatch(key,val){ if(key && QBO_SET.has(val)){ learnedMap[key]=val; saveLearned(); } }
+
+// shared searchable picker popup for the QuickBooks item fields
+const cbpop=document.createElement("div"); cbpop.className="cbpop"; cbpop.hidden=true;
+document.body.appendChild(cbpop);
+let cbInput=null;
+function cbRender(){
+  if(!cbInput){cbpop.hidden=true;return;}
+  const v=cbInput.value.trim().toLowerCase();
+  const showAll = v==="" || QBO_SET.has(cbInput.value.trim());
+  const matches = showAll ? QBO_ITEMS : QBO_ITEMS.filter(p=>p.toLowerCase().includes(v));
+  if(!matches.length){ cbpop.innerHTML='<div class="cbempty">No matching item</div>'; }
+  else cbpop.innerHTML=matches.slice(0,300).map(p=>'<div class="cbopt'+(p===cbInput.value?' on':'')+'" data-v="'+esc(p)+'">'+esc(p)+'</div>').join("");
+  const r=cbInput.getBoundingClientRect();
+  cbpop.style.left=r.left+"px"; cbpop.style.top=(r.bottom+2)+"px"; cbpop.style.width=Math.max(r.width,260)+"px";
+  cbpop.hidden=false;
+}
+function cbHide(){ cbpop.hidden=true; cbInput=null; }
+cbpop.addEventListener("mousedown",e=>{               // mousedown so it fires before input blur
+  const o=e.target.closest(".cbopt"); if(!o||!cbInput) return;
+  e.preventDefault();
+  const inp=cbInput, val=o.dataset.v, i=+inp.dataset.i;
+  inp.value=val; lines[i].item=val; inp.classList.toggle("unmatched",!QBO_SET.has(val));
+  learnMatch(lines[i].key, val);
+  exportOverride=false; clearError(); cbHide();
+});
+document.addEventListener("scroll",()=>{ if(cbInput) cbRender(); }, true);
+window.addEventListener("resize",()=>{ if(cbInput) cbRender(); });
+
+function money(n){const s=(Math.abs(n)).toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2});return (n<0?"-$":"$")+s;}
+function lineAmount(l){return round2((Number(l.qty)||0)*(Number(l.rate)||0));}
+function signedAmount(l){return l.disc ? -lineAmount(l) : lineAmount(l);}
+
+function renderRows(){
+  if(typeof cbHide==="function") cbHide();
+  const tb=$("rows"); tb.innerHTML="";
+  lines.forEach((l,i)=>{
+    const tr=document.createElement("tr");
+    const amt=signedAmount(l);
+    tr.innerHTML=
+      '<td><input autocomplete="off" data-i="'+i+'" data-k="item" class="cbfield '+(QBO_SET.has(l.item)?"":"unmatched")+'" value="'+esc(l.item)+'"></td>'+
+      '<td><input data-i="'+i+'" data-k="desc" value="'+esc(l.desc)+'"></td>'+
+      '<td class="num"><input data-i="'+i+'" data-k="qty" value="'+fmtNum(l.qty)+'"></td>'+
+      '<td class="num"><input data-i="'+i+'" data-k="rate" value="'+fmtNum(l.rate)+'"></td>'+
+      '<td class="num"><span class="amt '+(amt<0?"neg":"")+'">'+money(amt)+'</span></td>'+
+      '<td><button class="del" data-del="'+i+'" title="Remove line">&times;</button></td>';
+    tb.appendChild(tr);
+  });
+  totals();
+}
+function fmtNum(v){ if(v===""||v==null) return ""; const n=Number(v); if(!isFinite(n)) return v; return (Math.round(n*1e6)/1e6).toString(); }
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");}
+
+function totals(){
+  let sub=0; lines.forEach(l=>sub+=signedAmount(l)); sub=round2(sub);
+  const tax=round2(sub*0.13), tot=round2(sub+tax);
+  $("t_sub").textContent=money(sub);
+  $("t_tax").textContent=money(tax);
+  $("t_total").textContent=money(tot);
+  const hasDisc=lines.some(l=>l.disc);
+  $("heads").textContent=hasDisc?"Discount is exported as a positive amount and subtracted here — confirm QuickBooks applies it as a reduction on import.":"";
+}
+
+$("rows").addEventListener("input",e=>{
+  const t=e.target; if(!t.dataset.k) return;
+  const i=+t.dataset.i, k=t.dataset.k;
+  lines[i][k]= (k==="qty"||k==="rate") ? t.value.replace(/[^0-9.\-]/g,"") : t.value;
+  if(k==="item"){ t.classList.toggle("unmatched", !QBO_SET.has(t.value)); exportOverride=false; clearError(); cbInput=t; cbRender(); learnMatch(lines[i].key, t.value); }
+  if(k==="qty"||k==="rate"){
+    const cell=t.closest("tr").querySelector(".amt");
+    const a=signedAmount(lines[i]); cell.textContent=money(a); cell.classList.toggle("neg",a<0);
+    totals();
+  }
+});
+$("rows").addEventListener("focusin",e=>{ if(e.target.classList.contains("cbfield")){ cbInput=e.target; e.target.select(); cbRender(); } });
+$("rows").addEventListener("focusout",e=>{ if(e.target.classList.contains("cbfield")) setTimeout(()=>{ if(document.activeElement!==e.target) cbHide(); },120); });
+$("rows").addEventListener("click",e=>{
+  const d=e.target.dataset.del; if(d===undefined) return;
+  lines.splice(+d,1); renderRows();
+});
+$("add").addEventListener("click",()=>{ lines.push({item:"",desc:"",qty:1,rate:0}); renderRows();
+  $("rows").lastChild.querySelector("input").focus(); });
+
+/* file handling */
+const drop=$("drop"), fileInput=$("file");
+drop.addEventListener("click",()=>fileInput.click());
+drop.addEventListener("keydown",e=>{if(e.key==="Enter"||e.key===" ")fileInput.click();});
+["dragenter","dragover"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot");}));
+["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hot");}));
+drop.addEventListener("drop",e=>{const f=e.dataTransfer.files[0]; if(f) handle(f);});
+fileInput.addEventListener("change",e=>{const f=e.target.files[0]; if(f) handle(f);});
+
+function showError(m){const el=$("error"); el.textContent=m; el.style.display="block";}
+function clearError(){const el=$("error"); el.style.display="none"; el.textContent="";}
+
+async function handle(file){
+  clearError();
+  if(!/\.xlsx$/i.test(file.name)){ showError("Please choose an .xlsx file. (Older .xls files need to be re-saved as .xlsx first.)"); return; }
+  try{
+    const buf=await file.arrayBuffer();
+    const cells=await parseSheet(buf,"Pricing Sheet");
+    lastCells=cells;
+    lines=extract(cells);
+    exportOverride=false;
+    if(!lines.length){ showError("Found the Pricing Sheet but no priced line items in it. Is the contract filled in?"); return; }
+    const cust=extractCustomer(cells);
+    $("f_customer").value=cust.name||"";
+    $("f_line1").value=cust.line1||"";
+    $("f_line2").value="";
+    $("f_city").value=cust.city||"";
+    $("f_prov").value=cust.province||"";
+    $("f_postal").value=cust.postal||"";
+    $("f_email").value=cust.email||"";
+    $("f_phone").value=cust.phone||"";
+    const today=new Date().toISOString().slice(0,10);
+    $("f_invdate").value=today; $("f_due").value=today;
+    $("srcname").textContent=file.name;
+    renderRows();
+    $("result").style.display="block";
+    $("result").scrollIntoView({behavior:"smooth",block:"start"});
+  }catch(err){
+    showError(err.message||"Couldn't read that file.");
+  }
+}
+
+$("reset").addEventListener("click",()=>{
+  lines=[]; $("result").style.display="none"; fileInput.value=""; clearError();
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+$("forget").addEventListener("click",()=>{
+  learnedMap={}; saveLearned();
+  if(lastCells){ lines=extract(lastCells); renderRows(); }
+  showError("Saved matches cleared. Lines are back to their automatic matches."); 
+  setTimeout(clearError, 4000);
+});
+
+$("f_invno").addEventListener("input",()=>{ $("f_invno").classList.remove("missing"); clearError(); });
+
+/* CSV export — one row per line item, shared invoice header */
+function csvCell(v){v=v==null?"":String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v;}
+$("download").addEventListener("click",()=>{
+  const inv=$("f_invno").value.trim(), cust=$("f_customer").value.trim(),
+        idate=$("f_invdate").value, due=$("f_due").value,
+        terms=$("f_terms").value.trim(), tax=$("f_tax").value.trim();
+  const invField=$("f_invno");
+  if(!inv){
+    invField.classList.add("missing");
+    invField.focus();
+    showError("Enter an invoice number first — it's what tells QuickBooks these lines are one invoice. (Tip: use the next number after your last invoice in QuickBooks.)");
+    invField.scrollIntoView({behavior:"smooth",block:"center"});
+    return;
+  }
+  invField.classList.remove("missing"); clearError();
+  const unmatched=lines.filter(l=>!QBO_SET.has(l.item));
+  if(unmatched.length && !exportOverride){
+    exportOverride=true;
+    document.querySelectorAll('#rows input[data-k="item"]').forEach(inp=>inp.classList.toggle("unmatched",!QBO_SET.has(inp.value)));
+    showError(unmatched.length+" line"+(unmatched.length>1?"s":"")+" don't match a QuickBooks item (shaded red) — pick them from the list so the import doesn't create a generic \u201csales\u201d item. Click Download again to export anyway.");
+    return;
+  }
+  exportOverride=false;
+  if(!cust){
+    showError("Enter a customer name — the first CSV creates the customer record in QuickBooks, which the invoice then links to.");
+    $("f_customer").focus(); return;
+  }
+  const hdr=["InvoiceNo","Customer","InvoiceDate","DueDate","Terms","Item(Product/Service)","ItemDescription","ItemQuantity","ItemRate","ItemAmount","ItemTaxCode"];
+  const rows=[hdr.join(",")];
+  lines.forEach(l=>{
+    const amt=lineAmount(l);
+    rows.push([inv,cust,idate,due,terms,l.item,l.desc, fmtNum(l.qty), round2(l.rate), amt, tax].map(csvCell).join(","));
+  });
+  const invBlob=new Blob(["\ufeff"+rows.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const invName=(cust?cust.replace(/[^\w]+/g,"_"):"Invoice")+(inv?"_"+inv:"")+"_invoice_QBO.csv";
+  // 1) customer CSV first (import to QuickBooks before the invoice), 2) invoice CSV
+  const cc=makeCustomerCsv();
+  if(cc) saveCsv(cc.blob, cc.name);
+  setTimeout(()=>saveCsv(invBlob, invName), 700);
+});
+
+function saveCsv(blob,name){
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+}
+
+// Customer CSV — for QuickBooks Settings ▸ Import data ▸ Customers (address lives on the customer record, not the invoice)
+function makeCustomerCsv(){
+  const cust=$("f_customer").value.trim();
+  if(!cust) return null;
+  const hdr=["Name","Email","Phone","Street address 1","Street address 2","City","Province","Postal Code","Country"];
+  const row=[cust,$("f_email").value.trim(),$("f_phone").value.trim(),$("f_line1").value.trim(),$("f_line2").value.trim(),$("f_city").value.trim(),$("f_prov").value.trim(),$("f_postal").value.trim(),$("f_country").value.trim()];
+  const blob=new Blob(["\ufeff"+[hdr.join(","),row.map(csvCell).join(",")].join("\r\n")],{type:"text/csv;charset=utf-8"});
+  return {blob, name: cust.replace(/[^\w]+/g,"_")+"_customer_QBO.csv"};
+}
+$("downloadCust").addEventListener("click",()=>{
+  const cc=makeCustomerCsv();
+  if(!cc){ showError("Enter a customer name first — it's needed for the customer record."); $("f_customer").focus(); return; }
+  clearError();
+  saveCsv(cc.blob, cc.name);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en">
+<head>
+<!-- gidc-guard -->
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grinyer — Wholesale Order → QuickBooks (USD)</title>
+<style>
+  :root{--garnet:#7b1e2b;--garnet-dk:#5c141e;--ink:#1f2329;--muted:#6b7280;--line:#e4e2df;--bg:#f5f3f0;--paper:#fff;--soft:#faf8f6;--warn:#fdecec;--warnbd:#f3c9cd;--warnink:#9a2230;}
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:1120px;margin:0 auto;padding:28px 20px 70px;}
+  header.top{display:flex;align-items:center;gap:14px;margin-bottom:6px;}
+  .mark{width:42px;height:42px;border-radius:9px;background:var(--garnet);color:#fff;display:grid;place-items:center;font-weight:700;font-size:18px;}
+  header.top h1{font-size:19px;margin:0;font-weight:650;}
+  header.top p{margin:1px 0 0;color:var(--muted);font-size:13px;}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:16px;}
+  .drops{display:grid;grid-template-columns:1fr 1fr;gap:14px;}
+  .drop{border:2px dashed #d7d2cc;border-radius:12px;background:var(--soft);padding:24px 16px;text-align:center;cursor:pointer;transition:.15s;}
+  .drop:hover,.drop.over{border-color:var(--garnet);background:#fbf6f6;}
+  .drop strong{color:var(--garnet);display:block;}
+  .drop small{display:block;color:var(--muted);margin-top:5px;font-size:12px;}
+  .drop.loaded{border-style:solid;border-color:#bcd6be;background:#f3f8f3;}
+  .drop.loaded strong{color:#2f6b34;}
+  .err{display:none;margin-top:12px;padding:11px 13px;border-radius:9px;background:var(--warn);color:var(--warnink);border:1px solid var(--warnbd);font-size:14px;}
+  .err.show{display:block;}
+  h2.sec{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px;font-weight:650;}
+  .grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px 16px;}
+  .fld{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:4px;}
+  .fld input,.fld select{font-size:14px;color:var(--ink);padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;}
+  .fld input:focus,.fld select:focus{outline:none;border-color:var(--garnet);}
+  table.items{width:100%;border-collapse:collapse;margin-top:4px;font-size:14px;}
+  table.items th{font-size:11px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);text-align:left;padding:7px 8px;border-bottom:1px solid var(--line);font-weight:650;}
+  table.items th.num,table.items td.num{text-align:right;}
+  table.items td{padding:5px 8px;border-bottom:1px solid #f0eeeb;vertical-align:top;}
+  table.items input{width:100%;border:1px solid transparent;border-radius:6px;padding:6px 7px;font-size:13.5px;background:transparent;}
+  table.items input:hover{border-color:var(--line);}
+  table.items input:focus{outline:none;border-color:var(--garnet);background:#fff;}
+  table.items td.num input{text-align:right;}
+  tr.missing td{background:var(--warn);}
+  tr.missing input.rate{border-color:var(--warnbd);background:#fff;}
+  .pill{display:inline-block;font-size:10.5px;padding:1px 7px;border-radius:20px;background:#eee;color:#555;margin-left:6px;}
+  .pill.x{background:#fbe3d4;color:#8a4b1d;}
+  .del{border:none;background:none;color:#c0392b;font-size:18px;line-height:1;cursor:pointer;opacity:.5;}
+  .del:hover{opacity:1;}
+  .addrow{margin-top:8px;border:1px dashed var(--line);background:#fff;color:var(--garnet);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px;}
+  .tot{margin-top:14px;border-top:2px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:6px;max-width:320px;margin-left:auto;}
+  .tot .r{display:flex;justify-content:space-between;font-size:14px;}
+  .tot .r.grand{font-size:18px;font-weight:700;color:var(--garnet);border-top:1px solid var(--line);padding-top:8px;}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:18px;align-items:center;}
+  .btn{border:none;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;}
+  .btn.primary{background:var(--garnet);color:#fff;}
+  .btn.primary:hover{background:var(--garnet-dk);}
+  .btn.primary:disabled{background:#c9b7b9;cursor:not-allowed;}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink);}
+  .heads-up{color:var(--warnink);font-size:13px;}
+  footer{color:var(--muted);font-size:12px;margin-top:24px;line-height:1.6;}
+  .hide{display:none;}
+  .cbpop{position:fixed;z-index:1000;max-height:280px;overflow-y:auto;background:#fff;border:1px solid var(--line);border-radius:9px;box-shadow:0 10px 30px rgba(33,28,24,.18);padding:4px}
+  .cbopt{padding:7px 10px;border-radius:6px;font-size:13.5px;cursor:pointer;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+  .cbopt:hover{background:#f3efe7}
+  .cbopt.on{background:rgba(123,30,43,.10);color:var(--garnet);font-weight:600}
+  .cbempty{padding:8px 10px;font-size:13px;color:var(--muted)}
+  table.items input.cbfield.unmatched{border-color:#e0a96d;background:#fff7ed;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="mark">G</div>
+    <div>
+      <h1>Wholesale Order → QuickBooks (USD)</h1>
+      <p>Drop the USD price list and a dealer order; get a QuickBooks-ready CSV with pricing</p>
+    </div>
+  </header>
+
+  <div class="card">
+    <div class="drops">
+      <div id="dropPrice" class="drop">
+        <strong id="priceLabel">Price list (built-in)</strong>
+        <small id="priceHint">Drop a newer GIDC price list .xlsx here only if you need to update pricing</small>
+        <input id="filePrice" type="file" accept=".xlsx" hidden>
+        <small><a href="#" id="revertPrice" style="color:var(--garnet)">Use built-in list</a></small>
+      </div>
+      <div id="dropOrder" class="drop">
+        <strong>Drop the dealer order</strong>
+        <small>Order .xlsx — reads the “Pricing Sheet” tab</small>
+        <input id="fileOrder" type="file" accept=".xlsx" hidden>
+      </div>
+    </div>
+    <div id="err" class="err"></div>
+  </div>
+
+  <div id="editor" class="hide">
+    <div class="card">
+      <h2 class="sec">Invoice details</h2>
+      <div class="grid">
+        <label class="fld">Bill to (dealer)
+          <select id="f_customer"></select>
+        </label>
+        <label class="fld">PO number (from order)<input id="f_po"></label>
+        <label class="fld">Invoice #<input id="f_invno" placeholder="optional"></label>
+        <label class="fld">Invoice date<input id="f_date" type="date"></label>
+        <label class="fld">Terms<input id="f_terms" value="Due on receipt"></label>
+        <label class="fld">Currency<input id="f_currency" value="USD"></label>
+        <label class="fld">Tax code<input id="f_tax" value="E"></label>
+        <label class="fld">Discount %<input id="f_disc" type="number" value="20" min="0" step="1"></label>
+        <label class="fld">Tariff %<input id="f_tariff" type="number" value="50" min="0" step="1"></label>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2 class="sec">Line items <span id="missnote" class="heads-up"></span></h2>
+      <table class="items">
+        <thead><tr>
+          <th style="width:20%">Item (QB product/service)</th>
+          <th>Description</th>
+          <th class="num" style="width:8%">Qty</th>
+          <th class="num" style="width:13%">Rate (USD)</th>
+          <th class="num" style="width:13%">Amount</th>
+          <th style="width:3%"></th>
+        </tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <button id="addrow" class="addrow">+ Add line</button>
+      <div class="tot">
+        <div class="r"><span>Subtotal</span><b id="t_sub">$0.00</b></div>
+        <div class="r"><span id="t_disc_lbl">Discount (20%)</span><b id="t_disc">$0.00</b></div>
+        <div class="r"><span>After discount</span><b id="t_after">$0.00</b></div>
+        <div class="r"><span id="t_tariff_lbl">Tariff (50%)</span><b id="t_tariff">$0.00</b></div>
+        <div class="r grand"><span>Total (USD)</span><b id="t_total">$0.00</b></div>
+      </div>
+    </div>
+
+    <div class="actions">
+      <button id="download" class="btn primary">Download invoice CSV</button>
+      <button id="reset" class="btn ghost">Start over</button>
+      <button id="forget" class="btn ghost" title="Clear remembered QuickBooks item matches">Forget saved matches</button>
+      <span id="heads" class="heads-up"></span>
+    </div>
+
+    <footer>
+      Grinyer Interior Doors &amp; Closets · wholesale order converter (USD).
+      Prices come from the price list you load (“Cut and Painted Wholesale USD”). Rows with no price are shaded red — type the rate before exporting.
+      Re-Rail $20, Re-Stile $75, custom-paint $20/door are taken from the price list’s Shop Extras and can be edited per line. No sales tax is applied (wholesale).
+    </footer>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ===================== dealers ===================== */
+const CUSTOMERS=[
+  {name:"Brad Hughes", addr:"6240 Oakton St, Morton Grove, IL 60053"},
+  {name:"Cincinnati Doors & Closets", addr:"2714 E Kemper Rd, Cincinnati, OH 45241"},
+  {name:"Pittsburg Doors and Closets", addr:"1916 Babcock Blvd, Pittsburg, PA 15209"},
+  {name:"South Florida Doors & Closets", addr:"2372503 Ontario Inc dba Grinyer Interior Doors & Closets, Cambridge, ON N1T 1X9"},
+  {name:"Indianapolis Doors & Closets", addr:"Shawn Stevens · 4215 W 96th St, Indianapolis, IN 46268"}
+];
+
+/* ===================== built-in price list (REV002, Nov 2025) ===================== */
+const EMBEDDED_PL = {"COLS":[{"c":3,"key":"6'8|Hollow","label":"6'8\" Hollow"},{"c":4,"key":"6'8|Solid","label":"6'8\" Solid"},{"c":5,"key":"6'8|Bifold","label":"6'8\" Bifold"},{"c":6,"key":"6'8|1.75","label":"6'8\"  (1.75\")"},{"c":7,"key":"7/0|Hollow","label":"7/0 Hollow"},{"c":8,"key":"7/0|Solid","label":"7/0 Solid"},{"c":9,"key":"7/0|Bifold","label":"7/0 Bifold"},{"c":10,"key":"7/0|1.75","label":"7/0 (1.75\")"},{"c":11,"key":"7/6|1.75","label":"7/6 Solid (1.75\")"},{"c":12,"key":"8/0|Hollow","label":"8/0 Hollow"},{"c":13,"key":"8/0|Solid","label":"8/0 Solid"},{"c":14,"key":"8/0|Bifold","label":"8/0 Bifold"},{"c":15,"key":"8/0|1.75","label":"8/0 (1.75\")"}],"styles":{"columbia":{"name":"Columbia","desc":"6 Panel Raised Smooth SO","prices":{"6'8|Hollow":212.77,"6'8|Solid":303.84,"6'8|Bifold":226.71,"6'8|1.75":368.01,"7/0|Hollow":229.65,"7/0|Solid":292.64,"7/0|Bifold":222.12,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.62,"8/0|Bifold":320,"8/0|1.75":430.63}},"bonneville":{"name":"Bonneville","desc":"6 Panel Raised Textured","prices":{"6'8|Hollow":197.39,"6'8|Solid":274.49,"6'8|Bifold":209.01,"6'8|1.75":331.06,"7/0|Hollow":229.65,"7/0|Solid":292.64,"7/0|Bifold":222.12,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.62,"8/0|Bifold":320,"8/0|1.75":430.63}},"kingston":{"name":"Kingston","desc":"2 Panel Raised smooth","prices":{"6'8|Hollow":197.39,"6'8|Solid":274.49,"6'8|Bifold":209.01,"6'8|1.75":331.06,"7/0|Hollow":229.65,"7/0|Solid":292.64,"7/0|Bifold":222.12,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.62,"8/0|Bifold":320,"8/0|1.75":430.63}},"rasario":{"name":"Rasario","desc":"2 Panel Arched smooth","prices":{"6'8|Hollow":197.39,"6'8|Solid":303.84,"6'8|Bifold":209.01,"6'8|1.75":368.01,"7/0|Hollow":229.65,"7/0|Solid":292.64,"7/0|Bifold":222.12,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.62,"8/0|Bifold":320,"8/0|1.75":430.63}},"lopez":{"name":"Lopez","desc":"2 Panel arched top v-groove","prices":{"6'8|Hollow":197.39,"6'8|Solid":303.84,"6'8|Bifold":209.01,"6'8|1.75":368.01,"7/0|Hollow":229.65,"7/0|Solid":292.64,"7/0|Bifold":222.12,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.62,"8/0|Bifold":320,"8/0|1.75":430.63}},"mercer":{"name":"Mercer","desc":"1 panel bevelled shaker","prices":{"6'8|Hollow":202.26,"6'8|Solid":291.34,"6'8|Bifold":231.83,"6'8|1.75":336.46,"7/0|Hollow":224.16,"7/0|Solid":311.76,"7/0|Bifold":237.14,"7/0|1.75":383.9,"7/6|1.75":"N/A","8/0|Hollow":323.94,"8/0|Solid":396.39,"8/0|Bifold":350.2,"8/0|1.75":419.69}},"whitman":{"name":"Whitman","desc":"2 Panel bevelled shaker","prices":{"6'8|Hollow":202.26,"6'8|Solid":291.34,"6'8|Bifold":231.83,"6'8|1.75":374.55,"7/0|Hollow":244.89,"7/0|Solid":311.76,"7/0|Bifold":"N/A","7/0|1.75":383.9,"7/6|1.75":"N/A","8/0|Hollow":323.94,"8/0|Solid":396.39,"8/0|Bifold":"N/A","8/0|1.75":419.69}},"aberdeen":{"name":"Aberdeen","desc":"3 panel belvelled shaker","prices":{"6'8|Hollow":202.26,"6'8|Solid":291.34,"6'8|Bifold":231.83,"6'8|1.75":374.55,"7/0|Hollow":244.89,"7/0|Solid":311.76,"7/0|Bifold":"N/A","7/0|1.75":383.9,"7/6|1.75":"N/A","8/0|Hollow":323.94,"8/0|Solid":396.39,"8/0|Bifold":"N/A","8/0|1.75":419.69}},"yarrow":{"name":"Yarrow","desc":"Bevelled craftsman shaker","prices":{"6'8|Hollow":202.18,"6'8|Solid":283.25,"6'8|Bifold":215.09,"6'8|1.75":366.77,"7/0|Hollow":244.89,"7/0|Solid":311.76,"7/0|Bifold":237.14,"7/0|1.75":383.9,"7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Solid":"N/A","8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"winthrop":{"name":"Winthrop","desc":"5 panel bevelled shaker","prices":{"6'8|Hollow":202.18,"6'8|Solid":283.25,"6'8|Bifold":215.09,"6'8|1.75":366.77,"7/0|Hollow":244.89,"7/0|Solid":311.76,"7/0|Bifold":237.14,"7/0|1.75":383.9,"7/6|1.75":"N/A","8/0|Hollow":307.64,"8/0|Solid":463.08,"8/0|Bifold":"N/A","8/0|1.75":441.82}},"benton":{"name":"Benton","desc":"5 panel raised","prices":{"6'8|Hollow":197.39,"6'8|Solid":274.49,"6'8|Bifold":209.01,"6'8|1.75":368.01,"7/0|Hollow":229.65,"7/0|Solid":292.64,"7/0|Bifold":222.12,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.62,"8/0|Bifold":"N/A","8/0|1.75":430.63}},"flatslab":{"name":"Flat Slab","desc":"Hard Board","prices":{"6'8|Hollow":186.45,"6'8|Solid":236.32,"6'8|Bifold":210.99,"6'8|1.75":280.81,"7/0|Hollow":203.83,"7/0|Solid":245.52,"7/0|Bifold":219.94,"7/0|1.75":296.61,"7/6|1.75":"N/A","8/0|Hollow":270.4,"8/0|Solid":326.2,"8/0|Bifold":297.13,"8/0|1.75":331.8}},"deman":{"name":"Deman","desc":"Similar to M3/Melrose","prices":{"6'8|Hollow":212.48,"6'8|Solid":303.84,"6'8|Bifold":"N/A","6'8|1.75":368.07,"7/0|Hollow":230.26,"7/0|Solid":293.51,"7/0|Bifold":222.16,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.68,"8/0|Bifold":"N/A","8/0|1.75":430.63}},"alki":{"name":"Alki","desc":"Similar to M1/Berkley","prices":{"6'8|Hollow":197.39,"6'8|Solid":274.49,"6'8|Bifold":209.05,"6'8|1.75":368.07,"7/0|Hollow":230.26,"7/0|Solid":293.51,"7/0|Bifold":222.16,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.68,"8/0|Bifold":320,"8/0|1.75":430.63}},"robson":{"name":"Robson","desc":"Similar to Hemel","prices":{"6'8|Hollow":212.48,"6'8|Solid":303.84,"6'8|Bifold":209.05,"6'8|1.75":368.07,"7/0|Hollow":230.26,"7/0|Solid":293.51,"7/0|Bifold":222.16,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.68,"8/0|Bifold":320,"8/0|1.75":430.63}},"parkrose":{"name":"Parkrose","desc":"Modern SO Leadtime","prices":{"6'8|Hollow":212.48,"6'8|Solid":303.84,"6'8|Bifold":"N/A","6'8|1.75":368.07,"7/0|Hollow":230.26,"7/0|Solid":293.51,"7/0|Bifold":222.16,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.68,"8/0|Bifold":"N/A","8/0|1.75":430.63}},"montlake":{"name":"Montlake","desc":"Modern SO Leadtime","prices":{"6'8|Hollow":212.48,"6'8|Solid":303.84,"6'8|Bifold":"N/A","6'8|1.75":368.07,"7/0|Hollow":230.26,"7/0|Solid":293.51,"7/0|Bifold":222.16,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.68,"8/0|Bifold":"N/A","8/0|1.75":430.63}},"laurelhurst":{"name":"Laurelhurst","desc":"Modern SO Leadtime","prices":{"6'8|Hollow":212.48,"6'8|Solid":303.84,"6'8|Bifold":"N/A","6'8|1.75":368.07,"7/0|Hollow":230.26,"7/0|Solid":293.51,"7/0|Bifold":222.16,"7/0|1.75":363.63,"7/6|1.75":"N/A","8/0|Hollow":309.79,"8/0|Solid":404.68,"8/0|Bifold":"N/A","8/0|1.75":430.63}},"lincolnpark":{"name":"lincoln Park","desc":"","prices":{"6'8|Hollow":133.26,"6'8|Solid":244.89,"6'8|Bifold":174.3,"6'8|1.75":279.14,"7/0|Hollow":162.28,"7/0|Solid":280.12,"7/0|Bifold":190.45,"7/0|1.75":310.42,"7/6|1.75":0,"8/0|Hollow":232.19,"8/0|Solid":227.66,"8/0|Bifold":282.46,"8/0|1.75":338.06}},"logan":{"name":"Logan","desc":"","prices":{"6'8|Hollow":133.26,"6'8|Solid":244.89,"6'8|Bifold":174.3,"6'8|1.75":279.14,"7/0|Hollow":162.28,"7/0|Solid":280.12,"7/0|Bifold":0,"7/0|1.75":310.42,"7/6|1.75":0,"8/0|Hollow":232.19,"8/0|Solid":227.66,"8/0|Bifold":0,"8/0|1.75":338.06}},"birkdale":{"name":"Birkdale","desc":"","prices":{"6'8|Hollow":133.26,"6'8|Solid":244.89,"6'8|Bifold":174.3,"6'8|1.75":279.14,"7/0|Hollow":162.28,"7/0|Solid":280.12,"7/0|Bifold":0,"7/0|1.75":310.42,"7/6|1.75":0,"8/0|Hollow":232.19,"8/0|Solid":227.66,"8/0|Bifold":0,"8/0|1.75":338.06}},"winslow":{"name":"Winslow","desc":"Pasedena 3 panel Craftsman","prices":{"6'8|Hollow":133.26,"6'8|Solid":244.89,"6'8|Bifold":174.3,"6'8|1.75":279.14,"7/0|Hollow":162.28,"7/0|Solid":280.12,"7/0|Bifold":190.45,"7/0|1.75":310.42,"7/6|1.75":0,"8/0|Hollow":232.19,"8/0|Solid":227.66,"8/0|Bifold":0,"8/0|1.75":338.06}},"5panelbevelled":{"name":"5 panel bevelled","desc":"","prices":{"6'8|Hollow":133.26,"6'8|Solid":244.89,"6'8|Bifold":174.3,"6'8|1.75":279.14,"7/0|Hollow":162.28,"7/0|Solid":280.12,"7/0|Bifold":190.45,"7/0|1.75":310.42,"7/6|1.75":0,"8/0|Hollow":232.19,"8/0|Solid":227.66,"8/0|Bifold":0,"8/0|1.75":338.06}},"berkley":{"name":"Berkley","desc":"","prices":{"6'8|Hollow":112.82,"6'8|Solid":218.34,"6'8|Bifold":138.57,"6'8|1.75":289.77,"7/0|Hollow":148.96,"7/0|Solid":261.61,"7/0|Bifold":162.58,"7/0|1.75":300.46,"7/6|1.75":0,"8/0|Hollow":220.28,"8/0|Solid":328.43,"8/0|Bifold":236.12,"8/0|1.75":369.97}},"melrose":{"name":"Melrose","desc":"","prices":{"6'8|Hollow":112.82,"6'8|Solid":218.34,"6'8|Bifold":138.57,"6'8|1.75":289.77,"7/0|Hollow":148.96,"7/0|Solid":261.61,"7/0|Bifold":162.58,"7/0|1.75":300.46,"7/6|1.75":0,"8/0|Hollow":220.28,"8/0|Solid":328.43,"8/0|Bifold":236.12,"8/0|1.75":369.97}},"4panelraised":{"name":"4 Panel Raised","desc":"","prices":{"6'8|Hollow":0,"6'8|Solid":0,"6'8|Bifold":0,"6'8|1.75":0,"7/0|Hollow":0,"7/0|Solid":0,"7/0|Bifold":0,"7/0|1.75":0,"7/6|1.75":0,"8/0|Hollow":0,"8/0|Solid":0,"8/0|Bifold":0,"8/0|1.75":0}},"2panel":{"name":"2 Panel","desc":"Two panel Square Raised Manhattan","prices":{"6'8|Hollow":0,"6'8|Solid":0,"6'8|Bifold":0,"6'8|1.75":0,"7/0|Hollow":0,"7/0|Solid":0,"7/0|Bifold":0,"7/0|1.75":0,"7/6|1.75":0,"8/0|Hollow":0,"8/0|Solid":0,"8/0|Bifold":0,"8/0|1.75":0}},"flush":{"name":"Flush","desc":"","prices":{"6'8|Hollow":0,"6'8|Solid":0,"6'8|Bifold":0,"6'8|1.75":0,"7/0|Hollow":0,"7/0|Solid":0,"7/0|Bifold":0,"7/0|1.75":0,"7/6|1.75":0,"8/0|Hollow":0,"8/0|Solid":0,"8/0|Bifold":0,"8/0|1.75":0}},"riverside":{"name":"Riverside","desc":"5 Panel Raised","prices":{"6'8|Hollow":0.8,"6'8|Solid":0,"6'8|Bifold":0,"6'8|1.75":0,"7/0|Hollow":0,"7/0|Solid":0,"7/0|Bifold":0,"7/0|1.75":0,"7/6|1.75":0,"8/0|Hollow":0,"8/0|Solid":0,"8/0|Bifold":0,"8/0|1.75":0}},"2panelarchtop":{"name":"2 Panel Arch Top","desc":"eyebrows arch","prices":{"6'8|Hollow":0,"6'8|Solid":0,"6'8|Bifold":0,"6'8|1.75":0,"7/0|Hollow":0,"7/0|Solid":0,"7/0|Bifold":0,"7/0|1.75":0,"7/6|1.75":0,"8/0|Hollow":0,"8/0|Solid":0,"8/0|Bifold":0,"8/0|1.75":0}},"cheyenne":{"name":"Cheyenne","desc":"Beadboard Newport/Santa Fe","prices":{"6'8|Hollow":0,"6'8|Solid":0,"6'8|Bifold":0,"6'8|1.75":0,"7/0|Hollow":0,"7/0|Solid":0,"7/0|Bifold":0,"7/0|1.75":0,"7/6|1.75":0,"8/0|Hollow":0,"8/0|Solid":0,"8/0|Bifold":0,"8/0|1.75":0}},"2panelromansmooth":{"name":"2 Panel Roman Smooth","desc":"Veranda","prices":{"6'8|Hollow":0,"6'8|Solid":0,"6'8|Bifold":0,"6'8|1.75":0,"7/0|Hollow":0,"7/0|Solid":0,"7/0|Bifold":0,"7/0|1.75":0,"7/6|1.75":0,"8/0|Hollow":0,"8/0|Solid":0,"8/0|Bifold":0,"8/0|1.75":0}},"livingston":{"name":"Livingston","desc":"Three Panel Bevelled Multi Step Velencia","prices":{"6'8|Hollow":0,"6'8|Solid":0,"6'8|Bifold":0,"6'8|1.75":0,"7/0|Hollow":0,"7/0|Solid":0,"7/0|Bifold":0,"7/0|1.75":0,"7/6|1.75":0,"8/0|Hollow":0,"8/0|Solid":0,"8/0|Bifold":0,"8/0|1.75":0}},"clear1lite":{"name":"Clear 1-Lite","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":359.31,"6'8|Bifold":"N/A","6'8|1.75":"N/A","7/0|Hollow":"N/A","7/0|Solid":405.84,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Solid":469.89,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"1litedwl":{"name":"1-Lite DWL","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":391.61,"6'8|Bifold":"N/A","6'8|1.75":"N/A","7/0|Hollow":"N/A","7/0|Solid":461.68,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Solid":500,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"1sidedmirror":{"name":"1-sided Mirror","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":432.55,"6'8|Bifold":"N/A","6'8|1.75":"N/A","7/0|Hollow":"N/A","7/0|Solid":479.09,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Solid":579.38,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"doublesidedmirror":{"name":"Double sided Mirror","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":438.03,"6'8|Bifold":"N/A","6'8|1.75":"N/A","7/0|Hollow":"N/A","7/0|Solid":484.56,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Solid":590.33,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"reeded1lite":{"name":"Reeded 1-lite","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":368.61,"6'8|Bifold":"N/A","6'8|1.75":"N/A","7/0|Hollow":"N/A","7/0|Solid":406.93,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Solid":453.47,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"rain1lite":{"name":"Rain 1-lite","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":368.61,"6'8|Bifold":"N/A","6'8|1.75":"N/A","7/0|Hollow":"N/A","7/0|Solid":406.93,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Solid":453.47,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"1panelshaker":{"name":"1 panel shaker","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":240.95,"6'8|Bifold":381.09,"6'8|1.75":290.77,"7/0|Hollow":"N/A","7/0|Solid":342.88,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":346.17,"8/0|Hollow":"N/A","8/0|Solid":337.41,"8/0|Bifold":"N/A","8/0|1.75":349}},"2panelshaker":{"name":"2 panel shaker","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":249.16,"6'8|Bifold":390.95,"6'8|1.75":298.98,"7/0|Hollow":"N/A","7/0|Solid":351.09,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":354.38,"8/0|Hollow":"N/A","8/0|Solid":345.62,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"3panelequalshaker":{"name":"3 panel equal shaker","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":249.16,"6'8|Bifold":390.95,"6'8|1.75":307.19,"7/0|Hollow":"N/A","7/0|Solid":351.09,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":362.59,"8/0|Hollow":"N/A","8/0|Solid":345.62,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"4panelequalshaker":{"name":"4 panel equal shaker","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":257.37,"6'8|Bifold":398.61,"6'8|1.75":315.4,"7/0|Hollow":"N/A","7/0|Solid":362.04,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":370.8,"8/0|Hollow":"N/A","8/0|Solid":356.57,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"5panelequalshaker":{"name":"5 panel equal shaker","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":257.37,"6'8|Bifold":398.61,"6'8|1.75":"N/A","7/0|Hollow":"N/A","7/0|Solid":362.04,"7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Solid":356.57,"8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"plantationlouver":{"name":"Plantation Louver","desc":"","prices":{"6'8|Hollow":"N/A","6'8|Solid":386.13,"6'8|Bifold":466.61,"6'8|1.75":"N/A","7/0|Hollow":"N/A","7/0|Solid":"N/A","7/0|Bifold":"N/A","7/0|1.75":"N/A","7/6|1.75":"N/A","8/0|Hollow":"N/A","8/0|Bifold":"N/A","8/0|1.75":"N/A"}},"3panelclearglass":{"name":"3 Panel Clear Glass","desc":"","prices":{"6'8|Solid":376.82}},"10panelclearglass":{"name":"10 Panel Clear Glass","desc":"","prices":{"6'8|Solid":320.44}},"15panelclearglass":{"name":"15 Panel Clear Glass","desc":"","prices":{"6'8|Solid":337.41}},"pantry":{"name":"Pantry","desc":"","prices":{"6'8|Solid":374.09,"8/0|Solid":467.15}},"laundry":{"name":"Laundry","desc":"","prices":{"6'8|Solid":374.09,"8/0|Solid":467.15}},"3paneldwl":{"name":"3 Panel DWL","desc":"","prices":{"6'8|Solid":385.58,"8/0|Solid":686.13}},"4paneldwl":{"name":"4 Panel DWL","desc":"","prices":{"6'8|Solid":410.22}},"5paneldwl":{"name":"5 Panel DWL","desc":"","prices":{"6'8|Solid":410.22}},"shipping1pallet30doors":{"name":"Shipping 1 Pallet > 30 Doors","desc":"Includes Customs Paperwork","prices":{"6'8|Solid":350}},"shipping2pallets60doors":{"name":"Shipping 2 Pallets > 60 Doors","desc":"Includes Customs Paperwork","prices":{"6'8|Solid":250}},"rerail":{"name":"ReRail","desc":"","prices":{"6'8|Solid":20}},"doublestile":{"name":"Double Stile","desc":"Panel Doors - In place of re-stiling","prices":{"6'8|Solid":75}},"astragal":{"name":"Astragal","desc":"Contoured Profile Includes Flush Bolt","prices":{"6'8|Solid":50}},"tastragal":{"name":"T-Astragal","desc":"Includes Flush Bolt","prices":{"6'8|Solid":80}},"custompaintorder":{"name":"Custom Paint - Order","desc":"Sherwin Williams with Code","prices":{"6'8|Solid":200}},"custompaintperdoor":{"name":"Custom Paint Per Door","desc":"","prices":{"6'8|Solid":20}},"custonpaintcmatch":{"name":"Custon Paint - C Match","desc":"Sample to be Shipped to GIDC","prices":{"6'8|Solid":350}}},"extras":{"reRail":20,"reStile":75,"customPaintPerDoor":20,"customPaintOrder":200,"cMatch":350,"astragal":50,"tAstragal":80},"version":"REV002 (confidential)"};
+
+/* ===================== QuickBooks product/service list (from the invoice tool) ===================== */
+const QBO_ITEMS=["145 Big Tex Flat Bed","2015 Chevy Tahoe","4 Post Lift","Accessories","Accessories:14 x 24 Metal Shelf","Accessories:1\" Snap Hook","Accessories:4\" Snap Hook","Accessories:6\" Snap Hook","Accessories:Baskets","Accessories:Baskets:12 x 18\" Basket","Accessories:Baskets:12 x 24\" Basket","Accessories:Baskets:3 x 12\" Basket","Accessories:Baskets:8 x 12\" Basket","Accessories:Bike Hook","Accessories:Bike Rack","Accessories:Double Hook","Accessories:Double Hook:4\" Double Hook","Accessories:Double Hook:8\" Double Hook","Accessories:Double Hook:Double Utility Hook","Accessories:J-Hook 6\"","Accessories:Large tip out bins","Accessories:Loop Hook","Accessories:Loop Hook:4\" Loop Hook","Accessories:Loop Hook:8\" Loop Hook","Accessories:Magnets","Accessories:Paper Towel Holder","Accessories:Screw Driver Rack","Accessories:Shelf","Accessories:S-Hook","Accessories:Ski Rack","Accessories:Small Tool Rack","Accessories:Sports Rack","Accessories:Storage Bins","Accessories:Storage Bins:6 - Tilt Bin","Accessories:Storage Bins:9 - Tilt Bin","Accessories:Wire shelves","Accessories:Wire shelves:14 x 24\" Shelf","Accessories:Wire shelves:14 x 48\" Shelf","Accessories:Wire shelves:Shoe Shelf","Adjustment","Adjustment2","A/R ADJ","AR-ADJ","Bad Debt","Barn Door","Cabinets","Cabinets:Barzel Steel-Doors","Cabinets:Barzel Steel-Drawers","Cabinets:Barzel Steel-Locker","Cabinets:Barzel Steel-Upper","Cabinets:Counter Top/Work Surface","Cabinets:Garage Cabinets","Closet","Closet:Closet Installation","Credit Card Fee","Delivery","Discount","Finance Charge","Finance it","GDL Door Line","GDL Door Line:Bi-fold","GDL Door Line:Mirror By-Pass Set","GDL Door Line:Privacy ByPass Set","GMD Doors","GMD Doors:10 Lite Clear","GMD Doors:15 Lite Clear","GMD Doors:1 Lite Clear","GMD Doors:1 Lite Mirror","GMD Doors:1 Lite Pantry","GMD Doors:1 Lite Privacy","GMD Doors:1 Lite Rain","GMD Doors:1 Lite Reed","GMD Doors:1 Panel","GMD Doors:1 Panel Shaker","GMD Doors:2 Panel Arch","GMD Doors:2 Panel Roman","GMD Doors:2 Panel Roman V-Groove","GMD Doors:2 Panel Shaker","GMD Doors:2 Panel Square","GMD Doors:3 Lite Clear","GMD Doors:3 Lite Privacy","GMD Doors:3 Panel","GMD Doors:3 Panel Equal Shaker","GMD Doors:3 Panel Shaker","GMD Doors:4 Lite Privacy","GMD Doors:4 Panel","GMD Doors:4 Panel Even","GMD Doors:4 Panel Shaker","GMD Doors:4 Panel True Shaker Door","GMD Doors:5 Lite Privacy","GMD Doors:5 Panel Shaker","GMD Doors:6 Panel Textured","GMD Doors:Aberdeen","GMD Doors:Alki","GMD Doors:Astragal","GMD Doors:Ballard HC Modern","GMD Doors:Barn Door","GMD Doors:Barn Door Tracking","GMD Doors:Berkley","GMD Doors:Bifold","GMD Doors:Birkdale","GMD Doors:By Pass Door Track","GMD Doors:Cheyenne","GMD Doors:Custom Paint","GMD Doors:Deman","GMD Doors:Door Disposal","GMD Doors:Flat Slab","GMD Doors:Flush White","GMD Doors:Installation","GMD Doors:Jamb/Trim","GMD Doors:Kingston","GMD Doors:Laurelhurst","GMD Doors:Lincoln Park","GMD Doors:Livingston","GMD Doors:Logans","GMD Doors:Madison","GMD Doors:Melrose","GMD Doors:Mercer","GMD Doors:Monroe Smooth","GMD Doors:Montlake","GMD Doors:Paint","GMD Doors:Paint-Custom","GMD Doors:Paint-Glass","GMD Doors:Pivot","GMD Doors:Plantation","GMD Doors:Plantation Over Panel","GMD Doors:Pocket Door","GMD Doors:Rerail","GMD Doors:Re Stile","GMD Doors:Riverside","GMD Doors:Robson","GMD Doors:Router & Stop","GMD Doors:Solid Core","GMD Doors:Standard Door","GMD Doors:Vanair","GMD Doors:Whitman","GMD Doors:Winslow","GMD Doors:Winthrop","GMD - Supply Only","GMD - Supply Only:Flat/Flush Slab","GMD-Wholesale","GMD-Wholesale:10-Lite Clear Glass","GMD-Wholesale:1 Lite Clear Glass","GMD-Wholesale:1 Lite Laminated","GMD-Wholesale:1 Lite Mirror (2 sided)","GMD-Wholesale:1 Lite \"Pantry\"","GMD-Wholesale:1 Panel Shaker S&R","GMD-Wholesale:1 Panel Stile & Rail Shaker Bi","GMD-Wholesale:2 Panel Arch Top","GMD-Wholesale:2 Panel Shaker S & R","GMD-Wholesale:3 Lite Clear Glass","GMD-Wholesale:3 Lite DWL","GMD-Wholesale:3 Panel Equal Shaker S & R","GMD-Wholesale:4 Lite Privacy","GMD-Wholesale:4 Panel Shaker S & R","GMD-Wholesale:5 Panel Shaker","GMD-Wholesale:Aberdeen HC","GMD-Wholesale:Benton HC","GMD-Wholesale:Berkley HC Modern","GMD-Wholesale:Bonniville/Columbia HC","GMD-Wholesale:Bonnville Bi Fold","GMD-Wholesale:Columbia HC","GMD-Wholesale:Columbia SC","GMD-Wholesale:Deman Modern HC","GMD-Wholesale:Deman Modern SC","GMD-Wholesale:Discount","GMD-Wholesale:Flat Flush","GMD-Wholesale:Kingston Bi Fold","GMD-Wholesale:Kingston HC","GMD-Wholesale:Kingston SC","GMD-Wholesale:Laurelhurst Modern HC","GMD-Wholesale:Livingston HC","GMD-Wholesale:Livingston SC","GMD-Wholesale:Melrose HC","GMD-Wholesale:Mercer HC","GMD-Wholesale:Mercer HC Bi Fold","GMD-Wholesale:Mercer SC","GMD-Wholesale:Meridian","GMD-Wholesale:Modern Alki HC","GMD-Wholesale:Modern Alki SC","GMD-Wholesale:Plantation Louver SC","GMD-Wholesale:Shop Work","GMD-Wholesale:Whitman HC","GMD-Wholesale:Whitman SC","GMD-Wholesale:Whittman Bi fold","GMD-Wholesale:Winthrop SC","GMD-Wholesale:Yarrow HC","GMD-Wholesale:Yarrow SC","GST (ITC)","Hardware","Hardware:Accent Lever","Hardware:Alexandria Crystal Knob","Hardware:Andover Knob","Hardware:Avanti Lever","Hardware:Avila Lever","Hardware:Barn Door Handle","Hardware:Bifold Knob","Hardware:Bowery Knob","Hardware:Broadway Lever","Hardware:Customer Supplied","Hardware:Dead Bolt","Hardware:Dover Lever","Hardware:Eller Lever","Hardware:EmTek","Hardware:Finger Pull","Hardware:Flair Lever","Hardware:Georgian Knob","Hardware:Halifax Sq","Hardware:Hinge","Hardware:Hobson Crystal Knob","Hardware:Latitude Lever","Hardware:Mag Catch","Hardware:Manhattan Lever","Hardware:Merano Lever","Hardware:Miscellaneous Hardware","Hardware:Northbrook","Hardware:Orbit","Hardware:Plymouth Knob","Hardware:Pocket Door Latch","Hardware:Reuse Handle","Hardware:Sienna Knob","Hardware:Taymor Vega","Hardware:Torino Lever","Hardware:T-Strikes","Hardware:Whitney","Home Depot Percentage","HST Adjustments","HST (ITC) Adjustments","HST (ON)","HST (ON) (ITC)","Hydroguard Installation/Repair","Hydroguard Install/Repair","Initial Deposit","Labour","PmntDiscount_Product","PmntDiscount_Supplies","Product","Product - Closets & Organizers","Product - Retail Doors","Products","Products:Custom Work","Products:Flooring","Products:Flooring:Flake","Products:Flooring:Floor Repair","Product - SGA Doors","Products:Overhead Storage","Products:Slatwall Panels","Product - Wholesale Doors","Refund","Reimb Group","Service Fee","Services","SFD Discount","Shipping","Shipping Pallet","Supplies","Travel Expenses","Trusscore Panels","Tuffboard","Victoria Mouldings","Victoria Mouldings:Klasik 3 Panel raised","Work Surfaces"];
+const QBO_SET=new Set(QBO_ITEMS);
+
+/* ===================== offline .xlsx reader ===================== */
+async function inflateRaw(u8){
+  if(typeof DecompressionStream==="undefined") throw new Error("This browser can't unzip files. Use a recent Chrome, Edge, Safari or Firefox.");
+  const ds=new DecompressionStream("deflate-raw");
+  const ab=await new Response(new Blob([u8]).stream().pipeThrough(ds)).arrayBuffer();
+  return new Uint8Array(ab);
+}
+async function readZip(buf){
+  const dv=new DataView(buf), u8=new Uint8Array(buf);
+  let i=u8.length-22;
+  for(;i>=0;i--){ if(dv.getUint32(i,true)===0x06054b50) break; }
+  if(i<0) throw new Error("Not a valid .xlsx file.");
+  const count=dv.getUint16(i+10,true), off=dv.getUint32(i+16,true);
+  let p=off; const out={}; const dec=new TextDecoder();
+  for(let n=0;n<count;n++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), compSize=dv.getUint32(p+20,true);
+    const nameLen=dv.getUint16(p+28,true), extraLen=dv.getUint16(p+30,true), commLen=dv.getUint16(p+32,true);
+    const lho=dv.getUint32(p+42,true);
+    const name=dec.decode(u8.subarray(p+46,p+46+nameLen));
+    const lNameLen=dv.getUint16(lho+26,true), lExtraLen=dv.getUint16(lho+28,true);
+    const dstart=lho+30+lNameLen+lExtraLen;
+    const comp=u8.subarray(dstart,dstart+compSize);
+    out[name]= method===0 ? comp : await inflateRaw(comp);
+    p+=46+nameLen+extraLen+commLen;
+  }
+  return {files:out,dec};
+}
+function xmlDecode(s){return s==null?s:String(s).replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");}
+async function parseSheet(buf, sheetName){
+  const {files,dec}=await readZip(buf);
+  const t=k=> files[k]?dec.decode(files[k]):null;
+  const wb=t("xl/workbook.xml"), rels=t("xl/_rels/workbook.xml.rels");
+  if(!wb||!rels) throw new Error("This workbook is missing its core parts.");
+  const sheets=[...wb.matchAll(/<sheet[^>]*?name="([^"]+)"[^>]*?r:id="([^"]+)"/g)].map(m=>({name:xmlDecode(m[1]),rid:m[2]}));
+  const rel={}; [...rels.matchAll(/<Relationship[^>]*?Id="([^"]+)"[^>]*?Target="([^"]+)"/g)].forEach(m=>rel[m[1]]=m[2]);
+  let ps=sheets.find(s=>s.name===sheetName);
+  if(!ps) ps=sheets.find(s=>s.name.toLowerCase().replace(/\s+/g,"")===sheetName.toLowerCase().replace(/\s+/g,""));
+  if(!ps) throw new Error('No "'+sheetName+'" tab found in this workbook.');
+  const tgt=rel[ps.rid].replace(/^\//,"").replace(/^xl\//,"");
+  const xml=t("xl/"+tgt);
+  const ssXml=t("xl/sharedStrings.xml");
+  const shared= ssXml ? [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m=>[...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x=>xmlDecode(x[1])).join("")) : [];
+  const cells={};
+  for(const m of xml.matchAll(/<c\s+r="([A-Z]+\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
+    const ref=m[1], attrs=m[2], inner=m[3]; if(inner===undefined) continue;
+    const tm=attrs.match(/t="([^"]+)"/), ty=tm?tm[1]:null;
+    if(ty==="inlineStr"){const im=inner.match(/<t[^>]*>([\s\S]*?)<\/t>/);if(im)cells[ref]=xmlDecode(im[1]);continue;}
+    const vm=inner.match(/<v[^>]*>([\s\S]*?)<\/v>/); if(!vm) continue;
+    const v=vm[1];
+    cells[ref]= ty==="s" ? shared[+v] : (v!=="" && !isNaN(+v) ? +v : xmlDecode(v));
+  }
+  return cells;
+}
+function col(n){let s="";while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=(n-m-1)/26;}return s;}
+function shiftCol(letter,d){let n=0;for(const ch of letter)n=n*26+(ch.charCodeAt(0)-64);return col(n+d);}
+const round2=n=>Math.round((n+Number.EPSILON)*100)/100;
+const norm=s=>String(s==null?"":s).toLowerCase().replace(/[^a-z0-9]/g,"");
+
+/* ===================== price list ===================== */
+// figure out (height bracket, core/type) for each priced column from the header row
+function parseHeight(lab){ lab=String(lab); if(/8\s*\/\s*0|8['’]?0|^8\/0/.test(lab)||/8\/0/.test(lab))return "8/0"; if(/7\s*\/\s*6/.test(lab))return "7/6"; if(/7\s*\/\s*0/.test(lab))return "7/0"; if(/6['’]?\s*8|6\/8/.test(lab))return "6'8"; return ""; }
+function parseCore(lab){ lab=String(lab).toLowerCase(); if(lab.includes("1.75"))return "1.75"; if(lab.includes("bifold"))return "Bifold"; if(lab.includes("hollow"))return "Hollow"; if(lab.includes("solid"))return "Solid"; return ""; }
+
+function buildPriceList(cells){
+  // header row: find the row containing "Name" in col A (row 2 in REV002)
+  let hr=2;
+  for(let r=1;r<=6;r++){ if(norm(cells["A"+r])==="name"){ hr=r; break; } }
+  const COLS=[]; // {c, key:"6'8|Hollow", label}
+  for(let c=3;c<=15;c++){ const lab=cells[col(c)+hr]; if(lab==null||lab==="") continue; const h=parseHeight(lab), core=parseCore(lab); if(h&&core) COLS.push({c,key:h+"|"+core,label:String(lab)}); }
+  const styles={}; // normName -> {name, desc, prices:{key:val}}
+  const GROUPS=new Set(["lynden","masonite","trimlite","shopextras","resario"]);
+  for(let r=hr+1;r<=80;r++){
+    const a=cells["A"+r]; if(a==null||a==="") continue;
+    const prices={}; let hasPrice=false;
+    for(const cd of COLS){ const v=cells[col(cd.c)+r]; if(typeof v==="number"){ prices[cd.key]=v; hasPrice=true; } else if(v==="N/A"){ prices[cd.key]="N/A"; hasPrice=true; } }
+    if(!hasPrice) continue; // group header / blank
+    const key=norm(a);
+    if(!styles[key]) styles[key]={name:String(a),desc:cells["B"+r]?String(cells["B"+r]):"",prices};
+  }
+  // extras from the Shop Extras block (label col A, value col D)
+  const extras={reRail:20,reStile:75,customPaintPerDoor:20,customPaintOrder:200,cMatch:350,astragal:50,tAstragal:80};
+  for(let r=hr+1;r<=90;r++){
+    const a=norm(cells["A"+r]); const d=cells["D"+r];
+    if(!a) continue;
+    if(a==="rerail" && typeof d==="number") extras.reRail=d;
+    if(a==="doublestile" && typeof d==="number") extras.reStile=d;
+    if(a==="astragal" && typeof d==="number") extras.astragal=d;
+    if(a==="tastragal" && typeof d==="number") extras.tAstragal=d;
+    if(a.includes("custompaintperdoor") && typeof d==="number") extras.customPaintPerDoor=d;
+    if(a.includes("custompaint") && a.includes("order") && typeof d==="number") extras.customPaintOrder=d;
+    if(a.includes("cmatch") && typeof d==="number") extras.cMatch=d;
+  }
+  return {COLS,styles,extras};
+}
+
+/* ===================== order ===================== */
+const STD_PAINT=new Set(["extrawhite","purewhite","alabaster","pearly","stdwhite","white","","0","na"]);
+function isCustomPaint(p){ return !STD_PAINT.has(norm(p)); }
+// Some agreements mark the colour as CUSTOM on the agreement tab while leaving the per-door
+// Paint Colour cell blank, so also look for a "Paint Color (CUSTOM)" label on any sheet.
+function detectCustomPaintFlag(cells){
+  for(const ref in cells){
+    const v=cells[ref];
+    if(typeof v!=="string") continue;
+    if(/paint\s*colou?r/i.test(v) && /custom/i.test(v)) return true;
+  }
+  return false;
+}
+
+function readOrder(cells, layout){
+  // Two contract layouts:
+  //  - "pricing": the human Pricing Sheet (dealer orders that have it). Literal YES/NO flags.
+  //  - "upload":  the UploadTemplate tab (contracts with no Pricing Sheet, e.g. South Florida agreements).
+  const g=(cn,r)=>cells[cn+r];
+  let COL, startRow, endRow, breakOnGap;
+  if(layout==="upload"){
+    COL={num:"B",qty:"D",core:"E",type:"I",style:"Q",height:"W",rerail:"X",width:"Y",restile:"Z",astragal:"K",paint:"AF",cust:"AG"};
+    startRow=4; endRow=200; breakOnGap=true;
+  } else {
+    COL={num:"A",qty:"C",core:"D",type:"E",style:"F",height:"J",rerail:"K",width:"L",restile:"M",astragal:null,paint:"Q",cust:null};
+    startRow=1; endRow=400; breakOnGap=false;
+  }
+  // job / PO
+  let job="";
+  if(COL.cust){ for(let r=startRow;r<=endRow;r++){ const v=g(COL.cust,r); if(v!=null && String(v).trim()!=="" && String(v)!=="0"){ job=String(v).trim(); break; } } }
+  if(!job){
+    for(const ref in cells){
+      if(String(cells[ref]).trim()==="Customer Name:"){
+        const m=ref.match(/([A-Z]+)(\d+)/), c=m[1], row=m[2];
+        for(let d=1;d<=4;d++){ const v=cells[shiftCol(c,d)+row]; if(v!=null && String(v).trim()!=="" && String(v)!=="0"){ job=String(v).trim(); break; } }
+        if(job) break;
+      }
+    }
+  }
+  const doors=[];
+  for(let r=startRow;r<=endRow;r++){
+    const a=g(COL.num,r), st=g(COL.style,r);
+    const ss=String(st==null?"":st).trim();
+    const validNum=(typeof a==="number" && a>0 && Math.abs(a-Math.round(a))<=1e-9);
+    const validStyle=ss && ss!=="Door Style" && ss!=="0" && ss.indexOf("#")<0;
+    if(!validNum || !validStyle){ if(breakOnGap && doors.length) break; else continue; }
+    const qty=Number(g(COL.qty,r))||0; if(!qty) continue;
+    doors.push({
+      open:a, qty,
+      core:String(g(COL.core,r)||""), type:String(g(COL.type,r)||""),
+      style:ss, height:Number(g(COL.height,r))||0, width:Number(g(COL.width,r))||0,
+      rerail:g(COL.rerail,r), restile:g(COL.restile,r), astragal:COL.astragal?g(COL.astragal,r):"",
+      paint:String(g(COL.paint,r)||"").trim()
+    });
+  }
+  return {job,doors};
+}
+
+function heightBracket(h, isBifold){
+  // door slabs come only in standard heights; if the opening isn't an exact match, take the next size up.
+  // bifolds stay at 6'8" up to 81".
+  if(h<=0) return "";
+  const EPS=0.05;
+  const first = isBifold ? 81 : 80;   // 6'8" = 80" (81" for bifold)
+  if(h<=first+EPS) return "6'8";
+  if(h<=84+EPS) return "7/0";   // 7'0" = 84"
+  if(h<=90+EPS) return "7/6";   // 7'6" = 90"
+  return "8/0";                  // 8'0" = 96" (and oversize)
+}
+/* What the line description says. It carries exactly what the price depends on:
+   the door type, the height it prices at, and how the door is built. Width is
+   left out on purpose, because one price covers every width. The height shown
+   is the bracket the door prices in, not the measured opening, since several
+   openings can share a bracket and end up on one line. */
+const BUILD_LABEL  = {Hollow:"Hollow", Solid:"Solid", "1.75":"Fire", Bifold:""};
+const HEIGHT_LABEL = {"6'8":"6/8"};                 // the rest already read 7/0, 7/6, 8/0
+function lineDesc(typeLabel, br, ct){
+  const parts = [typeLabel];
+  if(br) parts.push(HEIGHT_LABEL[br] || br);
+  const b = BUILD_LABEL[ct];
+  if(b) parts.push(b);
+  return parts.join(" \u00b7 ");
+}
+function coreType(door){
+  if(/bifold/i.test(door.type)) return "Bifold";
+  const c=door.core.toLowerCase();
+  if(c.includes("1.75")||c.includes("thick")) return "1.75";     // "1.750 THICK"
+  if(c.includes("hollow")) return "Hollow";
+  if(c.includes("solid")||c.includes("stile")||c.includes("rail")) return "Solid"; // "1.375 STILE and RAIL" = solid
+  return "Hollow";
+}
+// match an order's (often descriptive) style name to a price-list style key
+const STYLE_ALIAS={};  // add explicit "ordernorm":"pricelistnorm" pairs here as needed
+function resolveStyleKey(style){
+  if(!PL) return norm(style);
+  const raw=norm(style);
+  if(PL.styles[raw]) return raw;
+  if(STYLE_ALIAS[raw] && PL.styles[STYLE_ALIAS[raw]]) return STYLE_ALIAS[raw];
+  // "SHAKER (TRUE), N-PANEL" -> price list "N panel shaker"
+  const pm=String(style).match(/(\d+)\s*-?\s*panel/i);
+  if(/shaker/i.test(style) && pm){
+    const k=norm(pm[1]+"panelshaker");
+    if(PL.styles[k]) return k;
+  }
+  return raw; // unmatched -> price lookup fails -> red/manual
+}
+function isYes(v){ const s=String(v==null?"":v).trim().toUpperCase(); if(s==="YES"||s==="Y"||s==="TRUE"||s==="X") return true; const n=parseFloat(s); return isFinite(n)&&n>0; }
+function isDoubleSwing(type){ return /double|french/i.test(String(type||"")); }
+
+// default QuickBooks item for a door: GMD-Wholesale:<style>. Core (HC/SC) and Bifold are reflected in the price; the type goes in the description.
+function gmdwDoorItem(style){ return "GMD-Wholesale:"+style; }
+
+/* ===================== build line items ===================== */
+function buildLines(PL, order){
+  const groups={}; // key -> line
+  let reRailQ=0, reStileQ=0, customQ=0, astragalQ=0, totalQ=0;
+  for(const d of order.doors){
+    totalQ += d.qty;
+    const ct=coreType(d), br=heightBracket(d.height, ct==="Bifold"), pkey=br+"|"+ct;
+    const st=PL.styles[resolveStyleKey(d.style)];
+    let rate=null, found=false;
+    if(st){ const v=st.prices[pkey]; if(typeof v==="number" && v>0){ rate=round2(v); found=true; } }
+    const styleName=(st?st.name:d.style);
+    const typeLabel=(d.type&&String(d.type).trim())?String(d.type).trim():"Door";
+    const gk=norm(d.style)+"|"+pkey+"|"+norm(typeLabel);
+    if(!groups[gk]){
+      const learnKey="door:"+norm(d.style);
+      const item=learnedMap[learnKey]||gmdwDoorItem(styleName);
+      groups[gk]={item, key:learnKey, desc:lineDesc(typeLabel, br, ct), qty:0, rate:(found?rate:0), missing:!found};
+    }
+    groups[gk].qty += d.qty;
+    if(isYes(d.rerail))  reRailQ  += d.qty;
+    if(isYes(d.restile)) reStileQ += d.qty;
+    if(isDoubleSwing(d.type) || isYes(d.astragal)) astragalQ += 1;
+    if(isCustomPaint(d.paint)) customQ += d.qty;
+  }
+  const lines=Object.values(groups).sort((a,b)=>a.desc.localeCompare(b.desc));
+  if(order.customPaint && customQ===0) customQ=totalQ; // agreement says CUSTOM but per-door colour was blank
+  const ex=(key,defItem,desc,qty,rate)=>({item:learnedMap[key]||defItem,key,desc,qty,rate,missing:false});
+  if(reRailQ>0) lines.push(ex("extra:rerail","GMD Doors:Rerail","Re-Rail",reRailQ,PL.extras.reRail));
+  if(reStileQ>0) lines.push(ex("extra:restile","GMD Doors:Re Stile","Re-Stile",reStileQ,PL.extras.reStile));
+  if(astragalQ>0) lines.push(ex("extra:astragal","GMD Doors:Astragal","Astragal — double-swing doors (incl. flush bolt)",astragalQ,PL.extras.astragal));
+  if(customQ>0){
+    lines.push(ex("extra:custompaintorder","GMD Doors:Custom Paint","Custom paint — order setup (Sherwin-Williams w/ code)",1,PL.extras.customPaintOrder));
+    lines.push(ex("extra:custompaint","GMD Doors:Custom Paint","Custom paint colour — per door upcharge",customQ,PL.extras.customPaintPerDoor));
+  }
+  return lines;
+}
+
+/* ===================== UI ===================== */
+const $=id=>document.getElementById(id);
+let PL=null, lines=[];
+const LS_PRICE="grinyer_usd_pricelist";
+
+// learned QuickBooks item matches (remembered on this computer)
+const LS_MATCH="grinyer_usd_qbo_matches";
+function loadLearned(){ try{ return JSON.parse(localStorage.getItem(LS_MATCH))||{}; }catch(e){ return {}; } }
+function saveLearned(){ try{ localStorage.setItem(LS_MATCH, JSON.stringify(learnedMap)); }catch(e){} }
+let learnedMap=loadLearned();
+function learnMatch(key,val){ if(key && QBO_SET.has(val)){ learnedMap[key]=val; saveLearned(); } }
+
+// shared searchable picker for the QuickBooks item fields
+const cbpop=document.createElement("div"); cbpop.className="cbpop"; cbpop.hidden=true;
+document.body.appendChild(cbpop);
+let cbInput=null;
+function cbRender(){
+  if(!cbInput){cbpop.hidden=true;return;}
+  const v=cbInput.value.trim().toLowerCase();
+  const showAll = v==="" || QBO_SET.has(cbInput.value.trim());
+  const matches = showAll ? QBO_ITEMS : QBO_ITEMS.filter(p=>p.toLowerCase().includes(v));
+  if(!matches.length){ cbpop.innerHTML='<div class="cbempty">No matching item</div>'; }
+  else cbpop.innerHTML=matches.slice(0,300).map(p=>'<div class="cbopt'+(p===cbInput.value?' on':'')+'" data-v="'+esc(p)+'">'+esc(p)+'</div>').join("");
+  const r=cbInput.getBoundingClientRect();
+  cbpop.style.left=r.left+"px"; cbpop.style.top=(r.bottom+2)+"px"; cbpop.style.width=Math.max(r.width,280)+"px";
+  cbpop.hidden=false;
+}
+function cbHide(){ cbpop.hidden=true; cbInput=null; }
+cbpop.addEventListener("mousedown",e=>{
+  const o=e.target.closest(".cbopt"); if(!o||!cbInput) return;
+  e.preventDefault();
+  const inp=cbInput, val=o.dataset.v, i=+inp.dataset.i;
+  inp.value=val; lines[i].item=val; inp.classList.toggle("unmatched",!QBO_SET.has(val));
+  learnMatch(lines[i].key, val);
+  totals(); cbHide();
+});
+document.addEventListener("scroll",()=>{ if(cbInput) cbRender(); }, true);
+window.addEventListener("resize",()=>{ if(cbInput) cbRender(); });
+
+function money(n){const s=Math.abs(n).toLocaleString("en-US",{minimumFractionDigits:2,maximumFractionDigits:2});return (n<0?"-$":"$")+s;}
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");}
+function fmtNum(v){if(v===""||v==null)return "";const n=Number(v);if(!isFinite(n))return v;return (Math.round(n*100)/100).toString();}
+function lineAmt(l){return round2((Number(l.qty)||0)*(Number(l.rate)||0));}
+
+function showErr(m){const e=$("err");e.textContent=m;e.classList.add("show");}
+function clearErr(){$("err").classList.remove("show");}
+
+/* ---- price list load (with localStorage memory) ---- */
+function markPriceLoaded(label){
+  $("dropPrice").classList.add("loaded");
+  $("priceLabel").textContent="1 · Price list loaded ✓";
+  $("priceHint").textContent=label+" — drop a new file to replace";
+}
+function loadCachedPrice(){
+  // built-in list is the default; a previously uploaded newer list (if any) overrides it
+  PL=EMBEDDED_PL; markPriceLoaded("built-in price list · "+(EMBEDDED_PL.version||""));
+  try{ const j=localStorage.getItem(LS_PRICE); if(j){ const o=JSON.parse(j); if(o&&o.PL){ PL=o.PL; markPriceLoaded((o.label||"uploaded price list")+" (overrides built-in)"); } } }catch(e){}
+}
+async function handlePrice(file){
+  clearErr();
+  try{
+    const buf=await file.arrayBuffer();
+    const cells=await parseSheet(buf,"Cut and Painted Wholesale USD");
+    PL=buildPriceList(cells);
+    if(!Object.keys(PL.styles).length) throw new Error("No priced door styles found on the USD sheet.");
+    try{ localStorage.setItem(LS_PRICE, JSON.stringify({PL,label:file.name})); }catch(e){}
+    markPriceLoaded(file.name);
+  }catch(err){ showErr("Price list: "+(err.message||err)); }
+}
+
+/* ---- order load ---- */
+async function handleOrder(file){
+  clearErr();
+  if(!PL){ showErr("Load the USD price list first."); return; }
+  try{
+    const buf=await file.arrayBuffer();
+    let cells, layout;
+    try{ cells=await parseSheet(buf,"Pricing Sheet"); layout="pricing"; }
+    catch(e){ cells=await parseSheet(buf,"UploadTemplate"); layout="upload"; }
+    const order=readOrder(cells, layout);
+    if(!order.doors.length) throw new Error("No door rows found (looked at the Pricing Sheet and UploadTemplate tabs).");
+    // custom paint can be flagged on the order itself or on the agreement tab (per-door colour may be blank)
+    order.customPaint = detectCustomPaintFlag(cells);
+    if(!order.customPaint && layout==="upload"){
+      for(const sh of ["AGREEMENT 1 of 1","AGREEMENT 2 of 2","AGREEMENT","BACK-END"]){
+        try{ if(detectCustomPaintFlag(await parseSheet(buf,sh))){ order.customPaint=true; break; } }catch(e){}
+      }
+    }
+    lines=buildLines(PL, order);
+    fillCustomers();
+    $("f_po").value=order.job||"";
+    $("f_invno").value="";
+    if(!$("f_date").value) $("f_date").value=new Date().toISOString().slice(0,10);
+    $("editor").classList.remove("hide");
+    renderRows();
+    window.scrollTo({top:document.querySelector('header.top').offsetHeight,behavior:"smooth"});
+  }catch(err){ showErr("Order: "+(err.message||err)); }
+}
+
+function fillCustomers(){
+  const sel=$("f_customer");
+  if(sel.options.length) return;
+  CUSTOMERS.forEach((c,i)=>{ const o=document.createElement("option"); o.value=c.name; o.textContent=c.name; o.title=c.addr; sel.appendChild(o); });
+}
+
+function renderRows(){
+  const tb=$("rows"); tb.innerHTML="";
+  lines.forEach((l,i)=>{
+    const tr=document.createElement("tr");
+    if(l.missing) tr.className="missing";
+    const amt=lineAmt(l);
+    tr.innerHTML=
+      '<td><input autocomplete="off" class="cbfield '+(QBO_SET.has(l.item)?"":"unmatched")+'" data-i="'+i+'" data-k="item" value="'+esc(l.item)+'"></td>'+
+      '<td><input data-i="'+i+'" data-k="desc" value="'+esc(l.desc)+'"></td>'+
+      '<td class="num"><input data-i="'+i+'" data-k="qty" value="'+fmtNum(l.qty)+'"></td>'+
+      '<td class="num"><input class="rate" data-i="'+i+'" data-k="rate" value="'+(l.missing&&!l.rate?"":fmtNum(l.rate))+'" placeholder="'+(l.missing?"enter $":"")+'"></td>'+
+      '<td class="num amt">'+money(amt)+'</td>'+
+      '<td><button class="del" data-del="'+i+'">&times;</button></td>';
+    tb.appendChild(tr);
+  });
+  totals();
+}
+// Discount applies to the whole product subtotal; the tariff applies to what remains after the discount.
+function computeTotals(){
+  const sub=round2(lines.reduce((s,l)=>s+lineAmt(l),0));
+  const dPct=Math.max(0,parseFloat($("f_disc").value)||0);
+  const tPct=Math.max(0,parseFloat($("f_tariff").value)||0);
+  const discount=round2(sub*dPct/100);        // positive magnitude; shown and exported as a negative line
+  const afterDisc=round2(sub-discount);
+  const tariff=round2(afterDisc*tPct/100);
+  const total=round2(afterDisc+tariff);
+  return {sub,dPct,tPct,discount,afterDisc,tariff,total};
+}
+function totals(){
+  const t=computeTotals();
+  $("t_sub").textContent=money(t.sub);
+  $("t_disc_lbl").textContent="Discount ("+t.dPct+"%)";
+  $("t_disc").textContent=money(-t.discount);
+  $("t_after").textContent=money(t.afterDisc);
+  $("t_tariff_lbl").textContent="Tariff ("+t.tPct+"%)";
+  $("t_tariff").textContent=money(t.tariff);
+  $("t_total").textContent=money(t.total);
+  const miss=lines.filter(l=>l.missing&&!Number(l.rate)).length;
+  const unm=lines.filter(l=>l.item && !QBO_SET.has(l.item)).length;
+  let note="";
+  if(miss) note="— "+miss+" line"+(miss>1?"s":"")+" need a price";
+  else if(unm) note="— "+unm+" item"+(unm>1?"s":"")+" not in QuickBooks yet (amber)";
+  $("missnote").textContent=note;
+  $("download").disabled=miss>0;
+}
+
+$("rows").addEventListener("input",e=>{
+  const t=e.target, i=+t.dataset.i, k=t.dataset.k; if(!k) return;
+  if(k==="qty"||k==="rate"){
+    lines[i][k]=parseFloat(t.value)||0;
+    if(k==="rate" && lines[i].rate>0){ lines[i].missing=false; t.closest("tr").classList.remove("missing"); }
+    t.closest("tr").querySelector(".amt").textContent=money(lineAmt(lines[i]));
+    totals();
+  } else if(k==="item"){
+    lines[i].item=t.value;
+    t.classList.toggle("unmatched", !QBO_SET.has(t.value));
+    cbInput=t; cbRender(); learnMatch(lines[i].key, t.value); totals();
+  } else { lines[i][k]=t.value; }
+});
+$("rows").addEventListener("focusin",e=>{ if(e.target.classList.contains("cbfield")){ cbInput=e.target; e.target.select(); cbRender(); } });
+$("rows").addEventListener("focusout",e=>{ if(e.target.classList.contains("cbfield")) setTimeout(()=>{ if(document.activeElement!==e.target) cbHide(); },120); });
+$("rows").addEventListener("click",e=>{ const d=e.target.dataset.del; if(d===undefined)return; lines.splice(+d,1); renderRows(); });
+$("addrow").addEventListener("click",()=>{ lines.push({item:"",desc:"",qty:1,rate:0,missing:false}); renderRows(); });
+$("f_tax").addEventListener("input",totals);
+$("f_disc").addEventListener("input",totals);
+$("f_tariff").addEventListener("input",totals);
+
+/* ---- drag/drop wiring ---- */
+function wire(dropId,inputId,handler){
+  const d=$(dropId), inp=$(inputId);
+  d.addEventListener("click",()=>inp.click());
+  d.addEventListener("dragover",e=>{e.preventDefault();d.classList.add("over");});
+  d.addEventListener("dragleave",()=>d.classList.remove("over"));
+  d.addEventListener("drop",e=>{e.preventDefault();d.classList.remove("over");if(e.dataTransfer.files[0])handler(e.dataTransfer.files[0]);});
+  inp.addEventListener("change",e=>{if(e.target.files[0])handler(e.target.files[0]);});
+}
+wire("dropPrice","filePrice",handlePrice);
+wire("dropOrder","fileOrder",handleOrder);
+$("revertPrice").addEventListener("click",e=>{
+  e.preventDefault(); e.stopPropagation();
+  try{ localStorage.removeItem(LS_PRICE); }catch(err){}
+  PL=EMBEDDED_PL; markPriceLoaded("built-in price list · "+(EMBEDDED_PL.version||""));
+  if(lines.length){ /* keep current order lines as-is */ }
+});
+loadCachedPrice();
+
+/* ---- export ---- */
+function csvCell(v){ v=v==null?"":String(v); return /[",\n]/.test(v) ? '"'+v.replace(/"/g,'""')+'"' : v; }
+$("download").addEventListener("click",()=>{
+  const miss=lines.filter(l=>l.missing&&!Number(l.rate)).length;
+  if(miss){ showErr("Enter the missing prices (red rows) before exporting."); return; }
+  clearErr();
+  const cust=$("f_customer").value, po=$("f_po").value.trim(), inv=$("f_invno").value.trim();
+  const date=$("f_date").value, terms=$("f_terms").value.trim(), tax=$("f_tax").value.trim();
+  const currency=$("f_currency").value.trim()||"USD";
+  const hdr=["InvoiceNo","Customer","Currency","PONumber","InvoiceDate","Terms","Item(Product/Service)","ItemDescription","ItemQuantity","ItemRate","ItemAmount","ItemTaxCode"];
+  const rows=[hdr.join(",")];
+  lines.forEach(l=>{ rows.push([inv,cust,currency,po,date,terms,l.item,l.desc,fmtNum(l.qty),round2(l.rate),lineAmt(l),tax].map(csvCell).join(",")); });
+  // discount (20% of products) then tariff (50% of what remains), each a single line
+  const t=computeTotals();
+  if(t.discount>0) rows.push([inv,cust,currency,po,date,terms,"GMD-Wholesale:Discount","Discount ("+t.dPct+"% of products)",1,-t.discount,-t.discount,tax].map(csvCell).join(","));
+  if(t.tariff>0)   rows.push([inv,cust,currency,po,date,terms,"GMD-Wholesale:Tariff","Tariff ("+t.tPct+"% after discount)",1,t.tariff,t.tariff,tax].map(csvCell).join(","));
+  const blob=new Blob(["\ufeff"+rows.join("\r\n")],{type:"text/csv;charset=utf-8"});
+  const name=(cust?cust.replace(/[^\w]+/g,"_"):"Order")+(po?"_"+po.replace(/[^\w]+/g,"_"):"")+"_QBO_USD.csv";
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),2000);
+});
+$("reset").addEventListener("click",()=>{
+  lines=[]; $("editor").classList.add("hide"); $("fileOrder").value=""; clearErr();
+  window.scrollTo({top:0,behavior:"smooth"});
+});
+$("forget").addEventListener("click",()=>{
+  learnedMap={}; saveLearned();
+  showErr("Saved item matches cleared. Re-drop the order to re-apply automatic matches.");
+  setTimeout(clearErr,4000);
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Grinyer · Go Backs</title>
+
+<!-- gidc-guard
+     who: team. Everybody who works here reads this list, installers
+     included, so the crew going back to a job knows what is outstanding.
+     Reading only for them: booking the repair and marking it done stays
+     with the Grinyer team, and the database says the same thing
+     underneath this page rather than taking the page's word for it. -->
+<script>window.GIDC_TOOL = {who: 'team'};</script>
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<style>
+:root{
+  --paper:#F6F6F7; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --rule-soft:#EFEFF2;
+  --brass:#C80000; --brass-soft:#FCECEC;
+  --ok:#2F6B3A; --ok-soft:#ECF5EE;
+  --warn:#9A4A12; --warn-soft:#FBF1E7;
+  --info:#2B5599; --info-soft:#EAF0FA;
+  --skip:#A6A6AE; --pad:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding:0 var(--pad) 60px;-webkit-text-size-adjust:100%}
+.wrap{max-width:1040px;margin:0 auto}
+
+h1{font-size:23px;margin:22px 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);font-size:14px;margin:0 0 18px;max-width:62ch}
+/* Raising one still happens on the form. This is the way through to it,
+   so nobody has to go back out to the tools page to start one. */
+.head{display:flex;gap:16px;align-items:flex-start}
+.head > div{flex:1;min-width:0}
+.newone{flex:none;margin-top:24px;display:inline-block;text-decoration:none;
+  background:var(--brass);color:#fff;border-radius:10px;font-weight:600;font-size:14.5px;
+  padding:12px 18px;white-space:nowrap}
+.newone:hover{filter:brightness(.94)}
+@media (max-width:560px){
+  .head{flex-direction:column;gap:0}
+  .newone{margin:0 0 18px}
+}
+
+.bar{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:0 0 16px}
+.chipbtn{border:1px solid var(--rule);background:var(--card);color:var(--ink);
+  border-radius:999px;padding:8px 14px;font:inherit;font-size:13.5px;cursor:pointer;
+  min-height:38px}
+.chipbtn.on{background:var(--brass);border-color:var(--brass);color:#fff;font-weight:600}
+.search{flex:1;min-width:190px}
+.search input{width:100%;padding:9px 12px;border:1px solid var(--rule);border-radius:9px;
+  font:inherit;min-height:38px;background:var(--card);color:var(--ink)}
+.search input:focus{outline:2px solid var(--brass);outline-offset:-1px;border-color:var(--brass)}
+
+.list{background:var(--card);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.row{border-bottom:1px solid var(--rule-soft);padding:13px 16px;cursor:pointer}
+.row:last-child{border-bottom:0}
+.row:hover{background:var(--rule-soft)}
+.row.open{background:var(--rule-soft);cursor:default}
+.top{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.who{font-weight:600;font-size:16px}
+.when{color:var(--muted);font-size:13px;margin-left:auto;white-space:nowrap}
+.meta{color:var(--muted);font-size:13.5px;margin-top:3px}
+.note{font-size:13.5px;margin-top:4px;color:var(--ink)}
+.note b{color:var(--muted);font-weight:600}
+
+.chip{display:inline-block;padding:3px 10px;border-radius:999px;font-size:12px;
+  font-weight:600;white-space:nowrap}
+.chip.filed{background:var(--warn-soft);color:var(--warn)}
+.chip.repair_booked{background:var(--info-soft);color:var(--info)}
+.chip.completed{background:var(--ok-soft);color:var(--ok)}
+
+.detail{padding:4px 0 2px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px 22px;
+  margin:12px 0 4px}
+.cell .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
+  font-weight:600;margin-bottom:2px}
+.cell .v{font-size:14.5px;white-space:pre-wrap}
+.long{margin:14px 0 0}
+.long .k{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;
+  font-weight:600;margin-bottom:3px}
+.long .v{font-size:14.5px;white-space:pre-wrap;line-height:1.5}
+
+.setrow{display:flex;gap:9px;flex-wrap:wrap;align-items:center;margin:16px 0 2px;
+  padding-top:14px;border-top:1px solid var(--rule)}
+.setrow select,.setrow input{padding:9px 11px;border:1px solid var(--rule);border-radius:9px;
+  font:inherit;min-height:40px;background:var(--card);color:var(--ink)}
+.setrow input{flex:1;min-width:170px}
+.setrow select:focus,.setrow input:focus{outline:2px solid var(--brass);outline-offset:-1px}
+button.save{border:0;border-radius:9px;background:var(--brass);color:#fff;
+  font:600 14px/1 inherit;padding:11px 18px;min-height:40px;cursor:pointer}
+button.save:disabled{opacity:.55;cursor:default}
+/* Removing one for good. Outlined rather than filled, so the thing that
+   cannot be undone is not the loudest button on the row. */
+button.danger{border:1px solid var(--brass);background:var(--card);color:var(--brass);
+  border-radius:9px;font:600 14px/1 inherit;padding:11px 16px;min-height:40px;cursor:pointer;
+  margin-left:auto}
+button.danger:disabled{opacity:.55;cursor:default}
+button.plain{border:1px solid var(--rule);background:var(--card);color:var(--ink);
+  border-radius:9px;font:600 14px/1 inherit;padding:11px 16px;min-height:40px;cursor:pointer}
+.areyousure{margin:12px 0 2px;padding:13px 15px;border-radius:10px;
+  background:var(--brass-soft);color:var(--brass);font-size:14px;line-height:1.5}
+.areyousure b{font-weight:700}
+.areyousure .acts{display:flex;gap:9px;flex-wrap:wrap;margin-top:11px}
+.areyousure .acts button.danger{margin-left:0}
+
+.msg{padding:11px 13px;border-radius:9px;font-size:14px;margin:0 0 14px}
+.msg.bad{background:var(--brass-soft);color:var(--brass)}
+.msg.good{background:var(--ok-soft);color:var(--ok)}
+.empty{padding:34px 18px;text-align:center;color:var(--muted);font-size:14.5px}
+.count{color:var(--muted);font-size:13px;margin:12px 2px 0}
+.gidc-build{position:fixed;right:10px;bottom:8px;z-index:60;font-size:11px;line-height:1;
+  color:#8E8E99;opacity:.7;pointer-events:none;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.hide{display:none}
+@media (max-width:560px){ .when{margin-left:0;width:100%} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="head">
+    <div>
+      <h1>Go Backs</h1>
+      <p class="sub" id="lede">Every installation somebody has to return to, and where each
+        one has got to. Tap a line to see what was found on site and what is needed.</p>
+    </div>
+    <a class="newone" href="../goback/">New go back</a>
+  </div>
+
+  <div id="msg" class="hide"></div>
+
+  <div class="bar" id="filters"></div>
+  <div class="list" id="list"><div class="empty">Loading&hellip;</div></div>
+  <p class="count" id="count"></p>
+</div>
+
+<div class="gidc-build">Go Backs 1.2 &middot; 08 Oct 2026</div>
+
+<script>
+(function(){
+'use strict';
+
+/* The stored word on the left, what a person reads on the right. The word
+   never changes, because every go back already carries one. */
+var STATUSES = [
+  ['filed',         'Filed'],
+  ['repair_booked', 'Repair booked'],
+  ['completed',     'Completed']
+];
+var LABEL = {};
+STATUSES.forEach(function(s){ LABEL[s[0]] = s[1]; });
+function statusText(s){
+  if(LABEL[s]) return LABEL[s];
+  /* A status added to the database before this page reaches every browser
+     should read as something rather than as undefined. */
+  return s ? String(s).replace(/_/g,' ').replace(/^./,function(c){ return c.toUpperCase(); })
+           : 'Unknown';
+}
+
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; });
+}
+
+var ME = null;
+var ROWS = [];
+var filter = 'all';
+var query = '';
+var openId = null;
+var confirmDel = null;     /* the one being asked about, not yet deleted */
+var busy = false;
+
+/* Removing a go back is an administrator's job and the database says so:
+   the delete policy names is_admin and nothing else. This only decides
+   whether the button is drawn, so somebody who is not an administrator is
+   not offered something that would be refused. */
+function isAdmin(){ return !!ME && ME.role === 'admin'; }
+
+/* An installer reads the list and does not work it. The status, the note
+   and Delete are all left off their view, because offering a control the
+   database will refuse is worse than not offering it at all. */
+function canWork(){ return !!ME && ME.role !== 'installer'; }
+
+/* A bare date from Postgres is a day, and a timestamp is an instant. Both
+   are shown in Toronto time, because that is where everyone reading this
+   is. Handing a bare date to new Date() makes it UTC midnight, which shows
+   as the evening before. */
+function when(v){
+  if(!v) return '';
+  var d = new Date(String(v));
+  if(isNaN(d.getTime())) return String(v);
+  return d.toLocaleDateString('en-CA', {year:'numeric', month:'short', day:'numeric'});
+}
+function whenLong(v){
+  if(!v) return '';
+  var d = new Date(String(v));
+  if(isNaN(d.getTime())) return String(v);
+  return d.toLocaleString('en-CA', {year:'numeric', month:'short', day:'numeric',
+                                    hour:'numeric', minute:'2-digit'});
+}
+function money(v){
+  if(v === null || v === undefined || v === '') return '—';
+  var n = Number(v);
+  return isFinite(n) ? '$' + n.toFixed(2) : String(v);
+}
+function orDash(v){
+  var s = String(v == null ? '' : v).trim();
+  return s ? esc(s) : '—';
+}
+
+function message(kind, text){
+  var m = $('msg');
+  if(!kind){ m.className = 'hide'; m.textContent = ''; return; }
+  m.className = 'msg ' + kind;
+  m.textContent = text;
+}
+
+/* ---- reading ---------------------------------------------------------- */
+function load(){
+  return GIDCAuth.api('/rest/v1/go_backs?select=*&order=created_at.desc',
+      {headers: GIDCAuth.headers()})
+    .then(function(r){
+      if(!r.ok) throw new Error('Could not read the go backs (' + r.status + ')');
+      return r.json();
+    })
+    .then(function(rows){ ROWS = rows || []; draw(); })
+    .catch(function(err){
+      $('list').innerHTML = '<div class="empty">' + esc(err.message) + '</div>';
+      $('filters').innerHTML = '';
+    });
+}
+
+function showing(){
+  var q = query.trim().toLowerCase();
+  return ROWS.filter(function(g){
+    if(filter !== 'all' && g.status !== filter) return false;
+    if(!q) return true;
+    return [g.customer_name, g.reason, g.reason_other, g.cause, g.materials,
+            g.filed_by_name, (g.installer_names || []).join(' ')]
+      .join(' ').toLowerCase().indexOf(q) !== -1;
+  });
+}
+
+function drawFilters(){
+  var counts = {all: ROWS.length};
+  STATUSES.forEach(function(s){ counts[s[0]] = 0; });
+  ROWS.forEach(function(g){ counts[g.status] = (counts[g.status] || 0) + 1; });
+  var h = '<button class="chipbtn' + (filter === 'all' ? ' on' : '') +
+          '" data-f="all">All (' + counts.all + ')</button>';
+  STATUSES.forEach(function(s){
+    h += '<button class="chipbtn' + (filter === s[0] ? ' on' : '') +
+         '" data-f="' + s[0] + '">' + esc(s[1]) + ' (' + (counts[s[0]] || 0) + ')</button>';
+  });
+  h += '<span class="search"><input id="q" type="search" placeholder="Search customer, cause, installer" ' +
+       'value="' + esc(query) + '"></span>';
+  $('filters').innerHTML = h;
+}
+
+function detailFor(g){
+  var cause = g.reason === 'Other' && g.reason_other
+    ? 'Other: ' + g.reason_other : g.reason;
+  var cell = function(k, v){
+    return '<div class="cell"><div class="k">' + esc(k) + '</div><div class="v">' + v + '</div></div>';
+  };
+  var longer = function(k, v){
+    return '<div class="long"><div class="k">' + esc(k) + '</div><div class="v">' +
+           orDash(v) + '</div></div>';
+  };
+  return '<div class="detail">' +
+    '<div class="grid">' +
+      cell('Installers on site', (g.installer_names || []).length
+        ? esc(g.installer_names.join(', ')) : '—') +
+      cell('Cause', orDash(cause)) +
+      cell('Amount held back', money(g.amount_held)) +
+      cell('Photos in Company Cam',
+        g.photos_in_cam === true ? 'Yes' : g.photos_in_cam === false ? 'No' : 'Not answered') +
+      cell('Filed by', orDash(g.filed_by_name) + ' on ' + esc(whenLong(g.created_at))) +
+      cell('Emailed', g.emailed_at ? esc(whenLong(g.emailed_at)) : 'Not emailed') +
+    '</div>' +
+    longer('What happened', g.cause) +
+    longer('New materials required', g.materials) +
+    (!canWork() ? '' :
+    '<div class="setrow">' +
+      '<select data-st="' + esc(g.id) + '">' +
+        STATUSES.map(function(s){
+          return '<option value="' + s[0] + '"' + (g.status === s[0] ? ' selected' : '') +
+                 '>' + esc(s[1]) + '</option>'; }).join('') +
+      '</select>' +
+      '<input data-nt="' + esc(g.id) + '" type="text" placeholder="Where it is up to, in a line" ' +
+        'value="' + esc(g.status_note || '') + '">' +
+      '<button class="save" data-save="' + esc(g.id) + '">Save</button>' +
+      (isAdmin() && confirmDel !== g.id
+        ? '<button class="danger" data-del="' + esc(g.id) + '">Delete</button>' : '') +
+    '</div>') +
+    /* Asked here rather than in a browser box, which is easy to click
+       through without reading, and which some browsers suppress. The
+       customer is named so there is no doubt which one is about to go. */
+    (isAdmin() && confirmDel === g.id
+      ? '<div class="areyousure">' +
+          '<div>Delete the go back for <b>' + orDash(g.customer_name) + '</b> for good? ' +
+          'There is no undo, and it does not recall the email that already went.</div>' +
+          '<div class="acts">' +
+            '<button class="danger" data-delyes="' + esc(g.id) + '">Yes, delete it</button>' +
+            '<button class="plain" data-delno="1">Keep it</button>' +
+          '</div>' +
+        '</div>'
+      : '') +
+  '</div>';
+}
+
+function draw(){
+  drawFilters();
+  var rows = showing();
+  if(!rows.length){
+    $('list').innerHTML = '<div class="empty">' +
+      (ROWS.length ? 'Nothing matches that.' : 'No go backs yet.') + '</div>';
+    $('count').textContent = '';
+    return;
+  }
+  $('list').innerHTML = rows.map(function(g){
+    var open = g.id === openId;
+    var cause = g.reason === 'Other' && g.reason_other ? g.reason_other : g.reason;
+    return '<div class="row' + (open ? ' open' : '') + '" data-row="' + esc(g.id) + '">' +
+      '<div class="top">' +
+        '<span class="who">' + orDash(g.customer_name) + '</span>' +
+        '<span class="chip ' + esc(g.status) + '">' + esc(statusText(g.status)) + '</span>' +
+        '<span class="when">' + esc(when(g.created_at)) + '</span>' +
+      '</div>' +
+      '<div class="meta">' + orDash(cause) +
+        ((g.installer_names || []).length ? ' · ' + esc(g.installer_names.join(', ')) : '') +
+        (g.amount_held ? ' · ' + money(g.amount_held) + ' held' : '') +
+      '</div>' +
+      (g.status_note ? '<div class="note"><b>Latest:</b> ' + esc(g.status_note) + '</div>' : '') +
+      (open ? detailFor(g) : '') +
+    '</div>';
+  }).join('');
+  $('count').textContent = rows.length === ROWS.length
+    ? rows.length + (rows.length === 1 ? ' go back' : ' go backs')
+    : rows.length + ' of ' + ROWS.length;
+}
+
+/* ---- changing one ----------------------------------------------------- */
+function save(id, btn){
+  if(busy) return;
+  var sel = document.querySelector('[data-st="' + id + '"]');
+  var nt  = document.querySelector('[data-nt="' + id + '"]');
+  if(!sel) return;
+  var patch = {
+    status: sel.value,
+    status_note: nt && nt.value.trim() ? nt.value.trim() : null,
+    status_changed_at: new Date().toISOString(),
+    status_changed_by: (ME && ME.name) || null
+  };
+  busy = true; btn.disabled = true; btn.textContent = 'Saving…';
+  message(null);
+  var h = GIDCAuth.headers(true); h.Prefer = 'return=representation';
+  GIDCAuth.api('/rest/v1/go_backs?id=eq.' + encodeURIComponent(id),
+      {method:'PATCH', headers:h, body: JSON.stringify(patch)})
+    .then(function(r){
+      if(!r.ok) return r.json().catch(function(){ return {}; }).then(function(j){
+        throw new Error(j.message || ('The database would not take it (' + r.status + ')'));
+      });
+      return r.json();
+    })
+    .then(function(rows){
+      if(!rows.length) throw new Error('The database would not allow that change.');
+      /* Keep the screen and the database saying the same thing: take what
+         came back rather than what was sent. */
+      var i = ROWS.findIndex(function(g){ return g.id === id; });
+      if(i >= 0) ROWS[i] = rows[0];
+      busy = false;
+      draw();
+      message('good', 'Set to ' + statusText(rows[0].status) + '.');
+    })
+    .catch(function(err){
+      busy = false; btn.disabled = false; btn.textContent = 'Save';
+      message('bad', err.message);
+    });
+}
+
+function remove(id, btn){
+  if(busy) return;
+  var g = ROWS.find(function(x){ return x.id === id; }) || {};
+  busy = true; btn.disabled = true; btn.textContent = 'Deleting…';
+  message(null);
+  /* Asking for the row back is what tells the difference between "deleted"
+     and "the database refused and said nothing". Without it a refusal looks
+     exactly like a success. */
+  var h = GIDCAuth.headers(true); h.Prefer = 'return=representation';
+  GIDCAuth.api('/rest/v1/go_backs?id=eq.' + encodeURIComponent(id),
+      {method:'DELETE', headers:h})
+    .then(function(r){
+      if(!r.ok) return r.json().catch(function(){ return {}; }).then(function(j){
+        throw new Error(j.message || ('The database would not delete it (' + r.status + ')'));
+      });
+      return r.json().catch(function(){ return []; });
+    })
+    .then(function(gone){
+      if(!gone.length)
+        throw new Error('Nothing was deleted. Only an administrator can remove a go back.');
+      ROWS = ROWS.filter(function(x){ return x.id !== id; });
+      confirmDel = null;
+      if(openId === id) openId = null;
+      busy = false;
+      draw();
+      message('good', 'The go back for ' + (g.customer_name || 'that customer') + ' is gone.');
+    })
+    .catch(function(err){
+      busy = false; confirmDel = null; draw();
+      message('bad', err.message);
+    });
+}
+
+/* ---- what the page responds to ---------------------------------------- */
+document.addEventListener('click', function(e){
+  var t = e.target;
+  var f = t.closest && t.closest('[data-f]');
+  if(f){ filter = f.dataset.f; draw(); return; }
+
+  var sv = t.closest && t.closest('[data-save]');
+  if(sv){ save(sv.dataset.save, sv); return; }
+
+  var del = t.closest && t.closest('[data-del]');
+  if(del){ confirmDel = del.dataset.del; message(null); draw(); return; }
+  var no = t.closest && t.closest('[data-delno]');
+  if(no){ confirmDel = null; draw(); return; }
+  var yes = t.closest && t.closest('[data-delyes]');
+  if(yes){ remove(yes.dataset.delyes, yes); return; }
+
+  /* Anything inside the open detail is for the detail, not for closing it. */
+  if(t.closest && t.closest('.detail')) return;
+
+  var row = t.closest && t.closest('[data-row]');
+  if(row){
+    openId = openId === row.dataset.row ? null : row.dataset.row;
+    message(null);
+    draw();
+  }
+});
+
+document.addEventListener('input', function(e){
+  if(e.target && e.target.id === 'q'){
+    query = e.target.value;
+    var at = e.target.selectionStart;
+    draw();
+    /* Redrawing replaces the box, so put the cursor back where it was. */
+    var again = document.getElementById('q');
+    if(again){ again.focus(); try{ again.setSelectionRange(at, at); }catch(err){} }
+  }
+});
+
+/* ---- start ------------------------------------------------------------ */
+GIDCAuth.load();
+GIDCAuth.whoami().then(function(me){
+  ME = me;
+  if(!me) return;              /* the guard is already holding the page */
+  if(!canWork())
+    $('lede').textContent = 'Every installation somebody has to return to. Tap a line ' +
+      'to see what was found on site and what is needed. The office books the repair ' +
+      'and marks it done.';
+  load();
+});
+})();
+</script>
+</body>
+</html>

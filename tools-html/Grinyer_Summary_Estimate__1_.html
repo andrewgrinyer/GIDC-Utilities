@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Grinyer — Summary Estimate</title>
+<style>
+  :root{
+    --garnet:#7b1e2b; --garnet-dk:#5c141e; --ink:#1f2329; --muted:#6b7280;
+    --line:#e4e2df; --bg:#f5f3f0; --paper:#ffffff; --soft:#faf8f6;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;}
+  .wrap{max-width:920px;margin:0 auto;padding:28px 20px 60px;}
+  header.top{display:flex;align-items:center;gap:14px;margin-bottom:8px;}
+  .mark{width:42px;height:42px;border-radius:9px;background:var(--garnet);color:#fff;display:grid;place-items:center;font-weight:700;font-size:18px;letter-spacing:.5px;}
+  header.top h1{font-size:19px;margin:0;font-weight:650;}
+  header.top p{margin:1px 0 0;color:var(--muted);font-size:13px;}
+  .card{background:var(--paper);border:1px solid var(--line);border-radius:14px;padding:20px;margin-top:18px;}
+  .drop{border:2px dashed #d7d2cc;border-radius:14px;background:var(--soft);padding:40px 20px;text-align:center;cursor:pointer;transition:.15s;}
+  .drop:hover,.drop.over{border-color:var(--garnet);background:#fbf6f6;}
+  .drop strong{color:var(--garnet);}
+  .drop small{display:block;color:var(--muted);margin-top:6px;}
+  .err{display:none;margin-top:12px;padding:11px 13px;border-radius:9px;background:#fdecec;color:#9a2230;border:1px solid #f3c9cd;font-size:14px;}
+  .err.show{display:block;}
+  h2.sec{font-size:13px;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin:0 0 12px;font-weight:650;}
+  .grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 16px;}
+  .fld{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:4px;}
+  .fld input{font-size:14px;color:var(--ink);padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#fff;}
+  .fld input:focus{outline:none;border-color:var(--garnet);}
+  table.cats{width:100%;border-collapse:collapse;margin-top:4px;}
+  table.cats th{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);font-weight:650;}
+  table.cats th.num,table.cats td.num{text-align:right;}
+  table.cats td{padding:5px 8px;border-bottom:1px solid #f0eeeb;}
+  table.cats input{width:100%;border:1px solid transparent;border-radius:6px;padding:6px 8px;font-size:14px;background:transparent;}
+  table.cats input:hover{border-color:var(--line);}
+  table.cats input:focus{outline:none;border-color:var(--garnet);background:#fff;}
+  table.cats td.num input{text-align:right;}
+  .catdesc{font-size:12px !important;color:var(--muted);margin-top:2px;}
+  .est-table .d-main{font-size:14px;}
+  .est-table .d-sub{font-size:12px;color:#777;margin-top:2px;}
+  .del{border:none;background:none;color:#c0392b;font-size:18px;line-height:1;cursor:pointer;opacity:.5;}
+  .del:hover{opacity:1;}
+  .addrow{margin-top:8px;border:1px dashed var(--line);background:#fff;color:var(--garnet);border-radius:8px;padding:7px 12px;cursor:pointer;font-size:13px;}
+  .tot{margin-top:14px;border-top:2px solid var(--line);padding-top:12px;display:flex;flex-direction:column;gap:6px;}
+  .tot .r{display:flex;justify-content:space-between;font-size:14px;}
+  .tot .r.grand{font-size:18px;font-weight:700;color:var(--garnet);border-top:1px solid var(--line);padding-top:8px;margin-top:2px;}
+  .tot .r.dep{color:var(--muted);font-size:13px;}
+  .actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:20px;}
+  .btn{border:none;border-radius:9px;padding:11px 18px;font-size:14px;font-weight:600;cursor:pointer;}
+  .btn.primary{background:var(--garnet);color:#fff;}
+  .btn.primary:hover{background:var(--garnet-dk);}
+  .btn.ghost{background:#fff;border:1px solid var(--line);color:var(--ink);}
+  footer{color:var(--muted);font-size:12px;margin-top:26px;line-height:1.6;}
+
+  /* ---- the estimate "paper" (preview + print) ---- */
+  .estimate{background:#fff;border:1px solid var(--line);border-radius:14px;padding:40px 44px;margin-top:18px;color:#1a1a1a;}
+  .est-head{display:flex;justify-content:space-between;align-items:flex-start;gap:20px;border-bottom:3px solid var(--garnet);padding-bottom:18px;}
+  .est-head .co h3{margin:0;font-size:20px;color:var(--garnet);font-weight:700;}
+  .est-head .co p{margin:2px 0 0;font-size:12.5px;color:#555;}
+  .est-head .meta{text-align:right;}
+  .est-head .meta .word{font-size:26px;font-weight:800;letter-spacing:.12em;color:#222;}
+  .est-head .meta p{margin:3px 0 0;font-size:12.5px;color:#555;}
+  .est-bill{display:flex;justify-content:space-between;gap:30px;margin-top:22px;}
+  .est-bill .lbl{font-size:11px;text-transform:uppercase;letter-spacing:.07em;color:#999;margin-bottom:4px;}
+  .est-bill .who{font-size:14px;line-height:1.5;}
+  .est-table{width:100%;border-collapse:collapse;margin-top:26px;}
+  .est-table th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.06em;color:#999;border-bottom:2px solid #e6e6e6;padding:0 0 8px;font-weight:650;}
+  .est-table th.num,.est-table td.num{text-align:right;}
+  .est-table td{padding:11px 0;border-bottom:1px solid #f0f0f0;font-size:14px;}
+  .est-sum{margin-top:14px;margin-left:auto;width:280px;}
+  .est-sum .r{display:flex;justify-content:space-between;padding:5px 0;font-size:14px;}
+  .est-sum .r.grand{border-top:2px solid var(--garnet);margin-top:6px;padding-top:10px;font-size:17px;font-weight:800;color:var(--garnet);}
+  .est-terms{margin-top:30px;padding-top:18px;border-top:1px solid #eee;font-size:12.5px;color:#555;line-height:1.7;}
+  .est-terms b{color:#222;}
+  .est-sign{margin-top:40px;display:flex;justify-content:space-between;gap:40px;}
+  .est-sign .line{flex:1;border-top:1px solid #999;padding-top:6px;font-size:12px;color:#777;}
+  .hide{display:none;}
+
+  @media print{
+    body{background:#fff;}
+    .wrap{max-width:none;padding:0;}
+    .noprint{display:none !important;}
+    .estimate{border:none;border-radius:0;margin:0;padding:0;}
+    @page{margin:16mm;}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top noprint">
+    <div class="mark">G</div>
+    <div>
+      <h1>Summary Estimate</h1>
+      <p>Drop a contract workbook to build a customer-facing PDF estimate</p>
+    </div>
+  </header>
+
+  <div id="dropCard" class="card noprint">
+    <div id="drop" class="drop">
+      <strong>Drop the contract .xlsx here</strong> or click to choose
+      <small>Reads the Pricing Sheet — category totals only, no itemized pricing</small>
+      <input id="file" type="file" accept=".xlsx" hidden>
+    </div>
+    <div id="err" class="err"></div>
+  </div>
+
+  <div id="editor" class="hide">
+    <div class="card noprint">
+      <h2 class="sec">Estimate details</h2>
+      <div class="grid">
+        <label class="fld">Estimate #<input id="f_estno" placeholder="e.g. 1042"></label>
+        <label class="fld">Date<input id="f_date" type="date"></label>
+        <label class="fld">Valid for (days)<input id="f_valid" type="number" value="30"></label>
+        <label class="fld">Deposit (%)<input id="f_deposit" type="number" value="50"></label>
+        <label class="fld">Lead time<input id="f_lead" placeholder="e.g. 8–10 weeks"></label>
+      </div>
+    </div>
+
+    <div class="card noprint">
+      <h2 class="sec">Customer</h2>
+      <div class="grid">
+        <label class="fld" style="grid-column:1 / -1">Name<input id="f_name"></label>
+        <label class="fld" style="grid-column:1 / -1">Street address 1<input id="f_line1"></label>
+        <label class="fld" style="grid-column:1 / -1">Street address 2<input id="f_line2"></label>
+        <label class="fld">City<input id="f_city"></label>
+        <label class="fld">Province<input id="f_prov"></label>
+        <label class="fld">Postal code<input id="f_postal"></label>
+        <label class="fld">Country<input id="f_country" value="Canada"></label>
+        <label class="fld">Email<input id="f_email"></label>
+        <label class="fld">Phone<input id="f_phone"></label>
+      </div>
+    </div>
+
+    <div class="card noprint">
+      <h2 class="sec">Pricing breakdown (high level)</h2>
+      <table class="cats">
+        <thead><tr><th>Category</th><th class="num" style="width:160px">Amount</th><th style="width:34px"></th></tr></thead>
+        <tbody id="catrows"></tbody>
+      </table>
+      <button id="addcat" class="addrow">+ Add line</button>
+      <div class="tot">
+        <div class="r"><span>Subtotal</span><b id="t_sub">$0.00</b></div>
+        <div class="r"><span>HST (ON) 13%</span><b id="t_hst">$0.00</b></div>
+        <div class="r grand"><span>Total</span><b id="t_total">$0.00</b></div>
+        <div class="r dep"><span id="t_dep_lbl">Deposit (50%)</span><b id="t_dep">$0.00</b></div>
+        <div class="r dep"><span>Balance at installation</span><b id="t_bal">$0.00</b></div>
+      </div>
+    </div>
+
+    <!-- printable estimate -->
+    <div id="estimate" class="estimate"></div>
+
+    <div class="actions noprint">
+      <button id="print" class="btn primary">Print / Save as PDF</button>
+      <button id="reset" class="btn ghost">Start over</button>
+    </div>
+
+    <footer class="noprint">
+      Grinyer Interior Doors &amp; Closets · summary estimate<br>
+      Shows category-level pricing only — no individual item prices. To save as PDF, click <b>Print / Save as PDF</b> and choose “Save as PDF” as the destination. Nothing leaves this page; the file works offline.
+    </footer>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/* ---------- company details (edit here if they change) ---------- */
+const CO = {
+  name:"Grinyer Interior Doors & Closets",
+  addr:"1177 Franklin Blvd, Cambridge, ON",
+  contact:"877-566-4052 · info@grinyer.ca"
+};
+
+/* ---------- offline .xlsx reader (ZIP + deflate-raw, no libraries) ---------- */
+async function inflateRaw(u8){
+  if(typeof DecompressionStream==="undefined") throw new Error("This browser can't unzip files. Please use a recent Chrome, Edge, Safari or Firefox.");
+  const ds=new DecompressionStream("deflate-raw");
+  const ab=await new Response(new Blob([u8]).stream().pipeThrough(ds)).arrayBuffer();
+  return new Uint8Array(ab);
+}
+async function readZip(buf){
+  const dv=new DataView(buf), u8=new Uint8Array(buf);
+  let i=u8.length-22;
+  for(;i>=0;i--){ if(dv.getUint32(i,true)===0x06054b50) break; }
+  if(i<0) throw new Error("Not a valid .xlsx file.");
+  const count=dv.getUint16(i+10,true), off=dv.getUint32(i+16,true);
+  let p=off; const out={};
+  const dec=new TextDecoder();
+  for(let n=0;n<count;n++){
+    if(dv.getUint32(p,true)!==0x02014b50) break;
+    const method=dv.getUint16(p+10,true), compSize=dv.getUint32(p+20,true);
+    const nameLen=dv.getUint16(p+28,true), extraLen=dv.getUint16(p+30,true), commLen=dv.getUint16(p+32,true);
+    const lho=dv.getUint32(p+42,true);
+    const name=dec.decode(u8.subarray(p+46,p+46+nameLen));
+    const lNameLen=dv.getUint16(lho+26,true), lExtraLen=dv.getUint16(lho+28,true);
+    const ds=lho+30+lNameLen+lExtraLen;
+    const comp=u8.subarray(ds,ds+compSize);
+    out[name]= method===0 ? comp : await inflateRaw(comp);
+    p+=46+nameLen+extraLen+commLen;
+  }
+  return {files:out,dec};
+}
+function xmlDecode(s){return s==null?s:String(s).replace(/&lt;/g,"<").replace(/&gt;/g,">").replace(/&quot;/g,'"').replace(/&apos;/g,"'").replace(/&amp;/g,"&");}
+async function parseSheet(buf, sheetName){
+  const {files,dec}=await readZip(buf);
+  const t=k=> files[k]?dec.decode(files[k]):null;
+  const wb=t("xl/workbook.xml"), rels=t("xl/_rels/workbook.xml.rels");
+  if(!wb||!rels) throw new Error("This workbook is missing its core parts.");
+  const sheets=[...wb.matchAll(/<sheet[^>]*?name="([^"]+)"[^>]*?r:id="([^"]+)"/g)].map(m=>({name:xmlDecode(m[1]),rid:m[2]}));
+  const rel={}; [...rels.matchAll(/<Relationship[^>]*?Id="([^"]+)"[^>]*?Target="([^"]+)"/g)].forEach(m=>rel[m[1]]=m[2]);
+  const ps=sheets.find(s=>s.name===sheetName);
+  if(!ps) throw new Error('No "'+sheetName+'" tab found. Is this a Grinyer contract workbook?');
+  const tgt=rel[ps.rid].replace(/^\//,"").replace(/^xl\//,"");
+  const xml=t("xl/"+tgt);
+  const ssXml=t("xl/sharedStrings.xml");
+  const shared= ssXml ? [...ssXml.matchAll(/<si>([\s\S]*?)<\/si>/g)].map(m=>[...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map(x=>xmlDecode(x[1])).join("")) : [];
+  const cells={};
+  for(const m of xml.matchAll(/<c\s+r="([A-Z]+\d+)"([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)){
+    const ref=m[1], attrs=m[2], inner=m[3]; if(inner===undefined) continue;
+    const tm=attrs.match(/t="([^"]+)"/), ty=tm?tm[1]:null;
+    if(ty==="inlineStr"){const im=inner.match(/<t[^>]*>([\s\S]*?)<\/t>/);if(im)cells[ref]=xmlDecode(im[1]);continue;}
+    const vm=inner.match(/<v>([\s\S]*?)<\/v>/); if(!vm) continue;
+    const v=vm[1];
+    cells[ref]= ty==="s" ? shared[+v] : (v!=="" && !isNaN(+v) ? +v : xmlDecode(v));
+  }
+  return cells;
+}
+function col(n){let s="";while(n>0){const m=(n-1)%26;s=String.fromCharCode(65+m)+s;n=(n-m-1)/26;}return s;}
+function shiftCol(letter,d){let n=0;for(const ch of letter)n=n*26+(ch.charCodeAt(0)-64);return col(n+d);}
+const round2=n=>Math.round((n+Number.EPSILON)*100)/100;
+
+/* ---------- read the Order Total summary box (labels col Q=17, values col U=21) ---------- */
+function readOrderTotal(c){
+  const box={};
+  for(let r=44;r<=58;r++){
+    const lab=c[col(17)+r], val=c[col(21)+r];
+    if(typeof lab==="string" && lab.trim()) box[lab.trim()]=val;
+  }
+  return box;
+}
+// customer-facing label  <-  Order Total box key  (+ optional description sub-line)
+const CAT_MAP=[
+  {label:"Doors", key:"Door Cost"},
+  {label:"Factory Finishing", key:"Factory Finishing", desc:"Oven-cured primer and paint"},
+  {label:"Hardware", key:"Hardware"},
+  {label:"Installation", key:"Installation", desc:"Digital measurement, robotic cutting, and white-glove installation"},
+  {label:"Closet / Organizer", key:"Organizer"},
+  {label:"Materials & Adjustments", key:"Materials and Rework"}
+];
+
+/* ---------- customer block (label-based, same as the invoice tool) ---------- */
+function extractCustomer(c){
+  function valAfter(label){
+    for(const ref in c){
+      if((""+c[ref]).trim()===label){
+        const m=ref.match(/([A-Z]+)(\d+)/), cl=m[1], row=m[2];
+        for(let d=1;d<=4;d++){const k=shiftCol(cl,d)+row; if(c[k]!=null && (""+c[k]).trim()!=="") return ""+c[k];}
+      }
+    }
+    return "";
+  }
+  const clean=v=>{ v=(v||"").trim(); return v==="0" ? "" : v; };
+  const line1=clean(valAfter("Address:"));
+  let city=clean(valAfter("City:")), postal="";
+  const pm=city.match(/([A-Za-z]\d[A-Za-z])\s*(\d[A-Za-z]\d)/);
+  if(pm){ postal=(pm[1]+" "+pm[2]).toUpperCase(); city=city.replace(pm[0],"").replace(/[\s,]+$/,"").trim(); }
+  return {
+    name: clean(valAfter("Customer Name:")),
+    line1, city, province:"ON", postal,
+    phone: clean(valAfter("Phone:")),
+    email: clean(valAfter("Email:")),
+    lead:  clean(valAfter("Lead Time:"))
+  };
+}
+
+/* ---------- UI ---------- */
+const $=id=>document.getElementById(id);
+let cats=[];
+
+function money(n){const s=Math.abs(n).toLocaleString("en-CA",{minimumFractionDigits:2,maximumFractionDigits:2});return (n<0?"-$":"$")+s;}
+function esc(s){return String(s==null?"":s).replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/"/g,"&quot;");}
+function fmtNum(v){ if(v===""||v==null) return ""; const n=Number(v); if(!isFinite(n)) return v; return (Math.round(n*100)/100).toString(); }
+function num(v){return typeof v==="number"?v:(parseFloat(v)||0);}
+
+function renderCatRows(){
+  const tb=$("catrows"); tb.innerHTML="";
+  cats.forEach((c,i)=>{
+    const tr=document.createElement("tr");
+    tr.innerHTML=
+      '<td><input data-i="'+i+'" data-k="label" value="'+esc(c.label)+'">'+
+        '<input data-i="'+i+'" data-k="desc" class="catdesc" placeholder="Description (optional)" value="'+esc(c.desc||"")+'"></td>'+
+      '<td class="num"><input data-i="'+i+'" data-k="amount" value="'+fmtNum(c.amount)+'"></td>'+
+      '<td><button class="del" data-del="'+i+'" title="Remove">&times;</button></td>';
+    tb.appendChild(tr);
+  });
+  recompute();
+}
+function recompute(){
+  const sub=round2(cats.reduce((s,c)=>s+num(c.amount),0));
+  const hst=round2(sub*0.13), total=round2(sub+hst);
+  const depPct=num($("f_deposit").value)||0;
+  const dep=round2(total*depPct/100), bal=round2(total-dep);
+  $("t_sub").textContent=money(sub);
+  $("t_hst").textContent=money(hst);
+  $("t_total").textContent=money(total);
+  $("t_dep_lbl").textContent="Deposit ("+depPct+"%)";
+  $("t_dep").textContent=money(dep);
+  $("t_bal").textContent=money(bal);
+  renderEstimate({sub,hst,total,dep,bal,depPct});
+}
+
+function prettyDate(iso){
+  if(!iso) return "";
+  const d=new Date(iso+"T00:00:00");
+  if(isNaN(d)) return iso;
+  return d.toLocaleDateString("en-CA",{year:"numeric",month:"long",day:"numeric"});
+}
+function addDays(iso,days){
+  if(!iso) return "";
+  const d=new Date(iso+"T00:00:00"); d.setDate(d.getDate()+(num(days)||0));
+  return d.toLocaleDateString("en-CA",{year:"numeric",month:"long",day:"numeric"});
+}
+
+function renderEstimate(t){
+  const name=$("f_name").value.trim();
+  const addrBits=[ $("f_line1").value.trim(), $("f_line2").value.trim(),
+    [$("f_city").value.trim(),$("f_prov").value.trim(),$("f_postal").value.trim()].filter(Boolean).join(", "),
+    $("f_country").value.trim() ].filter(Boolean);
+  const estno=$("f_estno").value.trim();
+  const date=$("f_date").value;
+  const lead=$("f_lead").value.trim();
+  const validUntil=addDays(date,$("f_valid").value);
+
+  const rows=cats.map(c=>'<tr><td><div class="d-main">'+esc(c.label)+'</div>'+(c.desc?'<div class="d-sub">'+esc(c.desc)+'</div>':'')+'</td><td class="num">'+money(num(c.amount))+'</td></tr>').join("");
+
+  $("estimate").innerHTML=
+    '<div class="est-head">'+
+      '<div class="co"><h3>'+esc(CO.name)+'</h3><p>'+esc(CO.addr)+'<br>'+esc(CO.contact)+'</p></div>'+
+      '<div class="meta"><div class="word">ESTIMATE</div>'+
+        (estno?'<p>Estimate #: '+esc(estno)+'</p>':'')+
+        (date?'<p>Date: '+esc(prettyDate(date))+'</p>':'')+
+        (validUntil?'<p>Valid until: '+esc(validUntil)+'</p>':'')+
+      '</div>'+
+    '</div>'+
+    '<div class="est-bill">'+
+      '<div><div class="lbl">Prepared for</div><div class="who"><b>'+esc(name||"—")+'</b>'+
+        (addrBits.length?'<br>'+addrBits.map(esc).join("<br>"):'')+
+        ($("f_phone").value.trim()?'<br>'+esc($("f_phone").value.trim()):'')+
+        ($("f_email").value.trim()?'<br>'+esc($("f_email").value.trim()):'')+
+      '</div></div>'+
+      (lead?'<div style="text-align:right"><div class="lbl">Estimated lead time</div><div class="who">'+esc(lead)+'</div></div>':'')+
+    '</div>'+
+    '<table class="est-table"><thead><tr><th>Description</th><th class="num">Amount</th></tr></thead><tbody>'+rows+'</tbody></table>'+
+    '<div class="est-sum">'+
+      '<div class="r"><span>Subtotal</span><span>'+money(t.sub)+'</span></div>'+
+      '<div class="r"><span>HST (ON) 13%</span><span>'+money(t.hst)+'</span></div>'+
+      '<div class="r grand"><span>Total</span><span>'+money(t.total)+'</span></div>'+
+    '</div>'+
+    '<div class="est-terms">'+
+      '<b>Payment terms:</b> '+t.depPct+'% deposit ('+money(t.dep)+') due to confirm the order; balance of '+money(t.bal)+' due at installation.'+
+      (validUntil?'<br><b>Validity:</b> This estimate is valid until '+esc(validUntil)+'.':'')+
+      '<br>Pricing reflects the categories above. Taxes calculated at 13% HST (ON).'+
+    '</div>'+
+    '<div class="est-sign">'+
+      '<div class="line">Customer signature &nbsp; / &nbsp; Date</div>'+
+      '<div class="line">Grinyer Interior Doors &amp; Closets</div>'+
+    '</div>';
+}
+
+/* ---------- load ---------- */
+const fileInput=$("file"), drop=$("drop");
+drop.addEventListener("click",()=>fileInput.click());
+drop.addEventListener("dragover",e=>{e.preventDefault();drop.classList.add("over");});
+drop.addEventListener("dragleave",()=>drop.classList.remove("over"));
+drop.addEventListener("drop",e=>{e.preventDefault();drop.classList.remove("over");if(e.dataTransfer.files[0])handle(e.dataTransfer.files[0]);});
+fileInput.addEventListener("change",e=>{if(e.target.files[0])handle(e.target.files[0]);});
+
+function showErr(m){const e=$("err");e.textContent=m;e.classList.add("show");}
+function clearErr(){$("err").classList.remove("show");}
+
+async function handle(file){
+  clearErr();
+  try{
+    if(!/\.xlsx$/i.test(file.name)) throw new Error("Please choose a .xlsx contract file.");
+    const buf=await file.arrayBuffer();
+    const cells=await parseSheet(buf,"Pricing Sheet");
+    const box=readOrderTotal(cells);
+    cats=CAT_MAP.map(m=>({label:m.label,amount:round2(num(box[m.key])),desc:m.desc||""})).filter(c=>c.amount!==0);
+    if(!cats.length) throw new Error("Couldn't find the Order Total figures on the Pricing Sheet.");
+
+    const cust=extractCustomer(cells);
+    $("f_name").value=cust.name||"";
+    $("f_line1").value=cust.line1||"";
+    $("f_line2").value="";
+    $("f_city").value=cust.city||"";
+    $("f_prov").value=cust.province||"";
+    $("f_postal").value=cust.postal||"";
+    $("f_email").value=cust.email||"";
+    $("f_phone").value=cust.phone||"";
+    $("f_lead").value=cust.lead||"";
+    if(!$("f_date").value) $("f_date").value=new Date().toISOString().slice(0,10);
+
+    $("dropCard").classList.add("hide");
+    $("editor").classList.remove("hide");
+    renderCatRows();
+    window.scrollTo({top:0,behavior:"smooth"});
+  }catch(err){
+    showErr(err.message||String(err));
+  }
+}
+
+/* ---------- edits ---------- */
+$("catrows").addEventListener("input",e=>{
+  const t=e.target, i=+t.dataset.i, k=t.dataset.k; if(!k) return;
+  cats[i][k] = k==="amount" ? (parseFloat(t.value)||0) : t.value;
+  recompute();
+});
+$("catrows").addEventListener("click",e=>{
+  const d=e.target.dataset.del; if(d===undefined) return;
+  cats.splice(+d,1); renderCatRows();
+});
+$("addcat").addEventListener("click",()=>{ cats.push({label:"",amount:0,desc:""}); renderCatRows(); });
+["f_estno","f_date","f_valid","f_deposit","f_lead","f_name","f_line1","f_line2","f_city","f_prov","f_postal","f_country","f_email","f_phone"]
+  .forEach(id=>$(id).addEventListener("input",recompute));
+
+$("print").addEventListener("click",()=>window.print());
+$("reset").addEventListener("click",()=>{
+  cats=[]; $("editor").classList.add("hide"); $("dropCard").classList.remove("hide");
+  fileInput.value=""; clearErr(); window.scrollTo({top:0,behavior:"smooth"});
+});
+</script>
+</body>
+</html>

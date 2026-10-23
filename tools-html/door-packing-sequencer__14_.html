@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Grinyer · Door Packing Sequencer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root{
+    --char:#202225; --char-deep:#15161a; --oak:#9a6a3a; --oak-soft:#b07f4a; --oak-tint:#f2e9dd;
+    --ink:#23262b; --muted:#6b7280; --line:#e4e0d8; --band:#f5f2ec;
+    --paper:#ffffff; --shell:#f6f4ef;
+    --ui:"Inter","Helvetica Neue",Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"SF Mono","Roboto Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0}
+  body{font-family:var(--ui);color:var(--ink);background:var(--shell);line-height:1.45;
+    -webkit-font-smoothing:antialiased;font-size:15px}
+  .wrap{max-width:1180px;margin:0 auto;padding:0 20px 80px}
+
+  /* Brand bar */
+  header{background:var(--paper);border-bottom:1px solid var(--line)}
+  .topbar{max-width:1180px;margin:0 auto;padding:15px 20px;display:flex;align-items:center;gap:16px}
+  .logo{height:50px;width:auto;display:block}
+  .logo-fb{display:none;line-height:1}
+  .logo-fb .nm{font-weight:800;font-size:23px;letter-spacing:.06em;color:var(--char)}
+  .logo-fb .sub{display:block;font-size:9.5px;letter-spacing:.22em;text-transform:uppercase;color:var(--oak);font-weight:700;margin-top:2px}
+  .role{margin-left:auto;font-size:10.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);
+    font-weight:700;border:1px solid var(--line);padding:6px 13px;border-radius:999px}
+
+  /* Intro */
+  .intro{display:flex;gap:20px;align-items:flex-start;flex-wrap:wrap;padding:30px 0 4px}
+  .intro .lead{flex:1 1 380px}
+  .eyebrow{font-size:11px;letter-spacing:.18em;text-transform:uppercase;color:var(--oak);font-weight:700}
+  h1{font-size:28px;margin:5px 0 0;letter-spacing:-.02em;font-weight:800;color:var(--char)}
+  .tag{margin:7px 0 0;font-size:14px;color:var(--muted);max-width:560px}
+  .rules{font-size:12.5px;color:var(--ink);background:var(--band);border:1px solid var(--line);
+    border-left:3px solid var(--oak);border-radius:10px;padding:13px 16px;max-width:330px}
+  .rules b{color:var(--oak);display:block;margin-bottom:6px;font-size:10.5px;letter-spacing:.1em;text-transform:uppercase}
+  .rules ol{margin:0;padding-left:18px}
+  .rules li{margin:3px 0}
+
+  /* Drop zone */
+  .drop{margin-top:22px;background:var(--paper);border:2px dashed var(--line);border-radius:14px;
+    padding:34px 24px;text-align:center;transition:.15s;cursor:pointer}
+  .drop:hover,.drop.over{border-color:var(--oak);background:#fdfbf7}
+  .drop.over{border-style:solid}
+  .drop .big{font-size:17px;font-weight:700;color:var(--char)}
+  .drop .sub{color:var(--muted);font-size:13.5px;margin-top:4px}
+  .drop .browse{display:inline-block;margin-top:14px;background:var(--char);color:#fff;
+    padding:9px 18px;border-radius:8px;font-weight:600;font-size:14px}
+  input[type=file]{display:none}
+
+  /* File chips */
+  .files{margin-top:16px;display:flex;flex-direction:column;gap:8px}
+  .chip{display:flex;flex-direction:column;gap:8px;background:var(--paper);border:1px solid var(--line);
+    border-radius:10px;padding:10px 14px}
+  .chiptop{display:flex;align-items:center;gap:12px}
+  .chip .nm{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .chip .ct{font-size:12.5px;color:var(--muted);font-family:var(--mono)}
+  .chip .x{cursor:pointer;color:var(--muted);font-size:20px;line-height:1;border:0;background:none;padding:0 4px}
+  .chip .x:hover{color:var(--oak)}
+  .chip.err{border-color:#e0c4a8;background:#fbf4ea}
+  .chip.err .ct{color:var(--oak)}
+  .chip.warn{border-color:#e0c4a8;background:#fbf4ea}
+  .chipwarn{font-size:12.5px;font-weight:600;color:var(--oak);line-height:1.4}
+
+  /* Controls */
+  .controls{margin-top:22px;display:flex;gap:22px;flex-wrap:wrap;align-items:center;
+    background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:14px 18px}
+  .ctl{display:flex;flex-direction:column;gap:4px;font-size:12.5px}
+  .ctl .lbl{color:var(--muted);font-weight:600;letter-spacing:.02em}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:8px;overflow:hidden}
+  .seg button{border:0;background:#fff;padding:7px 13px;font-size:13px;cursor:pointer;font-weight:600;color:var(--muted)}
+  .seg button.on{background:var(--char);color:#fff}
+  .txt{border:1px solid var(--line);border-radius:8px;padding:8px 11px;font-size:13px;font-family:var(--ui);
+    color:var(--ink);min-width:190px;background:#fff}
+  .txt:focus{outline:none;border-color:var(--oak)}
+  .txt::placeholder{color:#a9a49a}
+  .dealerfield{margin-top:22px;background:var(--paper);border:1px solid var(--line);border-radius:12px;
+    padding:14px 18px;display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .dealerfield label{font-size:12.5px;font-weight:700;color:var(--muted);letter-spacing:.02em;text-transform:uppercase}
+  .dealerfield .txt{flex:1;min-width:220px;max-width:420px}
+  .dealerline{display:none;margin-top:16px;font-size:15px;font-weight:700;color:var(--char)}
+  .dealerline span{color:var(--oak);font-weight:700}
+  .switch{display:flex;align-items:center;gap:9px;cursor:pointer;user-select:none}
+  .switch input{display:none}
+  .track{width:38px;height:22px;border-radius:11px;background:#cfcabf;position:relative;transition:.15s}
+  .track::after{content:"";position:absolute;top:2px;left:2px;width:18px;height:18px;border-radius:50%;
+    background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:.15s}
+  .switch input:checked + .track{background:var(--oak)}
+  .switch input:checked + .track::after{transform:translateX(16px)}
+  .exp{margin-left:auto;display:flex;gap:10px}
+  .btn{border:0;border-radius:9px;padding:11px 20px;font-weight:700;font-size:14px;cursor:pointer;
+    display:inline-flex;align-items:center;gap:8px}
+  .btn.xl{background:var(--char);color:#fff}
+  .btn.pdf{background:var(--oak);color:#fff}
+  .btn:disabled{opacity:.4;cursor:default}
+  .btn svg{width:16px;height:16px}
+
+  /* Summary */
+  .summary{margin-top:22px;display:none;gap:0;background:var(--char);border-radius:12px;overflow:hidden}
+  .summary.show{display:flex}
+  .stat{flex:1;padding:16px 20px;color:#fff;border-right:1px solid rgba(255,255,255,.13)}
+  .stat:last-child{border-right:0}
+  .stat .n{font-size:26px;font-weight:800;font-family:var(--mono);letter-spacing:-.03em}
+  .stat .k{font-size:11.5px;color:#bdb6a8;text-transform:uppercase;letter-spacing:.07em;margin-top:1px}
+
+  /* Order note */
+  .ordernote{margin-top:18px;display:none;align-items:center;gap:10px;font-weight:700;color:var(--oak);font-size:14px}
+  .ordernote.show{display:flex}
+  .ordernote .dir{font-family:var(--mono);background:var(--oak-tint);border:1px solid #e3cfb3;padding:3px 9px;border-radius:6px}
+
+  /* Table */
+  .tablecard{margin-top:14px;background:var(--paper);border:1px solid var(--line);border-radius:12px;overflow:hidden;display:none}
+  .tablecard.show{display:block}
+  .scroller{overflow:auto;max-height:620px}
+  table{border-collapse:collapse;width:100%;font-size:13px}
+  thead th{position:sticky;top:0;background:var(--char);color:#fff;font-weight:700;text-align:left;
+    padding:10px 12px;white-space:nowrap;z-index:2;font-size:12px;letter-spacing:.02em}
+  tbody td{padding:8px 12px;border-bottom:1px solid #efece4;white-space:nowrap}
+  tbody tr.band td{background:var(--band)}
+  tbody tr.layer td{border-top:2px solid var(--char)}
+  td.num,th.num{text-align:center;font-family:var(--mono)}
+  td.pack{font-weight:800;font-family:var(--mono);text-align:center;color:var(--char)}
+  td.core-sc{color:var(--oak);font-weight:800}
+  td.note{color:var(--oak);font-size:12px;font-weight:600}
+
+  .foot{margin-top:24px;color:var(--muted);font-size:12.5px;line-height:1.6}
+  .foot code{font-family:var(--mono);background:#ece7dd;padding:1px 5px;border-radius:4px;color:var(--ink)}
+  .foot strong{color:var(--ink)}
+
+  @media (max-width:720px){
+    .rules{max-width:none}
+    .summary{flex-wrap:wrap}.stat{flex:1 1 50%;border-bottom:1px solid rgba(255,255,255,.13)}
+    .exp{margin-left:0;width:100%}.btn{flex:1;justify-content:center}
+    .role{display:none}
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="topbar">
+    <img class="logo" alt="Grinyer Interior Doors & Closets"
+      src="https://static.wixstatic.com/media/6a2fb4_cf40af6f91734798b94d016c1c79bc55~mv2.jpg/v1/fill/w_352,h_106,al_c,q_85,enc_avif,quality_auto/grinyer-interior-doors-and-closets-brand.jpg"
+      onerror="this.style.display='none';document.getElementById('logofb').style.display='block'">
+    <div class="logo-fb" id="logofb"><span class="nm">GRINYER</span><span class="sub">Interior Doors &amp; Closets</span></div>
+    <span class="role">Production · Packing</span>
+  </div>
+</header>
+
+<div class="wrap">
+  <section class="intro">
+    <div class="lead">
+      <div class="eyebrow">Shipping &amp; Packaging</div>
+      <h1>Door Packing Sequencer</h1>
+      <p class="tag">Drop in the order spreadsheets for a load. Doors are merged and sequenced into one
+        bottom-to-top stacking order, ready to export for the packing station.</p>
+    </div>
+    <div class="rules">
+      <b>Sequencing rules</b>
+      <ol>
+        <li>Tallest heights on the bottom</li>
+        <li>Within a height, widest widths first</li>
+        <li>Within a width, one solid core sits on top</li>
+        <li>Any other solid cores sit on the bottom</li>
+      </ol>
+    </div>
+  </section>
+
+  <div class="dealerfield">
+    <label for="dealer">Dealer</label>
+    <input type="text" id="dealer" class="txt" placeholder="Dealer name (appears on the packing list)" autocomplete="off">
+  </div>
+
+  <div class="drop" id="drop">
+    <div class="big">Drop order files here</div>
+    <div class="sub">Reads the standard door-order .xlsx export. Add as many orders as you like.</div>
+    <label class="browse" for="filein">Browse files</label>
+    <input type="file" id="filein" accept=".xlsx,.xls" multiple>
+  </div>
+
+  <div class="files" id="files"></div>
+
+  <div class="controls" id="controls" style="display:none">
+    <div class="ctl">
+      <span class="lbl">Pack&nbsp;#1 is the</span>
+      <div class="seg" id="dirseg">
+        <button data-dir="bottom" class="on">Bottom of stack</button>
+        <button data-dir="top">Top of stack</button>
+      </div>
+    </div>
+    <div class="exp">
+      <button class="btn xl" id="bxl" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M8 13h8M8 17h8"/></svg>
+        Download Excel</button>
+      <button class="btn pdf" id="bpdf" disabled>
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 15h6"/></svg>
+        Download PDF</button>
+    </div>
+  </div>
+
+  <div class="dealerline" id="dealerline"></div>
+  <div class="summary" id="summary"></div>
+  <div class="ordernote" id="ordernote"></div>
+
+  <div class="tablecard" id="tablecard">
+    <div class="scroller"><table id="tbl"><thead></thead><tbody></tbody></table></div>
+  </div>
+
+  <p class="foot">
+    <strong>How it reads your files:</strong> the tool finds the door rows on the order's upload sheet and pulls
+    location, quantity, door type, style, opening height &amp; width, paint and customer.
+    Core is read from the product type &mdash; <code>Hollow</code> = HC (hollow core),
+    <code>Solid</code> / <code>Thick</code> = SC (solid core).<br>
+    <strong>Height bands</strong> set the stacking layers, bottom to top: 90&ndash;96, 84&ndash;90, then 84 and under &mdash;
+    measured on the finished height. Within a band, widest first; then one solid core rides on top of each width and any
+    others go on the bottom.<br>
+    <strong>Panel H &amp; Panel W</strong> are the finished door dimensions.
+    Height: bypass doors deduct 3.35 from the opening height; bifold and pivot doors deduct 1.5.
+    Width: a double bifold, double swing or bypass divides the opening width by its panel count; single bifolds,
+    pocket and barn doors keep their full width.<br>
+    <strong>Panels &amp; labels.</strong> Every panel is its own pallet level, tagged on the opening number:
+    a single bifold stays one row marked <code>a/b</code> (two panels side by side); a double bifold splits into
+    <code>a/b</code> and <code>c/d</code>; a double swing into <code>A</code> (active) and <code>P</code> (passive);
+    bypass panels run <code>A, B, C&hellip;</code>; pocket and pivot panels are <code>A, B</code>.
+    Total panels count a single bifold as 2 and a double bifold as 4.
+    Grouping is global across every order in the load, so one stack covers the whole truck.
+  </p>
+</div>
+
+<script>
+const CHAR=[32,34,37], OAK=[154,106,58], BAND=[245,242,236];
+const COLS=[
+  {k:'pack', t:'Pack #', cls:'pack'},
+  {k:'customer', t:'Customer'},
+  {k:'openLabel', t:'Opening #', cls:'num'},
+  {k:'location', t:'Location'},
+  {k:'qty', t:'Panels', cls:'num'},
+  {k:'dtype', t:'Door Type'},
+  {k:'style', t:'Style'},
+  {k:'core', t:'Core', cls:'num'},
+  {k:'product', t:'Product'},
+  {k:'height', t:'Panel H', cls:'num'},
+  {k:'hband', t:'H Band', cls:'num'},
+  {k:'width', t:'Panel W', cls:'num'},
+  {k:'paint', t:'Paint'},
+  {k:'note', t:'Note', cls:'note'}
+];
+
+let loaded=[];
+let sequence=[];
+let dir='bottom';
+
+const fmt=v=> Number.isInteger(v)? String(v) : (+v.toFixed(4)).toString();
+
+/* Expand a line item into one or more panel rows, each with its own stacking
+   width and a door-number suffix. Panel count per row: 2 for a bifold door, else 1.
+   - single bifold  -> 1 row, full width, "a/b"          (2 panels, side by side)
+   - double bifold  -> 1 row per unit, half width, a/b, c/d, ...   (2 panels each)
+   - double swing   -> 1 row per leaf, half width, A (active), P (passive)
+   - bypass         -> 1 row per panel, width/qty, A, B, C, D...
+   - pocket / barn  -> 1 row per panel, full width, A, B...
+   - pivot          -> 1 row per panel, width/qty, A, B...
+   - everything else (single doors) -> 1 row, full width, no suffix */
+const LETTERS='ABCDEFGHIJ';
+const BIF_PAIRS=['a/b','c/d','e/f','g/h','i/j','k/l'];
+function expandPanels(it){
+  const dt=it.dtype||'', q=it.qty>1?it.qty:1, full=it.width;
+  const mk=(w,label,pc)=>({...it, width:w, label, qty:pc, opening:it.opening, openLabel:String(it.opening)+label});
+  const bifold=/bifold/i.test(dt), dblSwing=/double\s*swing/i.test(dt), bypass=/bypass/i.test(dt),
+        pocket=/pocket/i.test(dt), pivot=/pivot/i.test(dt), barn=/barn/i.test(dt);
+  if(bifold && it.qty<=1) return [ mk(full,'a/b',2) ];
+  if(bifold)              return Array.from({length:q},(_,k)=> mk(full/q, BIF_PAIRS[k]||('('+(k+1)+')'), 2));
+  if(dblSwing && it.qty>1)return Array.from({length:q},(_,k)=> mk(full/q, ['A','P'][k]||LETTERS[k], 1));
+  if(bypass && it.qty>1)  return Array.from({length:q},(_,k)=> mk(full/q, LETTERS[k]||('#'+(k+1)), 1));
+  if((pocket||barn) && it.qty>1) return Array.from({length:q},(_,k)=> mk(full, LETTERS[k], 1));
+  if(pivot && it.qty>1)   return Array.from({length:q},(_,k)=> mk(full/q, LETTERS[k], 1));
+  if(it.qty>1)            return Array.from({length:q},(_,k)=> mk(full/q, LETTERS[k], 1));
+  return [ mk(full,'',1) ];
+}
+
+/* finished door height: bypass deducts 3.35 ; bifold & pivot deduct 1.5 */
+function panelHeight(i){
+  if(/bypass/i.test(i.dtype)) return i.height-3.35;
+  if(/bifold|pivot/i.test(i.dtype)) return i.height-1.5;
+  return i.height;
+}
+
+/* height bands (by finished height), tallest first = bottom of stack */
+const BANDS=[
+  {i:0, label:'90\u201396',    test:h=>h>=90},
+  {i:1, label:'84\u201390',    test:h=>h>84},
+  {i:2, label:'84 & under', test:h=>true}
+];
+const heightBand=h=> BANDS.find(b=>b.test(h));
+
+/* ---------- Parse one workbook (array of door line-items) ---------- */
+function parseWorkbook(name, buf){
+  const wb=XLSX.read(buf,{type:'array'});
+  const sn = wb.SheetNames.includes('UploadTemplate') ? 'UploadTemplate' : wb.SheetNames[0];
+  const rows=XLSX.utils.sheet_to_json(wb.Sheets[sn],{header:1,raw:true,defval:null});
+  const norm=s=> (s==null?'':String(s)).trim();
+  let h=-1, head=null;
+  for(let i=0;i<rows.length;i++){
+    const L=rows[i].map(norm);
+    if(L.includes('Height') && L.includes('Width') && L.includes('Location')){ h=i; head=L; break; }
+  }
+  if(h<0) throw new Error('no door table found');
+  const ci=n=> head.indexOf(n);
+  const c={
+    open: head.indexOf(' #')>=0?head.indexOf(' #'):ci('#'),
+    loc:ci('Location'), qty:ci('Qnty'), prod:ci('Product Type'),
+    dt:ci('Door Type'), style:ci('Door Style'), h:ci('Height'), w:ci('Width'),
+    cust:ci('Customer Name'), paint:ci('Paint Colour')
+  };
+  const fallback=name.replace(/\.[^.]+$/,'');
+  const items=[]; const skipped=[]; let cust=null;
+  for(let r=h+1;r<rows.length;r++){
+    const row=rows[r]; const opn=row[c.open]; const loc=row[c.loc];
+    const isNum=typeof opn==='number';
+    if(!isNum){ if(items.length) break; else continue; }
+    if(loc==null||loc===''||loc===0||loc==='0'){ if(items.length) break; else continue; }
+    const H=toNum(row[c.h]), W=toNum(row[c.w]);
+    if(!(H>0)||!(W>0)){
+      skipped.push({opening:opn, location:norm(loc), height:row[c.h], width:row[c.w]});
+      continue;
+    }
+    if(row[c.cust]) cust=norm(row[c.cust]);
+    const prod=norm(row[c.prod]);
+    items.push({
+      customer: cust||fallback, opening:opn, location:norm(loc),
+      qty: Number(row[c.qty])||1, product:prod,
+      core: /hollow/i.test(prod)?'HC':'SC',
+      dtype:norm(row[c.dt]), style:norm(row[c.style]),
+      height:H, width:W, paint:norm(row[c.paint])
+    });
+  }
+  items.forEach(it=>{
+    if(!it.customer) it.customer=fallback;
+    it.customerFull=it.customer;
+    it.customer=lastName(it.customer);
+  });
+  if(!items.length && !skipped.length) throw new Error('no valid door rows');
+  return {items, skipped};
+}
+
+/* read a size value, recovering common order-entry typos:
+   "79..375" -> 79.375, strips units/quotes/spaces. Fractions ("79 3/8") are
+   left unparsed on purpose so they get flagged rather than silently mis-read. */
+function toNum(v){
+  if(typeof v==='number') return v;
+  if(v==null) return NaN;
+  const raw=String(v).trim();
+  if(raw.includes('/')) return NaN;
+  let s=raw.replace(/[^0-9.\-]/g,'').replace(/\.{2,}/g,'.');
+  const d=s.indexOf('.');
+  if(d!==-1) s=s.slice(0,d+1)+s.slice(d+1).replace(/\./g,'');
+  return parseFloat(s);
+}
+
+/* last name for display: "Sue Roberts" -> "Roberts", "Roberts, Sue" -> "Roberts",
+   ignores trailing order-number tokens: "Rents 1295-2782" -> "Rents" */
+function lastName(full){
+  const s=(full||'').trim();
+  if(!s) return s;
+  if(s.includes(',')) return s.split(',')[0].trim();
+  const parts=s.split(/\s+/);
+  const alpha=parts.filter(p=>!/\d/.test(p));
+  return (alpha.length?alpha[alpha.length-1]:parts[parts.length-1]);
+}
+
+/* ---------- Build the stacking sequence (bottom -> top) ---------- */
+function buildSequence(items){
+  // Expand each line item into panel rows with finished dimensions + height band.
+  let rows=[];
+  items.forEach(it=>{
+    const H=panelHeight(it);
+    for(const p of expandPanels(it)){
+      p.oheight=it.height; p.height=H;
+      const b=heightBand(H); p._bandIdx=b.i; p.hband=b.label;
+      rows.push(p);
+    }
+  });
+
+  const order=[];
+  for(const b of BANDS){                                                   // tallest band first (bottom)
+    const bg=rows.filter(i=>i._bandIdx===b.i);
+    if(!bg.length) continue;
+    const widths=[...new Set(bg.map(i=>i.width))].sort((a,c)=>c-a);        // widest first within band
+    for(const W of widths){
+      const wg=bg.filter(i=>i.width===W);
+      const sc=wg.filter(i=>i.core==='SC');
+      const hc=wg.filter(i=>i.core!=='SC');
+      const key=(a,c)=> a.customer.localeCompare(c.customer) || a.opening-c.opening || String(a.label).localeCompare(String(c.label));
+      sc.sort(key); hc.sort(key);
+      let grp;
+      if(sc.length===0){
+        grp=hc;
+      }else{
+        // one solid always rides on top; any others go on the bottom
+        const topSC=sc[sc.length-1], bottomSC=sc.slice(0,sc.length-1);
+        bottomSC.forEach(i=> i._scPos='bottom');
+        topSC._scPos='top';
+        grp=[...bottomSC, ...hc, topSC];
+      }
+      grp.forEach(i=>{ i._w=W; });
+      order.push(...grp);
+    }
+  }
+  let prevBand=null, prevW=null, widx=0;
+  order.forEach(i=>{
+    const newLayer = i._bandIdx!==prevBand;
+    if(i._w!==prevW || newLayer){ widx++; prevW=i._w; }
+    i._shade = widx%2===0;
+    i._layer = newLayer;
+    prevBand=i._bandIdx;
+    i._note = i._scPos==='top' ? 'SC \u2192 top of width'
+            : i._scPos==='bottom' ? 'SC \u2192 bottom of width' : '';
+  });
+  return order;
+}
+
+function displayRows(){
+  const base = sequence.map((r,idx)=>({...r, _bottomIdx:idx}));
+  const arr = dir==='bottom' ? base : base.slice().reverse();
+  return arr.map((r,n)=>({...r, pack:n+1}));
+}
+
+/* ---------- Render ---------- */
+const dealerVal=()=> (document.getElementById('dealer').value||'').trim();
+function paintDealer(){
+  const d=dealerVal(), el=document.getElementById('dealerline');
+  el.innerHTML = d ? `Dealer: <span>${d.replace(/</g,'&lt;')}</span>` : '';
+  el.style.display = (d && sequence.length) ? 'block' : 'none';
+}
+function render(){
+  const card=document.getElementById('tablecard');
+  const sum=document.getElementById('summary');
+  const note=document.getElementById('ordernote');
+  if(!sequence.length){
+    card.classList.remove('show'); sum.classList.remove('show'); note.classList.remove('show');
+    document.getElementById('bxl').disabled=true; document.getElementById('bpdf').disabled=true;
+    paintDealer();
+    return;
+  }
+  paintDealer();
+  const rows=displayRows();
+  const orders=new Set(sequence.map(i=>i.customerFull||i.customer)).size;
+  const panels=sequence.reduce((s,i)=>s+i.qty,0);
+  const layers=new Set(sequence.map(i=>i._bandIdx)).size;
+
+  sum.innerHTML=[
+    ['Orders',orders],['Pallet levels',sequence.length],['Total panels',panels],['Height bands',layers]
+  ].map(([k,n])=>`<div class="stat"><div class="n">${n}</div><div class="k">${k}</div></div>`).join('');
+  sum.classList.add('show');
+
+  note.innerHTML = `<span class="dir">Pack #1 = ${dir==='bottom'?'bottom':'top'} of stack</span>`+
+    (dir==='bottom'
+      ? 'Pack in listed order &mdash; build the stack upward.'
+      : 'List runs top-of-stack first &mdash; pack the last row first.');
+  note.classList.add('show');
+
+  const thead=document.querySelector('#tbl thead');
+  const tbody=document.querySelector('#tbl tbody');
+  thead.innerHTML='<tr>'+COLS.map(c=>`<th class="${c.cls||''}">${c.t}</th>`).join('')+'</tr>';
+  tbody.innerHTML=rows.map(r=>{
+    const cls=[r._shade?'band':'', (dir==='bottom'&&r._layer)?'layer':''].filter(Boolean).join(' ');
+    return `<tr class="${cls}">`+COLS.map(c=>{
+      let v=r[c.k];
+      if(c.k==='height'||c.k==='width') v=fmt(v);
+      let cc=c.cls||'';
+      if(c.k==='core'&&v==='SC') cc+=' core-sc';
+      return `<td class="${cc}">${v==null?'':v}</td>`;
+    }).join('')+'</tr>';
+  }).join('');
+  card.classList.add('show');
+  document.getElementById('bxl').disabled=false;
+  document.getElementById('bpdf').disabled=false;
+}
+
+function rebuild(){
+  const all=loaded.filter(f=>!f.error).flatMap(f=>f.items.map(i=>({...i})));
+  sequence = all.length ? buildSequence(all) : [];
+  render();
+}
+
+/* ---------- File handling ---------- */
+function renderFiles(){
+  const box=document.getElementById('files');
+  box.innerHTML=loaded.map((f,idx)=>{
+    const cnt=f.error? f.error : `${f.items.length} doors \u00b7 ${f.items.reduce((s,i)=>s+i.qty,0)} panels`;
+    const sk=(f.skipped&&f.skipped.length)?f.skipped:null;
+    const warn = sk ? `<div class="chipwarn">\u26a0 Skipped opening ${sk.map(s=>s.opening).join(', ')} \u2014 unreadable size (check the height/width on the order)</div>` : '';
+    return `<div class="chip ${f.error?'err':''} ${sk?'warn':''}">
+      <div class="chiptop"><span class="nm">${f.name}</span><span class="ct">${cnt}</span>
+      <button class="x" data-i="${idx}" title="Remove">&times;</button></div>${warn}</div>`;
+  }).join('');
+  box.querySelectorAll('.x').forEach(b=>b.onclick=()=>{
+    loaded.splice(+b.dataset.i,1); renderFiles(); rebuild();
+  });
+  document.getElementById('controls').style.display = loaded.length? 'flex':'none';
+}
+
+async function addFiles(fileList){
+  for(const file of fileList){
+    if(loaded.some(f=>f.name===file.name)) continue;
+    try{
+      const buf=await file.arrayBuffer();
+      const res=parseWorkbook(file.name,buf);
+      loaded.push({name:file.name, items:res.items, skipped:res.skipped});
+    }catch(e){
+      loaded.push({name:file.name, items:[], skipped:[], error:'could not read \u2014 '+e.message});
+    }
+  }
+  renderFiles(); rebuild();
+}
+
+const drop=document.getElementById('drop');
+drop.addEventListener('click',e=>{ if(e.target.tagName!=='LABEL') document.getElementById('filein').click(); });
+document.getElementById('filein').addEventListener('change',e=>{ addFiles(e.target.files); e.target.value=''; });
+['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add('over');}));
+['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove('over');}));
+drop.addEventListener('drop',e=>addFiles(e.dataTransfer.files));
+
+document.getElementById('dirseg').addEventListener('click',e=>{
+  const b=e.target.closest('button'); if(!b) return;
+  dir=b.dataset.dir;
+  document.querySelectorAll('#dirseg button').forEach(x=>x.classList.toggle('on',x===b));
+  render();
+});
+document.getElementById('dealer').addEventListener('input', paintDealer);
+
+/* ---------- Export: Excel ---------- */
+document.getElementById('bxl').onclick=()=>{
+ try{
+  if(!window.XLSX) throw new Error('Spreadsheet library did not load \u2014 check the internet connection.');
+  const rows=displayRows();
+  const today=new Date().toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
+  const orders=new Set(sequence.map(i=>i.customerFull||i.customer)).size;
+  const panels=sequence.reduce((s,i)=>s+i.qty,0);
+  const dealer=dealerVal();
+  const aoa=[
+    ['Grinyer \u2014 Door Packing Sequence'],
+    [`Generated ${today}  \u00b7  ${orders} orders  \u00b7  ${sequence.length} pallet levels  \u00b7  ${panels} total panels`],
+    [`Pack #1 = ${dir==='bottom'?'BOTTOM':'TOP'} of stack. ${dir==='bottom'?'Pack in listed order, building upward.':'Pack the last row first.'}`],
+    [],
+    COLS.map(c=>c.t)
+  ];
+  rows.forEach(r=>aoa.push(COLS.map(c=>{
+    let v=r[c.k]; if(c.k==='height'||c.k==='width') v=Number(fmt(v)); return v==null?'':v;
+  })));
+  aoa.push([]);
+  aoa.push(['SC = Solid Core (1.375 Solid / 1.75 Thick)  \u00b7  HC = Hollow Core (1.375 Hollow). Within a width: one SC on top; any other SC on the bottom.']);
+  aoa.push(['Panel H/W = finished door size. Height: bypass \u22123.35, bifold/pivot \u22121.5.  Width: qty>1 \u00f7qty; single bifold, pocket and barn doors keep full width.']);
+  aoa.push(['Height bands (bottom \u2192 top): 90\u201396, 84\u201390, 84 and under \u2014 by finished height. Heavy line = new band; within a band, widest first.']);
+  const ws=XLSX.utils.aoa_to_sheet(aoa);
+  if(dealer) ws['H1']={t:'s',v:'Dealer: '+dealer};
+  ws['!cols']=[{wch:7},{wch:20},{wch:10},{wch:18},{wch:5},{wch:20},{wch:16},{wch:6},{wch:14},{wch:9},{wch:9},{wch:9},{wch:16},{wch:22}];
+  ws['!merges']=[{s:{r:0,c:0},e:{r:0,c:6}},{s:{r:1,c:0},e:{r:1,c:9}},{s:{r:2,c:0},e:{r:2,c:9}}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Packing Sequence');
+  const slug=dealer?('_'+dealer.replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'')):'';
+  XLSX.writeFile(wb,'Grinyer_Door_Packing_Sequence'+slug+'.xlsx');
+ }catch(err){ alert('Could not generate the Excel file: '+err.message); console.error(err); }
+};
+
+/* ---------- Export: PDF (core jsPDF only, no plugins) ---------- */
+const PDFCOL=[ // proportional width, align, wrap, per COLS order
+  {w:0.42,a:'c'},            // pack
+  {w:1.15,a:'l',wrap:1},     // customer
+  {w:0.60,a:'c'},            // opening
+  {w:1.05,a:'l',wrap:1},     // location
+  {w:0.40,a:'c'},            // qty
+  {w:1.18,a:'l',wrap:1},     // door type
+  {w:0.88,a:'l',wrap:1},     // style
+  {w:0.42,a:'c'},            // core
+  {w:0.82,a:'l',wrap:1},     // product
+  {w:0.60,a:'c'},            // panel h
+  {w:0.66,a:'c'},            // h band
+  {w:0.60,a:'c'},            // panel w
+  {w:0.90,a:'l',wrap:1},     // paint
+  {w:0.95,a:'l',wrap:1}      // note
+];
+
+document.getElementById('bpdf').onclick=()=>{
+  try{
+    if(!window.jspdf || !window.jspdf.jsPDF)
+      throw new Error('PDF library did not load \u2014 check the internet connection (the tool pulls jsPDF from a CDN).');
+    const {jsPDF}=window.jspdf;
+    const doc=new jsPDF({orientation:'landscape',unit:'pt',format:'letter'});
+    const PW=doc.internal.pageSize.getWidth(), PH=doc.internal.pageSize.getHeight();
+    const M=28, tableW=PW-2*M, pad=3.2, FS=7.5, LH=9, vpad=2.6;
+    const rows=displayRows();
+    const today=new Date().toLocaleDateString(undefined,{year:'numeric',month:'long',day:'numeric'});
+    const orders=new Set(sequence.map(i=>i.customerFull||i.customer)).size;
+    const panels=sequence.reduce((s,i)=>s+i.qty,0);
+
+    // resolve column widths to points
+    const tot=PDFCOL.reduce((s,c)=>s+c.w,0);
+    const cw=PDFCOL.map(c=>c.w/tot*tableW);
+    const cx=[]; let acc=M; cw.forEach(w=>{ cx.push(acc); acc+=w; });
+
+    const cellText=(r,i)=>{ let v=r[COLS[i].k]; if(COLS[i].k==='height'||COLS[i].k==='width') v=fmt(v); return v==null?'':String(v); };
+    const linesFor=(txt,i)=> PDFCOL[i].wrap ? doc.splitTextToSize(txt, cw[i]-2*pad) : [txt];
+
+    const drawHeader=(y)=>{
+      doc.setFillColor(...CHAR); doc.rect(M,y,tableW,18,'F');
+      doc.setFont('helvetica','bold'); doc.setFontSize(8); doc.setTextColor(255,255,255);
+      COLS.forEach((c,i)=>{
+        const tx = PDFCOL[i].a==='c' ? cx[i]+cw[i]/2 : cx[i]+pad;
+        doc.text(c.t, tx, y+12, {align:PDFCOL[i].a==='c'?'center':'left', maxWidth:cw[i]-2*pad});
+      });
+      return y+18;
+    };
+
+    // title block
+    const dealer=dealerVal();
+    doc.setFont('helvetica','bold'); doc.setFontSize(17); doc.setTextColor(...CHAR);
+    doc.text('Grinyer \u2014 Door Packing Sequence', M, 42);
+    if(dealer){
+      doc.setFont('helvetica','bold'); doc.setFontSize(13); doc.setTextColor(...OAK);
+      doc.text('Dealer: '+dealer, PW-M, 42, {align:'right'});
+    }
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); doc.setTextColor(107,114,128);
+    doc.text(`Generated ${today}   \u00b7   ${orders} orders   \u00b7   ${sequence.length} pallet levels   \u00b7   ${panels} total panels`, M, 56);
+    doc.setFont('helvetica','bold'); doc.setFontSize(9.5); doc.setTextColor(...OAK);
+    doc.text(`Pack #1 = ${dir==='bottom'?'BOTTOM':'TOP'} of stack. ${dir==='bottom'?'Pack in listed order, building the stack upward.':'List runs top-first \u2014 pack the last row first.'}`, M, 70);
+
+    let y=drawHeader(80);
+
+    rows.forEach((r,ri)=>{
+      // wrap + row height
+      const cells=COLS.map((c,i)=>linesFor(cellText(r,i),i));
+      const maxLines=cells.reduce((m,l)=>Math.max(m,l.length),1);
+      const rowH=maxLines*LH+2*vpad;
+
+      if(y+rowH > PH-34){ doc.addPage(); y=drawHeader(40); }
+
+      // fill
+      doc.setFillColor(...(r._shade?BAND:[255,255,255])); doc.rect(M,y,tableW,rowH,'F');
+      // grid
+      doc.setDrawColor(228,224,216); doc.setLineWidth(0.4);
+      cw.forEach((w,i)=> doc.rect(cx[i],y,w,rowH,'S'));
+      // band layer line
+      if(dir==='bottom' && r._layer && ri>0){ doc.setDrawColor(...CHAR); doc.setLineWidth(1.1); doc.line(M,y,M+tableW,y); }
+      // text
+      doc.setFontSize(FS);
+      COLS.forEach((c,i)=>{
+        const k=c.k, isSC=(k==='core' && r.core==='SC');
+        if(k==='pack'){ doc.setFont('helvetica','bold'); doc.setTextColor(...CHAR); }
+        else if(isSC){ doc.setFont('helvetica','bold'); doc.setTextColor(...OAK); }
+        else if(k==='note'){ doc.setFont('helvetica','normal'); doc.setTextColor(...OAK); }
+        else { doc.setFont('helvetica','normal'); doc.setTextColor(35,38,43); }
+        const tx = PDFCOL[i].a==='c' ? cx[i]+cw[i]/2 : cx[i]+pad;
+        cells[i].forEach((ln,li)=> doc.text(ln, tx, y+vpad+LH*li+LH-2.2, {align:PDFCOL[i].a==='c'?'center':'left'}));
+      });
+      y+=rowH;
+    });
+
+    // legend
+    const legend='Bands (bottom \u2192 top): 90\u201396 \u00b7 84\u201390 \u00b7 84 and under.  SC = Solid Core (one on top of each width, any others on the bottom), HC = Hollow Core.  Panel H/W = finished size (H: bypass \u22123.35, bifold/pivot \u22121.5; W: qty>1 \u00f7qty, single bifold / pocket / barn keep full width).';
+    if(y+18 > PH-20){ doc.addPage(); y=40; }
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); doc.setTextColor(107,114,128);
+    doc.text(legend, M, y+14, {maxWidth:tableW});
+
+    const slug=dealer?('_'+dealer.replace(/[^A-Za-z0-9]+/g,'_').replace(/^_|_$/g,'')):'';
+    doc.save('Grinyer_Door_Packing_Sequence'+slug+'.pdf');
+  }catch(err){
+    alert('Could not generate the PDF: '+err.message);
+    console.error(err);
+  }
+};
+</script>
+</body>
+</html>
