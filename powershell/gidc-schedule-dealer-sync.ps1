@@ -72,9 +72,16 @@ Write-Host ""
 
 $cred = $null
 if (-not $AsSystem -and -not $WhatIf) {
-  Write-Host "Which account should the task run as? Use the one the KPI import task uses." -ForegroundColor Yellow
-  $who = Read-Host ("Account, for example {0}\{1}" -f [Environment]::UserDomainName, [Environment]::UserName)
-  if (-not $who) { Fail "No account given, so nothing was changed." }
+  # The account the KPI import task already runs as, since that one is
+  # known to reach the share. If there is no such task, whoever is
+  # signed in. Press Enter to take it.
+  $kpi = Get-ScheduledTask -TaskName "GIDC KPI import" -ErrorAction SilentlyContinue
+  $guess = if ($kpi -and $kpi.Principal.UserId -and $kpi.Principal.UserId -ne "SYSTEM") { $kpi.Principal.UserId }
+           else { "{0}\{1}" -f [Environment]::UserDomainName, [Environment]::UserName }
+  if ($kpi) { Write-Host ("The KPI import task runs as {0}." -f $kpi.Principal.UserId) -ForegroundColor Yellow }
+  Write-Host "Which account should the task run as? Press Enter for the one shown." -ForegroundColor Yellow
+  $who = Read-Host ("Account [{0}]" -f $guess)
+  if (-not $who) { $who = $guess }
   $pw = Read-Host "Password for $who (nothing shows as you type)" -AsSecureString
   $cred = New-Object System.Management.Automation.PSCredential($who, $pw)
 }
