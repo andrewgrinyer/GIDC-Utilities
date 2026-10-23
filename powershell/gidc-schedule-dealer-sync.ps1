@@ -73,7 +73,7 @@ Write-Host ""
 $cred = $null
 if (-not $AsSystem -and -not $WhatIf) {
   Write-Host "Which account should the task run as? Use the one the KPI import task uses." -ForegroundColor Yellow
-  $who = Read-Host ("Account, for example GIDC\{0}" -f [Environment]::UserName)
+  $who = Read-Host ("Account, for example {0}\{1}" -f [Environment]::UserDomainName, [Environment]::UserName)
   if (-not $who) { Fail "No account given, so nothing was changed." }
   $pw = Read-Host "Password for $who (nothing shows as you type)" -AsSecureString
   $cred = New-Object System.Management.Automation.PSCredential($who, $pw)
