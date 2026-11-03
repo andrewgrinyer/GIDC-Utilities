@@ -160,6 +160,7 @@ button.go:disabled{opacity:.5;cursor:default}
 .bars rect{fill:var(--series-soft)}
 .bars rect.last{fill:var(--series-1)}
 .bars rect.hit{cursor:pointer}
+.bars rect.zero{fill:transparent}
 /* a reading drawn as a trend. The line is the same hue as the bars so
    the two kinds read as one dashboard, and the newest point is the
    solid one for the same reason the newest bar is. */
@@ -259,7 +260,7 @@ table.grid .unit{color:var(--muted);font-size:12px}
 </div>
 
 <div class="tip" id="tip"></div>
-<div class="gidc-build">Dashboard 1.9 &middot; 20 Oct 2026</div>
+<div class="gidc-build">Dashboard 2.0 &middot; 3 Nov 2026</div>
 
 <script>
 (function(){
@@ -327,7 +328,11 @@ var MODES = [
   ['year',     'Year',      'year',  'This year',  5],
   ['month',    'Month',     'month', 'This month', 12],
   ['lastweek', 'Last week', 'week',  'Last week',  12],
-  ['thisweek', 'This week', 'week',  'This week',  12]
+  ['thisweek', 'This week', 'week',  'This week',  12],
+  /* Andrew, 3 November: a custom date range at the top. Read from the
+     daily figures and added up here, so any two days will do, not only
+     the edges of a GIDC month or week. */
+  ['custom',   'Custom',    'day',   'These dates', 0]
 ];
 var mode  = 'month';  /* how the business already thinks, so the default */
 function modeRow(){
@@ -390,6 +395,78 @@ var TARGETS = [];     /* what is stored against the period being edited */
 var ALLT    = [];     /* every target row, for the rates, which read
                          their own rather than being handed one */
 var tat = null;       /* the period targets are being set for */
+
+/* ---- a custom range -------------------------------------------------
+   In the Custom view `at` is the word 'range' rather than a date, and the
+   figures for the whole range live in RANGEROWS and RANGESPLIT. PERIODS
+   and VALUES then hold the slices the little charts are drawn from: a
+   day each up to two months, a week each up to a year, four weeks each
+   beyond that. */
+var RANGE = {from: null, to: null};
+var RANGEP = null;        /* the range as a period: start, end, name, weeks */
+var RANGEROWS = {};       /* metric to its figure over the whole range */
+var RANGESPLIT = [];      /* metric, dim, total over the whole range */
+var RANGEPEOPLE = {};     /* metric to the people seen in or just before it */
+function isRange(){ return mode === 'custom'; }
+function dayOf(s){ return s === 'range' ? (RANGEP ? RANGEP.from : null) : s; }
+function periodOf(s){
+  if(s === 'range') return RANGEP;
+  return PERIODS.find(function(x){ return x.start === s; }) || null;
+}
+/* the starts of the buckets the charts draw, oldest first */
+function chartStarts(){
+  return PERIODS.slice(0, span).map(function(p){ return p.start; }).reverse();
+}
+function metricByKey(k){
+  return METRICS.find(function(x){ return x.key === k; }) || null;
+}
+
+/* ---- no sales is a nought, not a gap --------------------------------
+   Andrew, 3 November: with nothing sold in the period the sales block
+   went blank, the salespeople vanished from it and the total read "no
+   data". The office import counts what happened, so a day with no sales
+   sends no row at all, and the page was reading that silence as "never
+   counted".
+
+   For a flow fed by an import, a missing figure in a period that has
+   started is a nought: the import ran, it simply found nothing. Not for
+   a reading (a backlog nobody read is unknown, not empty), not for a
+   rate or a sum (those are worked out from the parts, which are filled
+   here), and not for a figure typed in by hand, where a blank means
+   nobody typed it. */
+function zeroable(m){
+  if(!m) return false;
+  if(m.kind === 'level' || m.kind === 'ratio' || m.kind === 'sum') return false;
+  if(m.source === 'manual' || m.source === 'typed') return false;
+  return true;
+}
+/* the first bucket a metric has any figure in, so a bar of nought is
+   not drawn for years before the feed existed */
+var FIRST = {};
+function started(key, s){
+  var day = dayOf(s);
+  if(!day || day > todayISO()) return false;
+  if(isRange()) return true;
+  return !!FIRST[key] && FIRST[key] <= day;
+}
+function filledRow(key, s){
+  var p = periodOf(s);
+  var t = targetRowFor(key, s);
+  return {metric: key, bucket_start: dayOf(s), bucket_end: p ? p.end : null,
+          name: p ? p.name : s, weeks: p ? p.weeks : null,
+          grain: p && p.grain ? p.grain : grainOf(), total: 0, weekly: 0,
+          target_monthly: t ? t.monthly : null, target_weekly: t ? t.weekly : null,
+          floor_value: t ? t.floor_value : null, ceiling_value: t ? t.ceiling_value : null,
+          filled: true};
+}
+/* one metric's row for one bucket, or the range, a nought where it should be */
+function valueRow(key, s){
+  var r = s === 'range' ? (RANGEROWS[key] || null)
+        : (VALUES.find(function(v){ return v.metric === key && v.bucket_start === s; }) || null);
+  if(r) return r;
+  if(!periodOf(s) || !zeroable(metricByKey(key)) || !started(key, s)) return null;
+  return filledRow(key, s);
+}
 var panel = null;     /* 'targets' | 'entry' | null */
 var busy = false;
 
@@ -426,13 +503,179 @@ function message(kind, text){
 }
 
 /* ---- reading ------------------------------------------------------- */
+function addDays(iso, n){
+  var b = String(iso).split('-');
+  var d = new Date(+b[0], +b[1] - 1, +b[2]);
+  d.setDate(d.getDate() + n);
+  return isoDay(d);
+}
+function daysBetween(a, b){
+  var x = String(a).split('-'), y = String(b).split('-');
+  return Math.round((new Date(+y[0], +y[1] - 1, +y[2]) -
+                     new Date(+x[0], +x[1] - 1, +x[2])) / 86400000);
+}
+function shortDay(iso){
+  var b = String(iso).split('-');
+  return new Date(+b[0], +b[1] - 1, +b[2])
+    .toLocaleDateString('en-CA', {month:'short', day:'numeric'});
+}
+function longDay(iso){
+  var b = String(iso).split('-');
+  return new Date(+b[0], +b[1] - 1, +b[2])
+    .toLocaleDateString('en-CA', {month:'short', day:'numeric', year:'numeric'});
+}
+/* Every row of a request, a page at a time. The database hands back at
+   most a thousand rows to one request, and a year of days across every
+   metric is several thousand, so a single request would quietly stop
+   partway through and the total would simply be short. */
+function readAll(path, strict){
+  var out = [], size = 1000;
+  var next = function(off){
+    return GIDCAuth.api(path + '&limit=' + size + '&offset=' + off,
+        {headers: GIDCAuth.headers()})
+      .then(function(r){
+        if(!r.ok){
+          if(strict) throw new Error('Could not read the numbers (' + r.status + ')');
+          return [];
+        }
+        return r.json();
+      })
+      .then(function(rows){
+        out = out.concat(rows || []);
+        if(rows && rows.length && off < 400000) return next(off + rows.length);
+        return out;
+      });
+  };
+  return next(0);
+}
+
+/* Turns the daily rows for a custom range into what the board draws.
+   A flow is added up; a reading takes its latest value, the same rule the
+   month and week views use. The slices for the charts follow the same
+   rule, so the newest bar always agrees with how the range was read. */
+function buildRange(){
+  var from = RANGE.from, to = RANGE.to;
+  var days = daysBetween(from, to) + 1;
+  var chunk = days <= 62 ? 1 : days <= 366 ? 7 : 28;
+  var kind = {};
+  METRICS.forEach(function(m){ kind[m.key] = m.kind; });
+  var isLevel = function(k){ return kind[k] === 'level'; };
+
+  RANGEP = {start: 'range', from: from, end: to, grain: 'range', weeks: days / 7, chunk: chunk,
+            name: from === to ? longDay(from) : longDay(from) + ' to ' + longDay(to)};
+
+  /* the slices, oldest first while being built */
+  var slices = [];
+  for(var s = from; s <= to; s = addDays(s, chunk)){
+    var e = addDays(s, chunk - 1);
+    if(e > to) e = to;
+    var len = daysBetween(s, e) + 1;
+    slices.push({start: s, end: e, grain: 'range', weeks: len / 7,
+                 name: s === e ? fmtDay(s) : shortDay(s) + ' to ' + shortDay(e)});
+  }
+  var sliceOf = function(day){
+    var i = Math.floor(daysBetween(from, day) / chunk);
+    return slices[i] || null;
+  };
+  var withTargets = function(row, key, start){
+    var t = targetRowFor(key, start);
+    row.target_monthly = t ? t.monthly : null;
+    row.target_weekly  = t ? t.weekly  : null;
+    row.floor_value    = t ? t.floor_value : null;
+    row.ceiling_value  = t ? t.ceiling_value : null;
+    return row;
+  };
+  /* add a day's figure into a bucket: summed for a flow, latest for a reading */
+  var into = function(store, id, key, day, v){
+    var cur = store[id];
+    if(!cur){ store[id] = {total: v, day: day}; return; }
+    if(isLevel(key)){ if(day >= cur.day){ cur.total = v; cur.day = day; } }
+    else cur.total += v;
+  };
+
+  var raw = VALUES;      /* the daily rows as they came */
+  var whole = {}, bySlice = {};
+  raw.forEach(function(r){
+    if(r.bucket_start < from || r.bucket_start > to) return;
+    var v = Number(r.total);
+    if(!isFinite(v)) return;
+    into(whole, r.metric, r.metric, r.bucket_start, v);
+    var sl = sliceOf(r.bucket_start);
+    if(sl) into(bySlice, r.metric + '|' + sl.start, r.metric, r.bucket_start, v);
+  });
+
+  RANGEROWS = {};
+  Object.keys(whole).forEach(function(k){
+    RANGEROWS[k] = withTargets({metric: k, bucket_start: from, bucket_end: to, name: RANGEP.name,
+                                weeks: RANGEP.weeks, grain: 'range', total: whole[k].total}, k, from);
+  });
+  VALUES = [];
+  slices.forEach(function(sl){
+    METRICS.forEach(function(m){
+      var got = bySlice[m.key + '|' + sl.start];
+      if(!got) return;
+      VALUES.push(withTargets({metric: m.key, bucket_start: sl.start, bucket_end: sl.end,
+                               name: sl.name, weeks: sl.weeks, grain: 'range',
+                               total: got.total}, m.key, sl.start));
+    });
+  });
+
+  /* the people, over the range and slice by slice */
+  var rawSplit = SPLITS;
+  var pw = {}, ps = {};
+  RANGEPEOPLE = {};
+  var seenP = {};
+  rawSplit.forEach(function(r){
+    if(!r.dim) return;
+    if(!seenP[r.metric + '|' + r.dim]){
+      seenP[r.metric + '|' + r.dim] = true;
+      (RANGEPEOPLE[r.metric] = RANGEPEOPLE[r.metric] || []).push(r.dim);
+    }
+    if(r.bucket_start < from || r.bucket_start > to) return;
+    var v = Number(r.total);
+    if(!isFinite(v)) return;
+    into(pw, r.metric + '|' + r.dim, r.metric, r.bucket_start, v);
+    var sl = sliceOf(r.bucket_start);
+    if(sl) into(ps, r.metric + '|' + r.dim + '|' + sl.start, r.metric, r.bucket_start, v);
+  });
+  RANGESPLIT = Object.keys(pw).map(function(id){
+    var b = id.split('|');
+    return {metric: b[0], dim: b.slice(1).join('|'), bucket_start: from, total: pw[id].total};
+  });
+  SPLITS = Object.keys(ps).map(function(id){
+    var b = id.split('|');
+    var st = b.pop();
+    return {metric: b[0], dim: b.slice(1).join('|'), bucket_start: st, total: ps[id].total};
+  });
+
+  PERIODS = slices.slice().reverse();
+  span = PERIODS.length;
+  at = 'range';
+}
+
+/* Yesterday is over, so once the import has written anything for it, a
+   flow it wrote nothing for is a nought too. Today is left alone: at
+   nine in the morning a nought reads as a bad day rather than an early
+   one. */
+function fillYesterday(){
+  if(!Object.keys(YESTERDAY).length) return;
+  METRICS.forEach(function(m){
+    if(zeroable(m) && YESTERDAY[m.key] === undefined) YESTERDAY[m.key] = 0;
+  });
+}
 function load(){
   return Promise.all([
     GIDCAuth.api('/rest/v1/kpi_metrics?select=*&active=eq.true&order=section,sort',
         {headers: GIDCAuth.headers()})
       .then(function(r){ if(!r.ok) throw new Error('Could not read the metrics (' + r.status + ')');
                          return r.json(); }),
-    GIDCAuth.api('/rest/v1/kpi_values?select=*&grain=eq.' + grainOf() +
+    isRange()
+      ? (RANGE.from && RANGE.to
+          ? readAll('/rest/v1/kpi_values?select=metric,bucket_start,total&grain=eq.day' +
+                    '&bucket_start=gte.' + RANGE.from + '&bucket_start=lte.' + RANGE.to +
+                    '&order=bucket_start.asc,metric.asc', true)
+          : Promise.resolve([]))
+      : GIDCAuth.api('/rest/v1/kpi_values?select=*&grain=eq.' + grainOf() +
                  '&order=bucket_start.desc',
         {headers: GIDCAuth.headers()})
       .then(function(r){ if(!r.ok) throw new Error('Could not read the numbers (' + r.status + ')');
@@ -441,7 +684,17 @@ function load(){
        has not had the latest file run against it has no such view, so a
        failure here leaves the dashboard whole and simply unsplit rather
        than refusing to draw. */
-    GIDCAuth.api('/rest/v1/kpi_split?select=*&grain=eq.' + grainOf() +
+    isRange()
+      ? (RANGE.from && RANGE.to
+          /* from three months before the range, only to know who is on the
+             team, so somebody who sold nothing in it is still listed */
+          ? readAll('/rest/v1/kpi_split?select=metric,dim,bucket_start,total&grain=eq.day' +
+                    '&bucket_start=gte.' + addDays(RANGE.from, -90) +
+                    '&bucket_start=lte.' + RANGE.to +
+                    '&order=bucket_start.asc,metric.asc,dim.asc', false)
+              .catch(function(){ return []; })
+          : Promise.resolve([]))
+      : GIDCAuth.api('/rest/v1/kpi_split?select=*&grain=eq.' + grainOf() +
                  '&order=bucket_start.desc',
         {headers: GIDCAuth.headers()})
       .then(function(r){ return r.ok ? r.json() : []; })
@@ -456,10 +709,15 @@ function load(){
        time somebody changed it, so it is small, and a rate has to find
        its own: the rollup the rest of the page reads leaves ratios out
        by design. A database without the targets table still draws. */
-    GIDCAuth.api('/rest/v1/kpi_targets?select=metric,period_start,weekly,monthly' +
-                 '&order=period_start.desc',
+    GIDCAuth.api('/rest/v1/kpi_targets?select=metric,period_start,weekly,monthly,' +
+                 'floor_value,ceiling_value&order=period_start.desc',
         {headers: GIDCAuth.headers()})
       .then(function(r){ return r.ok ? r.json() : []; })
+      /* an older table without the band columns still gives the targets */
+      .then(function(rows){ return rows.length ? rows :
+        GIDCAuth.api('/rest/v1/kpi_targets?select=metric,period_start,weekly,monthly' +
+                     '&order=period_start.desc', {headers: GIDCAuth.headers()})
+          .then(function(r){ return r.ok ? r.json() : []; }); })
       .catch(function(){ return []; }),
     /* YESTERDAY, PER PERSON
        Andrew, 13:08: four orders sold yesterday showed in the total and
@@ -530,6 +788,14 @@ function load(){
     (got[7] || []).forEach(function(r){ TDIM[r.metric + '|' + r.dim] = Number(r.total); });
     STALE = {};
     (got[8] || []).forEach(function(r){ STALE[r.metric] = r; });
+    FIRST = {};
+    if(isRange()){
+      if(RANGE.from && RANGE.to) buildRange();
+      else { RANGEP = null; PERIODS = []; VALUES = []; SPLITS = []; }
+      fillYesterday();
+      draw();
+      return;
+    }
     /* the buckets that actually have something in them, newest first */
     var seen = {};
     PERIODS = [];
@@ -539,6 +805,10 @@ function load(){
       PERIODS.push({start: v.bucket_start, end: v.bucket_end, name: v.name, weeks: v.weeks});
     });
     PERIODS.sort(function(a, b){ return a.start < b.start ? 1 : -1; });
+    VALUES.forEach(function(v){
+      if(!FIRST[v.metric] || v.bucket_start < FIRST[v.metric]) FIRST[v.metric] = v.bucket_start;
+    });
+    fillYesterday();
     /* Last week is the one before the newest. Every other mode opens on
        the newest, and the dropdown can still step back from there. */
     if(!at || !seen[at]){
@@ -553,12 +823,9 @@ function load(){
 
 /* every stored value for one metric, oldest first, over the drawn span */
 function seriesFor(key){
-  var window_ = PERIODS.slice(0, span).map(function(p){ return p.start; }).reverse();
-  var by = {};
-  VALUES.forEach(function(v){ if(v.metric === key) by[v.bucket_start] = v; });
-  return window_.map(function(s){
-    var p = PERIODS.find(function(x){ return x.start === s; });
-    return {start: s, name: p ? p.name : s, row: by[s] || null};
+  return chartStarts().map(function(s){
+    var p = periodOf(s);
+    return {start: s, name: p ? p.name : s, row: valueRow(key, s)};
   });
 }
 
@@ -567,20 +834,59 @@ function seriesFor(key){
    them. The people are listed biggest first, and the total is the one
    the target is judged against, because a target is set for the company
    and not for each person. */
+function splitRows(key, s){
+  if(s === 'range') return RANGESPLIT.filter(function(r){ return r.metric === key && r.dim; });
+  return SPLITS.filter(function(r){ return r.metric === key && r.bucket_start === s && r.dim; });
+}
+/* Andrew, 3 November: a salesperson with nothing sold stays on the list
+   at nought rather than disappearing, so a quiet week still shows who
+   was quiet. Anybody with a figure for this metric in the bucket on
+   screen or the few just before it counts as on the team. */
+function recentPeople(key, s){
+  if(s === 'range') return RANGEPEOPLE[key] || [];
+  var i = PERIODS.findIndex(function(p){ return p.start === s; });
+  if(i < 0) return [];
+  var back = grainOf() === 'year' ? 2 : grainOf() === 'week' ? 5 : 4;
+  var near = {};
+  PERIODS.slice(i, i + back).forEach(function(p){ near[p.start] = true; });
+  var seen = {}, out = [];
+  SPLITS.forEach(function(r){
+    if(r.metric === key && r.dim && near[r.bucket_start] && !seen[r.dim]){
+      seen[r.dim] = true; out.push(r.dim);
+    }
+  });
+  return out;
+}
 function peopleIn(key, periodStart){
-  return SPLITS.filter(function(r){
-      return r.metric === key && r.bucket_start === periodStart && r.dim; })
-    .sort(function(a, b){ return Number(b.total) - Number(a.total); });
+  var got = splitRows(key, periodStart).slice();
+  if(zeroable(metricByKey(key)) && started(key, periodStart)){
+    var have = {};
+    got.forEach(function(r){ have[r.dim] = true; });
+    recentPeople(key, periodStart).forEach(function(d){
+      if(!have[d]) got.push({metric: key, dim: d, bucket_start: dayOf(periodStart),
+                             total: 0, filled: true});
+    });
+  }
+  return got.sort(function(a, b){
+    return (Number(b.total) - Number(a.total)) || String(a.dim).localeCompare(String(b.dim)); });
 }
 /* one person's own history, over the same window as everything else */
 function splitSeriesFor(key, dim){
   var by = {};
+  var first = null;
   SPLITS.forEach(function(r){
-    if(r.metric === key && r.dim === dim) by[r.bucket_start] = r; });
-  return PERIODS.slice(0, span).map(function(p){ return p.start; }).reverse()
-    .map(function(s){
-      var p = PERIODS.find(function(x){ return x.start === s; });
-      return {start: s, name: p ? p.name : s, row: by[s] || null};
+    if(r.metric === key && r.dim === dim){
+      by[r.bucket_start] = r;
+      if(!first || r.bucket_start < first) first = r.bucket_start;
+    } });
+  var fill = zeroable(metricByKey(key));
+  return chartStarts().map(function(s){
+      var p = periodOf(s);
+      var row = by[s] || null;
+      /* a nought from the first bucket this person appears in */
+      if(!row && fill && first && (isRange() || s >= first) && s <= todayISO())
+        row = filledRow(key, s);
+      return {start: s, name: p ? p.name : s, row: row};
     });
 }
 
@@ -600,7 +906,7 @@ function computedAt(m, periodStart, from){
   if(parts.length !== 2) return null;
   var get = function(key){
     if(from) return from[key] === undefined ? null : Number(from[key]);
-    var r = VALUES.find(function(v){ return v.metric === key && v.bucket_start === periodStart; });
+    var r = valueRow(key, periodStart);
     return r ? Number(r.total) : null;
   };
   var a = get(parts[0]), b = get(parts[1]);
@@ -656,11 +962,13 @@ function rateOn(m){
 }
 /* that person's number for another metric, same period */
 function splitValue(key, dim, periodStart){
-  var hit = SPLITS.find(function(s){
-    return s.metric === key && s.dim === dim && s.bucket_start === periodStart; });
-  return hit ? Number(hit.total) : null;
+  var hit = splitRows(key, periodStart).find(function(s){ return s.dim === dim; });
+  if(hit) return Number(hit.total);
+  /* nothing sold by somebody who had measurements is 0% closed, a fact */
+  return zeroable(metricByKey(key)) && started(key, periodStart) ? 0 : null;
 }
 function targetRowFor(key, periodStart){
+  periodStart = dayOf(periodStart);
   var best = null;
   ALLT.forEach(function(t){
     if(t.metric !== key) return;
@@ -673,7 +981,7 @@ function ratioAt(m, periodStart){
   var v = computedAt(m, periodStart, null);
   if(v === null) return null;
   var t = targetRowFor(m.key, periodStart);
-  return {total: v, weekly: null, grain: grainOf(),
+  return {total: v, weekly: null, grain: isRange() ? 'range' : grainOf(),
           target_monthly: t ? t.monthly : null, target_weekly: null};
 }
 
@@ -927,8 +1235,15 @@ function chart(m, series){
   series.forEach(function(s, i) {
     var v = vals[i];
     if(v == null) return;
-    var bh = Math.max(1.5, (v / top) * (H - 4));
     var x  = i * (W / n);
+    /* a nought is a fact with nothing to draw: no bar, but the hover
+       still says so */
+    if(v === 0){
+      h += '<rect class="hit zero" x="' + x.toFixed(2) + '" y="0" width="' + bw.toFixed(2) +
+           '" height="' + H + '" data-tip="' + esc(s.name + ': ' + fmt(0, m.unit)) + '"></rect>';
+      return;
+    }
+    var bh = Math.max(1.5, (v / top) * (H - 4));
     h += '<rect class="hit' + (i === n - 1 ? ' last' : '') + '" x="' + x.toFixed(2) +
          '" y="' + (H - bh).toFixed(2) + '" width="' + bw.toFixed(2) +
          '" height="' + bh.toFixed(2) + '" rx="1.4" ' +
@@ -953,6 +1268,21 @@ function drawFilters(){
          '>' + esc(g[1]) + '</button>';
   });
   h += '</div>';
+
+  if(isRange()){
+    /* two dates and a button. The button rather than redrawing on every
+       change, because a date being typed passes through days nobody
+       meant on its way to the one they did. */
+    h += '<label for="rfrom">From</label><input type="date" id="rfrom" value="' +
+         esc(RANGE.from || '') + '">';
+    h += '<label for="rto">To</label><input type="date" id="rto" value="' +
+         esc(RANGE.to || '') + '">';
+    h += '<button class="act" data-range="1">Show</button><span class="sp"></span>';
+    if(mayEdit())
+      h += '<button class="act' + (panel === 'entry' ? ' on' : '') + '" data-panel="entry">Enter numbers</button>';
+    $('filters').innerHTML = h;
+    return;
+  }
 
   /* "periods" was fine when a period was the only length there was. It
      says weeks, months or years now, in the person's own words. */
@@ -992,6 +1322,7 @@ function drawFilters(){
    back through the dropdown, because "This month" over September would
    be a lie. */
 function periodLabel(){
+  if(isRange()) return modeRow()[3];
   if(PERIODS.length && at === PERIODS[mode === 'lastweek' ? 1 : 0].start)
     return modeRow()[3];
   var p = PERIODS.find(function(x){ return x.start === at; });
@@ -1005,6 +1336,7 @@ function periodLabel(){
    target and a year against a year's, so naming it monthly everywhere
    would be wrong in three views out of four. */
 function targetHeader(){
+  if(isRange()) return 'Against target for these dates';
   var g = grainOf();
   return g === 'week'  ? 'Against weekly target'
        : g === 'year'  ? 'Against yearly target'
@@ -1016,10 +1348,17 @@ function drawNow(){
   /* the subtitle follows the grain, so the page never says month while
      showing weeks */
   var sub = $('sub');
-  if(sub) sub.textContent = 'Leads, sales, production and installation, by ' +
-    (grainOf() === 'year' ? 'year' : grainOf() === 'week' ? 'week' : 'GIDC month');
+  if(sub) sub.textContent = 'Leads, sales, production and installation, ' +
+    (isRange() ? 'for the dates you pick' :
+     'by ' + (grainOf() === 'year' ? 'year' : grainOf() === 'week' ? 'week' : 'GIDC month'));
 
-  var p = PERIODS.find(function(x){ return x.start === at; });
+  var p = periodOf(at);
+  if(isRange() && p){
+    var n = Math.round(p.weeks * 7);
+    $('now').innerHTML = '<b>' + esc(p.name) + '</b><span>' + n +
+      (n === 1 ? ' day' : ' days') + '</span>';
+    return;
+  }
   if(!p){ $('now').innerHTML = ''; return; }
   var d = function(s){
     var b = String(s).split('-');
@@ -1035,10 +1374,26 @@ function drawNow(){
   $('now').innerHTML = '<b>' + esc(p.name) + '</b><span>' + sub + '</span>';
 }
 
+/* what the chart column is headed */
+function historyHead(){
+  if(isRange()){
+    var c = RANGEP ? RANGEP.chunk : 1;
+    return c === 1 ? 'Day by day' : c === 7 ? 'Week by week' : 'Four weeks at a time';
+  }
+  return 'Last ' + span + ' ' +
+    (grainOf() === 'year' ? 'years' : grainOf() === 'week' ? 'weeks' : 'months');
+}
+
 function draw(){
   drawFilters();
   drawNow();
 
+  if(isRange() && !RANGEP){
+    $('board').innerHTML = '<div class="sect"><div class="empty">' +
+      'Pick the first and last day, then Show.</div></div>';
+    drawPanels();
+    return;
+  }
   if(!PERIODS.length){
     $('board').innerHTML = '<div class="sect"><div class="empty">' +
       'No numbers yet. Use Enter numbers to put the first ones in, or wait for ' +
@@ -1052,9 +1407,7 @@ function draw(){
     var mine = METRICS.filter(function(m){ return m.section === sec[0]; });
     if(!mine.length) return;
     h += '<div class="sect"><h2>' + esc(titleCase(sec[1])) + '</h2>' +
-      '<div class="heads"><div>Metric</div><div>Last ' + span + ' ' +
-        esc(grainOf() === 'year' ? 'years' : grainOf() === 'week' ? 'weeks' : 'months') +
-        '</div>' +
+      '<div class="heads"><div>Metric</div><div>' + esc(historyHead()) + '</div>' +
       '<div class="r">' + esc(periodLabel()) + '</div>' +
       '<div class="r">Today</div><div class="r">Yesterday</div>' +
       '<div class="r v vf">' + esc(targetHeader()) + '</div>' +
@@ -1065,16 +1418,16 @@ function draw(){
       if(m.kind === 'ratio' || m.kind === 'sum'){
         row = ratioAt(m, at);
         /* a ratio is drawn from its own history, worked out period by period */
-        series = PERIODS.slice(0, span).map(function(p){ return p.start; }).reverse()
+        series = chartStarts()
           .map(function(s){
-            var p = PERIODS.find(function(x){ return x.start === s; });
+            var p = periodOf(s);
             var r = ratioAt(m, s);
             /* the whole row, so the dashed target rule is drawn across
                the rate's own history the way it is for everything else */
             return {start:s, name: p ? p.name : s, row: r};
           });
       } else {
-        row = VALUES.find(function(v){ return v.metric === m.key && v.bucket_start === at; }) || null;
+        row = valueRow(m.key, at);
         series = seriesFor(m.key);
       }
 
@@ -1150,6 +1503,7 @@ function draw(){
            as nothing fetched, which is how four orders could sit in the
            total with no name against them. */
         var py = YDIM[m.key + '|' + r.dim];
+        if(py === undefined && zeroable(m) && YESTERDAY[m.key] !== undefined) py = 0;
         var pw = (py === undefined) ? ''
                : (m.unit === 'money' ? shortMoney(py) : fmt(py, m.unit));
         /* and their own today, read the same way */
@@ -1178,7 +1532,7 @@ function draw(){
           if(top === null || !bot){
             cell = '<div class="verdict full none"></div>';
           } else {
-            var pr = {total: top / bot, grain: grainOf(), target_weekly: null,
+            var pr = {total: top / bot, grain: isRange() ? 'range' : grainOf(), target_weekly: null,
                       target_monthly: (targetRowFor(rate.metric.key, at) || {}).monthly};
             var pj = targetFor(rate.metric, pr) == null
                    ? {cls:'none', ar:''} : verdict(rate.metric, pr);
@@ -1600,6 +1954,24 @@ function saveEntry(btn){
 }
 
 /* ---- what the page responds to -------------------------------------- */
+function showRange(){
+  var f = $('rfrom') ? $('rfrom').value : '', to = $('rto') ? $('rto').value : '';
+  if(!f || !to){ message('info', 'Pick a first and a last day.'); return; }
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(f) || !/^\d{4}-\d{2}-\d{2}$/.test(to)){
+    message('info', 'Those dates do not read as dates.'); return;
+  }
+  /* the wrong way round is still a range */
+  if(f > to){ var x = f; f = to; to = x; }
+  message(null);
+  RANGE.from = f; RANGE.to = to;
+  $('board').innerHTML = '<div class="sect"><div class="empty">Reading&hellip;</div></div>';
+  load();
+}
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && e.target && (e.target.id === 'rfrom' || e.target.id === 'rto')){
+    e.preventDefault(); showRange();
+  }
+});
 document.addEventListener('change', function(e){
   var t = e.target;
   if(t.dataset && t.dataset.span !== undefined){ span = Number(t.value); draw(); return; }
@@ -1616,8 +1988,28 @@ document.addEventListener('click', function(e){
   var t = e.target;
   var md = t.closest && t.closest('[data-mode]');
   if(md){
+    if(md.dataset.mode === mode && isRange()) return;
     var was = grainOf();
+    var wasRange = isRange();
+    /* the first time Custom is opened it starts on the stretch that was
+       on screen, up to today, so there is something to look at at once */
+    if(md.dataset.mode === 'custom' && !wasRange && !RANGE.from){
+      var cur = periodOf(at);
+      var today = todayISO();
+      RANGE.from = cur ? cur.start : addDays(today, -29);
+      RANGE.to   = cur ? (cur.end && cur.end < today ? cur.end : today) : today;
+      if(RANGE.from > RANGE.to) RANGE.from = RANGE.to;
+    }
     mode = md.dataset.mode;
+    if(wasRange !== isRange()){
+      RANGEP = null; RANGEROWS = {}; RANGESPLIT = []; RANGEPEOPLE = {};
+      at = null;
+      if(panel === 'targets') panel = null;
+      message(null);
+      span = modeRow()[4];
+      load();
+      return;
+    }
     span = modeRow()[4];
     if(panel === 'targets' && grainOf() !== 'month') panel = null;
     message(null);
@@ -1642,6 +2034,8 @@ document.addEventListener('click', function(e){
      a suggestion, since anyone who can open it can edit it, and these
      three lines are what keeps a reader's dashboard honest without
      relying on the database to turn them away with an error. */
+  var rg = t.closest && t.closest('[data-range]');
+  if(rg){ showRange(); return; }
   var p = t.closest && t.closest('[data-panel]');
   if(p){
     if(!mayEdit()) return;
