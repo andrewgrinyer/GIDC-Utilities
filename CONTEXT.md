@@ -142,6 +142,19 @@ script sends an explicit zero for a quiet day, because a quiet day is a
 fact. `DailyLog_EstimateStatus` skips days the office machine did not
 run, and those are left absent, because nobody wrote them down.
 
+**On the dashboard, no sales is a nought.** Decided 3 November. The
+office import counts what happened, so a day with no sales sends no row,
+and the sales block used to go blank with the salespeople gone from it.
+For a flow fed by an import, a missing figure in a period that has
+started is drawn as a nought, and anybody with a figure in the last few
+periods stays listed at nought. Not for a reading, a figure typed in by
+hand, or a day still in progress (the Today column stays blank).
+
+**The dashboard's Custom range is added up in the page.** It reads the
+daily rows between the two dates, a thousand at a time, and adds flows
+while a reading takes its latest day, the same rules the month and week
+views use. Targets are scaled by the days in the range.
+
 **Explicit access beats a fallback.** A staff login with no dealer of its
 own acts for Grinyer's record. One that has been given real dealer access
 acts for that dealer instead.
