@@ -410,6 +410,9 @@ table.lines td.ed{padding:2px 3px}
 table.lines td.ed input,table.lines td.ed select{width:100%;min-width:0;font-size:11px;padding:3px 4px;
   text-align:center;border:1px solid var(--rule);background:var(--card);border-radius:4px}
 table.lines td.ed .combo-in{text-align:left;padding-left:5px}
+/* the name of a custom door style, typed under the picker */
+table.lines td.ed input.cstyle{text-align:left;padding-left:5px;margin-top:3px}
+table.lines td.ed input.cstyle.need{border-color:var(--red,#B3261E)}
 /* the dealer list is editable in place, like the roles below it */
 td.acts{white-space:nowrap;text-align:right}
 td.acts .btn{margin-left:5px}
@@ -958,7 +961,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.01 · 23 Oct 2026";
+const BUILD  = "Dealer portal 2.02 · 5 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -1166,7 +1169,8 @@ const LISTS  = {
   "Madison Smooth",
   "Camden Textured",
   "DSM Mirror Shaker Cut",
-  "Parkrose"
+  "Parkrose",
+  "Custom"
  ],
  "handleStyle": [
   "N/A",
@@ -3534,7 +3538,14 @@ function checks(r){
    *
    * Amber rather than red: the order can still be sent. It is a thing
    * for somebody here to look at, not a thing the dealer did wrong. */
-  if(r.doorStyle && state.pl && state.pl.ok && !pricedStyle(r.doorStyle))
+  if(isCustomStyle(r.doorStyle)){
+    if(!customStyleName(r))
+      red("A custom door style needs its name typed in the box under Custom");
+    else
+      amber('"' + customStyleName(r) + '" is a custom door style, so this line is ' +
+            "priced as a special order and Grinyer will quote it.");
+  }
+  else if(r.doorStyle && state.pl && state.pl.ok && !pricedStyle(r.doorStyle))
     amber('The price list has nothing for "' + (styleOut(r.doorStyle) || r.doorStyle) +
           '", so it is priced as a special order and charged for a re rail ' +
           "as though it were hollow core. Worth checking before this goes out.");
@@ -3689,7 +3700,7 @@ function checks(r){
 
   /* a door that only works one way round */
   if(needsPinStop(r) && !r.pinStop)
-    red('Pin or Stop has to be set for a "' + (r.doorStyle || "") + '" door');
+    red('Pin or Stop has to be set for a "' + styleOf(r) + '" door');
 
   /* a pre hung is built into a frame, and the frame has a width */
   if(isPreHung(r) && !String(r.jambW || "").trim())
@@ -4586,7 +4597,7 @@ function askRedo(order){
       (r.pick[x.id] ? " checked" : "") + ">" +
       "<span class=\"redo-n\">" + esc(x.opening || "") + "</span>" +
       '<span class="redo-w">' + esc(x.location || "an opening") + "</span>" +
-      '<span class="redo-d">' + esc([x.doorType, x.doorStyle].filter(Boolean).join(", ")) +
+      '<span class="redo-d">' + esc([x.doorType, styleOf(x)].filter(Boolean).join(", ")) +
       (x.width && x.height ? " · " + esc(x.width) + '" x ' + esc(x.height) + '"' : "") +
       (doorsFor(x) > 1 ? " · " + doorsFor(x) + " doors" : "") + "</span></label>").join("") +
     "</div>" +
@@ -4916,7 +4927,7 @@ function packPanels(r, order, line){
   const base = {
     customer: (order.order_ref || order.customer_name || "").trim(),
     opening: open, location: r.location || "", dtype: dt,
-    style: r.doorStyle || "", product: r.productType || "",
+    style: styleOf(r), product: r.productType || "",
     paint: paintOf(r, order) || "", core: core,
     height: packHeight(r), width: w
   };
@@ -5486,7 +5497,7 @@ function searchText(o){
   const live = !!(state.order && state.order.id === o.id);
   const form = live ? state.order.form : o.form;
   ((form && form.rows) || []).forEach(r => {
-    bits.push(r.doorType, r.doorStyle, r.location, r.productType, r.paintColour);
+    bits.push(r.doorType, r.doorStyle, r.customStyle, r.location, r.productType, r.paintColour);
   });
   const s = bits.filter(Boolean).join(" ").toLowerCase();
   /* an order being edited is not remembered, since its doors change
@@ -5917,10 +5928,32 @@ function paintOf(r, o){
 }
 const anyCustomPaint = rows => (rows || []).some(r => isCustomPaint(r.paintColour));
 
+/* A DOOR STYLE WE DO NOT LIST
+ *
+ * Andrew, 5 November: Custom on the door style list, and a box to type
+ * what the door actually is. Unlike paint this is kept on the line, not
+ * once for the order, because one job can carry two custom doors.
+ *
+ * The line still stores Custom as its style, so the price list finds
+ * nothing and the line goes S/O for Grinyer to quote, and the Access
+ * upload gets no style id, which is the truthful answer. Everything a
+ * person reads (the grid, the order form, the packing list) says
+ * Custom and then the name that was typed. */
+const CUSTOM_STYLE = "Custom";
+const isCustomStyle = v => lc(v) === "custom";
+const customStyleName = r => String((r && r.customStyle) || "").trim();
+function styleOf(r){
+  if(!r) return "";
+  if(!isCustomStyle(r.doorStyle)) return r.doorStyle || "";
+  const n = customStyleName(r);
+  return n ? CUSTOM_STYLE + ": " + n : CUSTOM_STYLE;
+}
+
 /* these styles run one way, so the cutting crew has to be told which.
    It stays in the portal and is never written into the order form. */
 const DIRECTIONAL = /pantry|laundry|louver|reed|ventilated/i;
-const needsPinStop = r => DIRECTIONAL.test(String(r.doorStyle || ""));
+const needsPinStop = r => DIRECTIONAL.test(String(r.doorStyle || "") +
+  (isCustomStyle(r.doorStyle) ? " " + customStyleName(r) : ""));
 
 /* Swing doors are ordered as standard blanks, so the arrows walk the sizes we
    actually stock instead of creeping along in thousandths. Heights are not
@@ -6543,7 +6576,14 @@ function renderOrder(){
           return;
         }
         if(locked) h += '<td class="' + (bad ? "red-cell" : "") + '">' +
-               esc(nameOut(k, r[k]) || "—") + "</td>";
+               esc((k === "doorStyle" && isCustomStyle(r[k]) ? styleOf(r)
+                    : nameOut(k, r[k])) || "—") + "</td>";
+        else if(k === "doorStyle" && isCustomStyle(r[k]))
+          h += td + combo(k, r[k], at) +
+               '<input type="text" class="cstyle' + (customStyleName(r) ? "" : " need") +
+               '" data-r="' + r.id + '" data-k="customStyle" data-cstyle="1" ' +
+               'autocomplete="off" placeholder="type the style" title="The name or ' +
+               'style of this custom door" value="' + esc(r.customStyle || "") + '"></td>';
         else if(kind === "combo") h += td + combo(k, r[k], at) + "</td>";
         else if(k === "width" || k === "height"){
           /* arrows only where there is a list of sizes to walk */
@@ -6948,6 +6988,8 @@ function fillSheet(xml, order){
       if(k === "width" && leafCount(r) > 1 && num(v)) v = r4(num(v) * leafCount(r));
       /* "Custom" tells the sprayer nothing, so the colour itself goes out */
       if(k === "paintColour") v = paintOf(r, order);
+      /* and a custom door goes out as the name that was typed */
+      if(k === "doorStyle") v = styleOf(r);
       put(COLMAP[k] + row, v);
     });
   });
@@ -7046,6 +7088,7 @@ function fillUpload(xml, order){
       /* the order form is written by the opening, and so is this sheet */
       if(k === "width" && leafCount(r) > 1 && num(v)) v = r4(num(v) * leafCount(r));
       if(k === "paintColour") v = paintOf(r, order);
+      if(k === "doorStyle") v = styleOf(r);
       put(up + row, v === "" || v == null ? "" : v);
     });
     put(UPLOAD_CUSTOMER + row, i === 0 ? (order.customer_name || "") : "");
@@ -8629,8 +8672,10 @@ document.addEventListener("change", async e => {
            if(d.k === "doorType") syncMeasurement(r);
            if(["width","height","qty","doorType","doorStyle","productType"].indexOf(d.k) !== -1)
              autoSet(r);                       // the numbers moved, so follow them
-           if(d.k === "doorStyle") autoPinStop(r);
-           if(["width","height","qty","doorType","paintColour","doorStyle",
+           if(d.k === "customStyle") r.customStyle = t.value.trim();
+           if(d.k === "doorStyle" && !isCustomStyle(r.doorStyle)) delete r.customStyle;
+           if(d.k === "doorStyle" || d.k === "customStyle") autoPinStop(r);
+           if(["width","height","qty","doorType","paintColour","doorStyle","customStyle",
                "productType","reRail","reStile","pinStop"].indexOf(d.k) !== -1) render(); }
     return;
   }
@@ -8655,6 +8700,11 @@ document.addEventListener("input", e => {
     const o = state.order;
     o.form.custom = Object.assign({}, o.form.custom,
                                   {[e.target.dataset.cust]: e.target.value.trim()});
+  }
+  /* and a custom door style's name, for the same reason */
+  if(e.target.dataset && e.target.dataset.cstyle !== undefined && state.order){
+    const r = (state.order.form.rows || []).find(x => x.id === e.target.dataset.r);
+    if(r) r.customStyle = e.target.value;
   }
   /* and the note, for the same reason: it is kept as it is typed so a
      redraw cannot take half a sentence with it */
