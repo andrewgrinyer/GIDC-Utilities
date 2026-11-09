@@ -949,7 +949,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
 </script>
 <div class="ask" id="ask" style="display:none"></div>
 <div class="ask" id="sure" style="display:none"></div>
-<input type="file" id="hidden-file" accept=".xml,.xlsx" hidden>
+<input type="file" id="hidden-file" accept=".xml,.xlsx,.prld" hidden>
 
 <script>
 "use strict";
@@ -961,7 +961,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.02 · 5 Nov 2026";
+const BUILD  = "Dealer portal 2.03 · 9 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -1728,6 +1728,12 @@ const uid4 = () => (crypto.randomUUID ? crypto.randomUUID()
   : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, c => {
       const r = Math.random()*16|0; return (c === "x" ? r : (r&0x3|0x8)).toString(16); }));
 
+/* What a file is, when nothing set it: told by its extension. The .prld is
+   the Proliner's own project file, which travels with the .xml export. */
+const fileKind = f => f.kind ||
+  (/\.xml$/i.test(f.name || "") ? "proliner"
+   : /\.prld$/i.test(f.name || "") ? "prld" : "contract");
+
 async function putFile(dealerId, name, bytes, type, kind){
   const path = dealerId + "/" + uid4() + "/" + name.replace(/[^\w.\- ]+/g, "_");
   const r = await sb("/storage/v1/object/order-files/" + encodeURI(path), {
@@ -1741,7 +1747,7 @@ async function putFile(dealerId, name, bytes, type, kind){
     throw new Error("Could not keep " + name + (msg ? ": " + msg : ""));
   }
   return {name: name, path: path, size: bytes.length || bytes.byteLength || 0,
-          kind: kind || (/\.xml$/i.test(name) ? "proliner" : "contract"),
+          kind: kind || fileKind({name: name}),
           at: new Date().toISOString()};
 }
 async function fileLink(path){
@@ -1800,7 +1806,8 @@ const superseded = (o, f) => {
  * itself rather than needing anybody to go and do it. */
 /* what each file is for, said plainly, because the file name alone does not
    tell a dealer why three files are on their order */
-const KIND_NAME = {proliner: "Proliner measurements", contract: "Sales contract",
+const KIND_NAME = {proliner: "Proliner measurements", prld: "Proliner PRLD file",
+                   contract: "Sales contract",
                    orderform: "Order form, as emailed",
                    photo: "Photograph of the problem"};
 /* AND THE KINDS THERE CAN BE SEVERAL OF
@@ -1808,6 +1815,16 @@ const KIND_NAME = {proliner: "Proliner measurements", contract: "Sales contract"
    Proliner file. Photographs of what went wrong are not corrections of
    one another, so they all stay and none of them replaces another. */
 const MANY_OF = {photo: true};
+/* THE PRLD FILE GOES WITH THE XML
+ *
+ * Andrew, 9 November: if an order has a Proliner .xml it must also have the
+ * Proliner .prld file. The portal does not read the .prld. It is kept with
+ * the order and attached to the order email, the same as the other files,
+ * and the order cannot be submitted while the .xml is there without it. */
+const hasKind = (o, kind) =>
+  (o.files || []).some(f => fileKind(f) === kind) ||
+  (o.pending || []).some(f => fileKind(f) === kind);
+const prldGap = o => !!o && hasKind(o, "proliner") && !hasKind(o, "prld");
 const currentFiles = o => (o.files || []).filter(f => !superseded(o, f));
 function tidyFiles(o){
   const old = (o.files || []).filter(f => superseded(o, f));
@@ -1827,7 +1844,7 @@ async function flushFiles(o, dealerId){
        earlier is never uploaded at all rather than uploaded and then deleted.
        A waiting file carries no kind of its own unless something set one, so
        the same rule putFile uses decides it here. */
-    const kindOf = f => f.kind || (/\.xml$/i.test(f.name || "") ? "proliner" : "contract");
+    const kindOf = fileKind;
     const toSend = pending.filter((p, i) =>
       MANY_OF[kindOf(p)] || pending.map(kindOf).lastIndexOf(kindOf(p)) === i);
     for(const p of toSend){
@@ -4339,7 +4356,11 @@ const ASK = {
   sheet: {n:2, id:"dz2", inp:"dzf2", accept:".xlsx",
           title:"The sales contract",
           blurb:"Drop the .xlsx here, or click to choose it. It carries the door " +
-                "styles, the paint and every door type the Proliner never sees."}
+                "styles, the paint and every door type the Proliner never sees."},
+  prld:  {n:3, id:"dz3", inp:"dzf3", accept:".prld",
+          title:"The Proliner PRLD file",
+          blurb:"Drop the .prld here, or click to choose it. Needed whenever there " +
+                "is a Proliner .xml. It is not read, only sent to Grinyer with the order."}
 };
 function dropZone(kind, done){
   const a = ASK[kind];
@@ -4365,6 +4386,8 @@ function renderAsk(){
         esc(src[other]) + " is in. " +
         (state.ask === "sheet"
           ? "The contract brings the door styles, the paint and the types the Proliner never sees."
+          : state.ask === "prld"
+          ? "Every Proliner .xml needs its .prld file with it. The order cannot be submitted without it."
           : "The Proliner file measures the swing openings so the checks have something to compare against.") +
         "</p>" : "") +
     dropZone(state.ask, "") +
@@ -4738,6 +4761,17 @@ async function redoSend(){
         const bytes = new Uint8Array(await res.arrayBuffer());
         pend.push({name: xml.name || "measurements.xml", bytes: bytes,
                    type: "text/xml", kind: "proliner"});
+      }catch(err){ carried = false; }
+    }
+    /* and the .prld that goes with it, since a redo with the .xml cannot be
+       submitted without one */
+    const prld = keptFile(src, "prld");
+    if(prld && prld.path){
+      try{
+        const res = await fetchKept(prld.path);
+        pend.push({name: prld.name || "measurements.prld",
+                   bytes: new Uint8Array(await res.arrayBuffer()),
+                   type: "application/octet-stream", kind: "prld"});
       }catch(err){ carried = false; }
     }
     (r.photos || []).forEach(p => pend.push({name: p.name, bytes: p.bytes,
@@ -6086,6 +6120,12 @@ function renderOrder(){
   const offStep = rows.filter(r => outOfStep(r));
   /* a custom colour that nobody has written down yet */
   const paintGap = anyCustomPaint(rows) && !customPaint(o);
+  /* a Proliner .xml with no .prld beside it */
+  const needPrld = !locked && prldGap(o);
+  if(needPrld)
+    h += '<div class="note warn"><b>The Proliner PRLD file is missing.</b> This order ' +
+      "has a Proliner .xml, so its .prld file has to go with it. Use the PRLD file " +
+      "button to add it. Until then the order cannot be submitted.</div>";
   if(offStep.length){
     h += '<div class="note warn"><b>' + offStep.length + " line" +
       (offStep.length === 1 ? " does" : "s do") +
@@ -6344,7 +6384,7 @@ function renderOrder(){
   /* what came with it. Kept exactly as it was dropped in, so Grinyer can
      open the measurer's own file rather than the portal's reading of it. */
   const kept = currentFiles(o).concat((o.pending || []).map(f =>
-    ({name: f.name, size: f.bytes.length, pending: true})));
+    ({name: f.name, size: f.bytes.length, kind: fileKind(f), pending: true})));
   if(kept.length || o.emailed_at){
     h += '<div class="card"><div class="card-b">' +
       '<h2 style="margin:0 0 10px;font-size:15px">Files with this order</h2>';
@@ -6409,6 +6449,9 @@ function renderOrder(){
       (isRedo(o) ? "" :
       '<button class="btn" data-import="xml">Proliner file</button>' +
       '<button class="btn" data-import="sheet">Sales contract</button>') +
+      /* the .prld changes no measurement, so a redo may take one too */
+      (!isRedo(o) || prldGap(o)
+        ? '<button class="btn" data-import="prld">PRLD file</button>' : "") +
       (flagged ? '<button class="btn" data-upsizeall="1">Upsize all ' + flagged + " flagged</button>" : "") +
       "</div>";
   }
@@ -6421,9 +6464,10 @@ function renderOrder(){
         '<div class="step-n">' + (done ? "\u2713" : ASK[kind].n) + "</div>" +
         '<div class="step-b">' + dropZone(kind, done) + "</div></div>";
     };
-    h += '<div class="card"><div class="card-b">' + step("xml") + step("sheet") +
-      '<p class="hint">Either one on its own is enough to start. With both, the ' +
+    h += '<div class="card"><div class="card-b">' + step("xml") + step("sheet") + step("prld") +
+      '<p class="hint">Either the .xml or the .xlsx on its own is enough to start. With both, the ' +
       "contract sets the lines and the Proliner file measures the swings among them. " +
+      "An order with a Proliner .xml also needs its .prld file before it can be submitted. " +
       "Neither? Use Add an opening and type the sizes in.</p></div></div>";
   } else {
     /* the three views the review utility gives you */
@@ -6770,7 +6814,9 @@ function renderOrder(){
     (isAdmin()   ? '<button class="btn primary" data-adminsave="1">Save</button>' : "") +
     (!locked && !isAdmin() ? '<button class="btn" data-save="1">Save draft</button>' +
       '<button class="btn primary" data-submit="1"' +
-        (rows.length && !offStep.length && !paintGap ? "" : " disabled") +
+        (rows.length && !offStep.length && !paintGap && !needPrld ? "" : " disabled") +
+        (needPrld ? ' title="This order has a Proliner .xml, so its .prld file' +
+          ' is needed too. Add it with the PRLD file button."' : "") +
         (paintGap ? ' title="A line is set to Custom paint, so the Sherwin Williams' +
           ' code and the paint name are needed above the grid."' : "") +
         (offStep.length ? ' title="' + offStep.length + " line" +
@@ -8265,7 +8311,7 @@ document.addEventListener("click", async e => {
   }
   if(d.addrow !== undefined){ state.order.form.rows.push(newRow({})); return render(); }
   if(d.import !== undefined){
-    state.ask = d.import === "sheet" ? "sheet" : "xml";
+    state.ask = d.import === "sheet" ? "sheet" : (d.import === "prld" ? "prld" : "xml");
     return render();
   }
   if(d.askclose !== undefined){ state.ask = null; return render(); }
@@ -8386,6 +8432,9 @@ async function saveOrder(status){
       return toast(off.length + (off.length === 1 ? " line does" : " lines do") +
         " not match the slab in the Proliner. Change the blank door size in the " +
         "Proliner to match and upload the file again before submitting.");
+    if(prldGap(o))
+      return toast("This order has a Proliner .xml, so its .prld file is needed too. " +
+        "Add it with the PRLD file button before submitting.");
     const bad = (o.form.rows || []).filter(r => checks(r).bad).length;
     if(bad && !confirm(bad + " line" + (bad===1?"":"s") + " still ha" + (bad===1?"s":"ve") +
         " something to look at. Submit anyway?")) return;
@@ -8876,7 +8925,7 @@ document.addEventListener("click", e => {
   }
 });
 document.addEventListener("change", e => {
-  if(/^(dzf|dzf2|hidden-file)$/.test(e.target.id || "") && e.target.files[0])
+  if(/^(dzf|dzf2|dzf3|hidden-file)$/.test(e.target.id || "") && e.target.files[0])
     readXml(e.target.files[0]);
 });
 /* THE PHOTOGRAPHS OF WHAT WENT WRONG
@@ -9065,11 +9114,24 @@ function applyMeasurements(rows, measured){
 async function readXml(file){
   try{
     const name = file.name || "";
-    if(!/\.(xml|xlsx)$/i.test(name))
+    if(!/\.(xml|xlsx|prld)$/i.test(name))
       throw new Error("That is a " + (name.split(".").pop() || "?") +
-        " file. The portal takes a Proliner .xml or a sales contract .xlsx.");
-    const sheet = /\.xlsx$/i.test(name);
+        " file. The portal takes a Proliner .xml, its .prld file, or a sales contract .xlsx.");
     const o = state.order;
+    /* The .prld is kept and sent, never read. A new one replaces the last
+       when the order is saved, the same as the other files. */
+    if(/\.prld$/i.test(name)){
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      if(!bytes.length) throw new Error(name + " is empty. Export the .prld again.");
+      o.form.sources = o.form.sources || {};
+      o.form.sources.prld = name;
+      o.pending = (o.pending || []).filter(f => f.name !== name && fileKind(f) !== "prld");
+      o.pending.push({name: name, bytes: bytes, type: "application/octet-stream", kind: "prld"});
+      toast(name + " added. It goes to Grinyer with the order.");
+      state.ask = null;
+      return render();
+    }
+    const sheet = /\.xlsx$/i.test(name);
     o.form.measured = o.form.measured || [];
     o.form.sources  = o.form.sources  || {};
     o.form.sources[sheet ? "sheet" : "xml"] = name;
@@ -9145,7 +9207,8 @@ async function readXml(file){
     const bad = o.form.rows.filter(r => checks(r).bad).length;
     toast(note + (set ? ", " + set + " re rail or re stile set" : "") +
           (bad ? ", " + bad + " to look at" : ""));
-    const missing = !o.form.sources.xml ? "xml" : (!o.form.sources.sheet ? "sheet" : null);
+    const missing = prldGap(o) ? "prld"
+      : (!o.form.sources.xml ? "xml" : (!o.form.sources.sheet ? "sheet" : null));
     state.ask = missing;
     render();
   }catch(err){ toast(err.message); }
