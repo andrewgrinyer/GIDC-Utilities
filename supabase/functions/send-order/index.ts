@@ -1,7 +1,8 @@
 // Supabase Edge Function: send-order
 //
 // Emails an order to Grinyer with the order form attached, along with
-// whatever the dealer dropped in: the Proliner file and the sales contract.
+// whatever the dealer dropped in: the Proliner file, its .prld file and the
+// sales contract.
 //
 // The sending key never leaves Supabase. The browser sends only the signed
 // in person's own token and the workbook it just built, and this function
@@ -229,7 +230,7 @@ Deno.serve(async (req) => {
 
     /* The order form first, because it is the thing being ordered. Then the
        dealer's own files. */
-    const ORDER_OF_KINDS = ["orderform", "proliner", "contract"];
+    const ORDER_OF_KINDS = ["orderform", "proliner", "prld", "contract"];
 
     /* THE SAME FILE DROPPED IN TWICE
      *
@@ -257,6 +258,13 @@ Deno.serve(async (req) => {
     if (replaced.length)
       console.log("not attaching, replaced by newer: " +
         replaced.map((f: any) => f.name ?? f.path).join(", "));
+
+    /* Andrew, 9 Nov: an order with a Proliner .xml must carry its .prld file
+       too. The portal will not submit one without it from 2.03, so this only
+       catches an order sent from an older page, and says so rather than
+       leaving the shop to notice. */
+    const noPrld = kept.some((f: any) => f.kind === "proliner") &&
+                   !kept.some((f: any) => f.kind === "prld");
 
     const missing: string[] = [];
     for (const f of kept as any[]) {
@@ -327,6 +335,9 @@ Deno.serve(async (req) => {
           `It is kept with the order in the portal but is not attached here.</p>` : "") +
       (missing.length
         ? `<p style="color:#9A4A12">Could not attach: ${esc(missing.join(", "))}.</p>` : "") +
+      (noPrld
+        ? `<p style="color:#9A4A12">This order has a Proliner .xml but no .prld file ` +
+          `came with it. Ask the dealer for it.</p>` : "") +
       `</div>`;
 
     const from = Deno.env.get("ORDER_EMAIL_FROM") ?? "onboarding@resend.dev";
