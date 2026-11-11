@@ -192,6 +192,35 @@ const blockText = (page, name) => page.$$eval('.grp', (gs, name) => {
   console.log('phone: page wider than screen?', over);
   if(SHOTS) await page.screenshot({path: SHOTS + '/4-phone.png', fullPage: false});
 
+  // 9. phone on its side: the target columns come back. Upright they stay hidden.
+  const shown = () => page.evaluate(() => {
+    const vis = el => el && getComputedStyle(el).display !== 'none' && el.getBoundingClientRect().width > 0;
+    const row = document.querySelector('#board .row:not(.part)');
+    return {target: vis(row.querySelector('.verdict.full')), pace: vis(row.querySelector('.verdict:not(.full)')),
+            head: vis(document.querySelector('#board .heads .vf')), chart: vis(row.querySelector('.chart')),
+            over: document.documentElement.scrollWidth > window.innerWidth + 1,
+            text: document.querySelector('#board').innerText};
+  });
+  await page.click('[data-mode="month"]'); await page.waitForSelector('select[data-at]'); await page.waitForTimeout(300);
+  let st = await shown();
+  check(!st.target && !st.pace, 'phone upright: target columns stay hidden');
+  for(const [w, h, chart] of [[667, 375, false], [740, 360, false], [844, 390, true], [932, 430, true]]){
+    await page.setViewportSize({width: w, height: h}); await page.waitForTimeout(200);
+    st = await shown();
+    check(st.target && st.pace && st.head, 'phone on its side ' + w + ': target and pace columns shown');
+    check(/Against monthly target/i.test(st.text), 'phone on its side ' + w + ': target header reads');
+    check(st.chart === chart, 'phone on its side ' + w + ': chart ' + (chart ? 'kept' : 'steps aside'));
+    check(!st.over, 'phone on its side ' + w + ': page no wider than the screen');
+    if(SHOTS){
+      await page.evaluate(() => { const s = document.querySelectorAll('#board .sect'); (s[1] || s[0]).scrollIntoView(); });
+      await page.screenshot({path: SHOTS + '/5-phone-sideways-' + w + '.png', fullPage: false});
+    }
+  }
+  // a short desktop window is not a phone: wider than 1180 keeps its own layout
+  await page.setViewportSize({width: 1400, height: 450}); await page.waitForTimeout(200);
+  st = await shown();
+  check(st.target && st.pace && st.chart, 'short desktop window: unchanged');
+
   console.log('ERRORS:', errs);
   console.log('FAILED:', failed);
   await b.close(); process.exit(errs.length || failed.length ? 1 : 0);
