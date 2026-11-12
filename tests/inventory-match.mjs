@@ -64,4 +64,14 @@ assert.deepEqual(inventoryMatches(lines, shelf, ref).map((m) => [m.line, m.core,
   [[1, "Hollow", "s1"], [2, "Bifold", "s2"], [4, "Solid", "s3"]]);
 // without the alias table, the portal's name finds nothing
 assert.equal(inventoryMatches(lines.slice(0, 1), shelf, reference()).length, 0);
+
+// a shelf door with no height or no core recorded matches any
+const loose = [{ id: "l1", style: "Rasario", width_in: 36, height_in: null, core: "Bifold", qty: 2 },
+               { id: "l2", style: "Whitman", width_in: 28, height_in: 80, core: null, qty: 1 }];
+assert.deepEqual(inventoryMatches([
+  { doorStyle: "Rasario", width: "36", height: "80", doorType: "Bifold" },
+  { doorStyle: "Rasario", width: "36", height: "80", doorType: "Single Swing", productType: "1.375 Hollow" },
+  { doorStyle: "Whitman", width: "28", height: "80", productType: "1.375 Solid" },
+  { doorStyle: "Whitman", width: "28", height: "84", productType: "1.375 Solid" },
+], loose).map((m) => m.line), [1, 3]);
 console.log("inventory matching: all good");

@@ -83,6 +83,7 @@ h1{font-size:23px;margin:22px 0 4px;letter-spacing:-.01em}
 .chip.Hollow{background:var(--info-soft);color:var(--info)}
 .chip.Solid{background:var(--ok-soft);color:var(--ok)}
 .chip.other{background:var(--rule-soft);color:var(--ink)}
+.chip.warn{background:#FBF1E7;color:#9A4A12}
 .qty{display:flex;align-items:center;gap:6px;flex:none}
 .qty b{min-width:30px;text-align:center;font-size:18px}
 .qty button{width:38px;height:38px;border-radius:9px;border:1px solid var(--rule);background:var(--card);
@@ -132,7 +133,7 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
       <div class="style"><label for="f-style">Style</label>
         <input id="f-style" list="styles" autocomplete="off" placeholder="Start typing a style"></div>
       <div><label for="f-w">Width (in)</label><input id="f-w" inputmode="decimal" placeholder="30"></div>
-      <div><label for="f-h">Height (in)</label><input id="f-h" inputmode="decimal" placeholder="80"></div>
+      <div><label for="f-h">Height (in)</label><input id="f-h" inputmode="decimal" placeholder="80, or blank"></div>
       <div><label for="f-core">Core</label>
         <select id="f-core"></select></div>
       <div><label for="f-qty">How many</label><input id="f-qty" inputmode="numeric" value="1"></div>
@@ -148,12 +149,13 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
 
   <div class="bar" id="filters">
     <span class="search"><input id="q" type="search" placeholder="Search style, size or notes"></span>
+    <button class="chipbtn hide" id="checkonly"></button>
     <button class="chipbtn" id="showzero">Show none left</button>
   </div>
   <div class="list" id="list"><div class="empty">Loading&hellip;</div></div>
   <p class="count" id="count"></p>
 </div>
-<div class="gidc-build">Inventory 1.0 &middot; 12 Nov 2026</div>
+<div class="gidc-build">Inventory 1.1 &middot; 12 Nov 2026</div>
 
 <script>
 (function(){
@@ -189,7 +191,12 @@ function showIn(n){
   return whole + ' ' + num + '/' + den;
 }
 
-var ME = null, ROWS = [], query = '', showZero = false;
+var ME = null, ROWS = [], query = '', showZero = false, checkOnly = false;
+/* A line somebody needs to look at: the count sheet was unclear (its
+   notes start "Check:"), or the price list does not know the style. */
+function needsCheck(d){
+  return /^\s*check:/i.test(d.notes || '') || (REF.ok && !REF.name[styleKey(d.style)]);
+}
 
 /* ---- the price list, which is where styles and cores come from --------
    Read the same way the portal reads it: a style is sold in a core when
@@ -222,12 +229,20 @@ function coresFor(style){
   var list = CORE_ORDER.filter(function(c){ return !have || have[c]; });
   return list.length ? list : CORE_ORDER;
 }
+/* "Not recorded" is for a door whose core nobody wrote down. It matches
+   an order line of any core, the same as a blank height. */
 function fillCores(keep){
-  var sel = $('f-core'), was = keep || sel.value;
+  var sel = $('f-core'), was = keep === undefined ? sel.value : (keep || '');
   var list = coresFor($('f-style').value);
-  sel.innerHTML = list.map(function(c){ return '<option>' + esc(c) + '</option>'; }).join('');
-  if(list.indexOf(was) !== -1) sel.value = was;
+  sel.innerHTML = list.map(function(c){ return '<option>' + esc(c) + '</option>'; }).join('') +
+    '<option value="">Not recorded</option>';
+  if(was === '' || list.indexOf(was) !== -1) sel.value = was;
 }
+function sizeOf(d){
+  return d.height_in == null ? showIn(d.width_in) + ' wide, height not recorded'
+                             : showIn(d.width_in) + ' x ' + showIn(d.height_in);
+}
+function sameNum(a, b){ return a == null || b == null ? a == b : Math.abs(a - b) < 0.01; }
 var editId = null, confirmDel = null, busy = false;
 
 /* Adding and changing is Grinyer staff, the same list as
@@ -262,9 +277,10 @@ function load(){
 function showing(){
   var q = query.trim().toLowerCase(), qn = pnorm(q);
   return ROWS.filter(function(d){
+    if(checkOnly) return needsCheck(d);
     if(!showZero && !(d.qty > 0)) return false;
     if(!q) return true;
-    var size = showIn(d.width_in) + ' x ' + showIn(d.height_in);
+    var size = sizeOf(d);
     var hay = [d.style, size, d.core, d.notes].join(' ').toLowerCase();
     return hay.indexOf(q) !== -1 || (qn && pnorm(d.style).indexOf(qn) !== -1);
   });
@@ -277,6 +293,10 @@ function draw(){
   $('styles').innerHTML = Object.keys(styles).sort().map(function(s){
     return '<option value="' + esc(s) + '">'; }).join('');
   $('showzero').className = 'chipbtn' + (showZero ? ' on' : '');
+  var toCheck = ROWS.filter(needsCheck).length;
+  if(!toCheck) checkOnly = false;
+  $('checkonly').className = 'chipbtn' + (toCheck ? '' : ' hide') + (checkOnly ? ' on' : '');
+  $('checkonly').textContent = 'Needs a check (' + toCheck + ')';
 
   var rows = showing();
   if(!rows.length){
@@ -288,8 +308,14 @@ function draw(){
       var none = !(d.qty > 0);
       return '<div class="row' + (none ? ' none' : '') + '">' +
         '<div class="what">' +
-          '<div class="st">' + esc(d.style) + '<span class="chip ' + (d.core === 'Hollow' || d.core === 'Solid' ? d.core : 'other') + '">' + esc(d.core) + '</span></div>' +
-          '<div class="meta">' + esc(showIn(d.width_in)) + ' x ' + esc(showIn(d.height_in)) +
+          '<div class="st">' + esc(d.style) +
+            '<span class="chip ' + (d.core === 'Hollow' || d.core === 'Solid' ? d.core : 'other') + '">' +
+              esc(d.core || 'Core not recorded') + '</span>' +
+            /* A style the price list does not know never matches an order
+               until somebody picks the right name with Edit. */
+            (REF.ok && !REF.name[styleKey(d.style)] ? '<span class="chip warn">Not on the price list</span>' : '') +
+          '</div>' +
+          '<div class="meta">' + esc(sizeOf(d)) +
             (d.updated_by ? ' · last changed by ' + esc(d.updated_by) : '') + '</div>' +
           (d.notes ? '<div class="note">' + esc(d.notes) + '</div>' : '') +
         '</div>' +
@@ -302,8 +328,7 @@ function draw(){
           ? '<div class="rowacts"><button class="plain" data-edit="' + esc(d.id) + '">Edit</button>' +
             '<button class="danger" data-del="' + esc(d.id) + '">Remove</button></div>' : '') +
         (can && confirmDel === d.id
-          ? '<div class="areyousure">Remove <b>' + esc(d.style) + ' ' + esc(showIn(d.width_in)) + ' x ' +
-              esc(showIn(d.height_in)) + '</b> from the list for good? To record that the last one went, ' +
+          ? '<div class="areyousure">Remove <b>' + esc(d.style) + ' ' + esc(sizeOf(d)) + '</b> from the list for good? To record that the last one went, ' +
               'take the count to nothing instead.' +
             '<div class="acts"><button class="danger" data-delyes="' + esc(d.id) + '">Yes, remove it</button>' +
             '<button class="plain" data-delno="1">Keep it</button></div></div>' : '') +
@@ -330,7 +355,7 @@ function startEdit(id){
   var d = ROWS.find(function(x){ return x.id === id; });
   if(!d) return;
   editId = id;
-  $('f-style').value = d.style; $('f-w').value = showIn(d.width_in); $('f-h').value = showIn(d.height_in);
+  $('f-style').value = d.style; $('f-w').value = showIn(d.width_in); $('f-h').value = d.height_in == null ? '' : showIn(d.height_in);
   fillCores(d.core); $('f-qty').value = d.qty; $('f-notes').value = d.notes || '';
   $('formtitle').textContent = 'Change this door';
   $('f-save').textContent = 'Save';
@@ -340,7 +365,7 @@ function startEdit(id){
 }
 function readForm(){
   var style = $('f-style').value.trim();
-  var w = inches($('f-w').value), h = inches($('f-h').value);
+  var w = inches($('f-w').value), hRaw = $('f-h').value.trim(), h = hRaw ? inches(hRaw) : null;
   var q = $('f-qty').value.trim();
   if(!style) throw new Error('Which style is it?');
   /* Saved under the price list's own spelling, so the list and the
@@ -351,11 +376,11 @@ function readForm(){
       'as it is named there.');
     style = known;
   }
-  var core = $('f-core').value;
-  if(coresFor(style).indexOf(core) === -1)
+  var core = $('f-core').value || null;
+  if(core && coresFor(style).indexOf(core) === -1)
     throw new Error('The price list does not sell ' + style + ' in ' + core + '.');
   if(w === null || w <= 0 || w >= 200) throw new Error('The width should be inches, like 30 or 29 1/2.');
-  if(h === null || h <= 0 || h >= 200) throw new Error('The height should be inches, like 80.');
+  if(hRaw && (h === null || h <= 0 || h >= 200)) throw new Error('The height should be inches, like 80, or blank if it is not known.');
   if(!/^\d+$/.test(q)) throw new Error('How many should be a whole number.');
   return {style: style, width_in: w, height_in: h, core: core,
           qty: Number(q), notes: $('f-notes').value.trim() || null};
@@ -378,7 +403,7 @@ function put(row){
   var i = ROWS.findIndex(function(x){ return x.id === row.id; });
   if(i >= 0) ROWS[i] = row; else ROWS.push(row);
   ROWS.sort(function(a, b){
-    return a.style.localeCompare(b.style) || a.width_in - b.width_in || a.height_in - b.height_in; });
+    return a.style.localeCompare(b.style) || a.width_in - b.width_in || (a.height_in || 0) - (b.height_in || 0); });
 }
 function save(){
   if(busy) return;
@@ -389,7 +414,8 @@ function save(){
   if(!editId){
     var same = ROWS.find(function(d){
       return styleKey(d.style) === styleKey(body.style) && d.core === body.core &&
-             Math.abs(d.width_in - body.width_in) < 0.01 && Math.abs(d.height_in - body.height_in) < 0.01;
+             sameNum(Number(d.width_in), body.width_in) &&
+             sameNum(d.height_in == null ? null : Number(d.height_in), body.height_in);
     });
     if(same){
       message('bad', 'That door is already on the list. Use + on its line, or Edit it.');
@@ -402,7 +428,7 @@ function save(){
     : send('POST', '/rest/v1/door_inventory', body);
   p.then(function(row){
       put(row); var was = editId; clearForm(); draw();
-      message('good', (was ? 'Saved ' : 'Added ') + row.style + ' ' + showIn(row.width_in) + ' x ' + showIn(row.height_in) + '.');
+      message('good', (was ? 'Saved ' : 'Added ') + row.style + ' ' + sizeOf(row) + '.');
     })
     .catch(function(err){ message('bad', err.message); })
     .then(function(){ busy = false; $('f-save').disabled = false; });
@@ -427,7 +453,7 @@ function remove(id){
       ROWS = ROWS.filter(function(x){ return x.id !== id; });
       if(editId === id) clearForm();
       confirmDel = null; draw();
-      message('good', 'Removed ' + row.style + ' ' + showIn(row.width_in) + ' x ' + showIn(row.height_in) + '.');
+      message('good', 'Removed ' + row.style + ' ' + sizeOf(row) + '.');
     })
     .catch(function(err){ confirmDel = null; draw(); message('bad', err.message); })
     .then(function(){ busy = false; });
@@ -440,6 +466,7 @@ document.addEventListener('click', function(e){
   if(t.closest('#f-save')){ save(); return; }
   if(t.closest('#f-cancel')){ clearForm(); message(null); return; }
   if(t.closest('#showzero')){ showZero = !showZero; draw(); return; }
+  if(t.closest('#checkonly')){ checkOnly = !checkOnly; draw(); return; }
   if((el = t.closest('[data-inc]'))){ bump(el.dataset.inc, 1); return; }
   if((el = t.closest('[data-dec]'))){ bump(el.dataset.dec, -1); return; }
   if((el = t.closest('[data-edit]'))){ message(null); startEdit(el.dataset.edit); return; }

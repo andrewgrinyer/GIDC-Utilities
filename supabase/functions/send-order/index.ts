@@ -139,7 +139,8 @@ function styleOfLine(r: any): string {
 type PriceRow = { style: string; size_key: string; price: number | string | null };
 type AliasRow = { order_style: string; price_style: string };
 type StockDoor = { id: string; style: string; width_in: number | string;
-                   height_in: number | string; core: string; qty: number; notes?: string | null };
+                   height_in: number | string | null; core: string | null; qty: number;
+                   notes?: string | null };
 type StockMatch = { line: number; location: string; wanted: number; style: string;
                     width: number; height: number; core: string | null; stock: StockDoor[] };
 
@@ -184,8 +185,10 @@ export function inventoryMatches(rows: unknown, stock: StockDoor[], ref: Ref = r
       Number(d.qty) > 0 &&
       ref.key(d.style) === key &&
       Math.abs(Number(d.width_in) - w) < 0.01 &&
-      Math.abs(Number(d.height_in) - h) < 0.01 &&
-      (core === null || d.core === core));
+      /* A height or core nobody wrote down on the count sheet matches
+         any, the same as a line that does not say its core. */
+      (d.height_in == null || Math.abs(Number(d.height_in) - h) < 0.01) &&
+      (core === null || d.core == null || d.core === core));
     if (hits.length) out.push({
       line: i + 1, location: String(r?.location ?? "").trim(),
       wanted: Math.max(1, Math.round(Number(r?.qty) || 1)),
@@ -205,11 +208,13 @@ export function inventoryNote(found: StockMatch[]): string {
       `<td style="padding:4px 10px 4px 0;vertical-align:top">Line ${m.line}` +
         (m.location ? `<br><span style="color:#6E6E76">${esc(m.location)}</span>` : "") + `</td>` +
       `<td style="padding:4px 10px 4px 0;vertical-align:top"><b>${esc(m.style)}</b>, ` +
-        `${esc(fmtIn(m.width))} x ${esc(fmtIn(m.height))}, ` +
-        `${esc(m.core ?? m.stock[0].core)}<br>` +
+        `${esc(fmtIn(m.width))} x ${esc(fmtIn(m.height))}` +
+        (m.core ?? m.stock[0].core ? `, ${esc(m.core ?? m.stock[0].core)}` : "") + `<br>` +
         `<span style="color:#6E6E76">Ordered ${m.wanted}, on the shelf ${onHand}` +
         (m.stock.some((d) => pnorm(d.style) !== pnorm(m.style))
           ? ` as ${esc([...new Set(m.stock.map((d) => d.style))].join(", "))}` : "") +
+        (m.stock.some((d) => d.height_in == null) ? ". Height not recorded on the shelf" : "") +
+        (m.stock.some((d) => d.core == null) ? ". Core not recorded on the shelf" : "") +
         (notes ? `. ${esc(notes)}` : "") + `</span></td>` +
       `</tr>`;
   }).join("");

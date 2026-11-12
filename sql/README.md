@@ -38,6 +38,11 @@ from wholesale_prices and wholesale_style_alias, and the send-order edge
 function matches each new dealer order against the shelf the same way.
 Independent of the login files. `tests/inventory.sh` tests it locally.
 
+**door-inventory-count-2026-11-12.sql** loads Andrew's count of 12
+November (42 lines, 54 doors) after door-inventory.sql. Styles put under
+the price list's names where clear; anything unclear has notes starting
+"Check:" and shows under Needs a check on the tools page.
+
 **security-audit.sql** is read only and can be run any time. It reports
 what is actually exposed rather than what anybody remembers writing.
 

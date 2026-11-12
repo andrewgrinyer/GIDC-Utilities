@@ -71,7 +71,9 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
     return page;
   }
   STOCK = [{id:'s1', style:'Columbia', width_in:'30.000', height_in:'80.000', core:'Hollow', qty:2, notes:'Rack A', updated_by:'Nick'},
-           {id:'s2', style:'Clear 1-Lite', width_in:'29.500', height_in:'80.000', core:'Solid', qty:0, notes:null}];
+           {id:'s2', style:'Clear 1-Lite', width_in:'29.500', height_in:'80.000', core:'Solid', qty:0, notes:null},
+           {id:'s3', style:'Columbia', width_in:'36.000', height_in:null, core:'Bifold', qty:1, notes:null},
+           {id:'s4', style:'Boston', width_in:'24.000', height_in:'78.000', core:null, qty:1, notes:'Check: style not on the price list'}];
 
   // the tile is on the landing page
   let page = await open('admin');
@@ -81,6 +83,15 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   let t = await listText(page);
   check(/Columbia/.test(t) && /30 x 80/.test(t) && /Rack A/.test(t), 'lists a door with its size and notes');
   check(!/Clear 1-Lite/.test(t), 'a line with none left is hidden by default');
+  check(/36 wide, height not recorded/.test(t), 'a bifold counted by width alone says height not recorded');
+  check(/Boston\s*Core not recorded\s*Not on the price list/.test(t) || console.log(t), 'a style not on the price list, with no core, is marked');
+  check(/Needs a check \(1\)/.test(await page.$eval('#checkonly', e => e.innerText)), 'Needs a check counts the Boston line');
+  await page.click('#checkonly');
+  check(/Boston/.test(await listText(page)) && !/Rack A/.test(await listText(page)), 'Needs a check shows only that line');
+  await page.click('#checkonly');
+  await page.click('[data-edit="s3"]');
+  check(await page.inputValue('#f-h') === '' && await page.inputValue('#f-core') === 'Bifold', 'Edit keeps a blank height blank');
+  await page.click('#f-cancel');
   await page.click('#showzero');
   check(/29 1\/2 x 80/.test(await listText(page)), 'Show none left shows it, with the size as 29 1/2');
   await page.click('#showzero');
@@ -88,11 +99,11 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   // cores come from the price list for the style picked
   const cores = async () => page.$$eval('#f-core option', o => o.map(x => x.value).join(','));
   await page.fill('#f-style', 'Clear 1-Lite');
-  check(await cores() === 'Solid', 'Clear 1-Lite offers Solid only, as the price list sells it');
+  check(await cores() === 'Solid,', 'Clear 1-Lite offers Solid only, as the price list sells it');
   await page.fill('#f-style', 'samish smooth');
-  check(await cores() === 'Hollow,Solid,Bifold,1.75', 'the portal name Samish (Smooth) offers Columbia\'s four cores, through the alias');
+  check(await cores() === 'Hollow,Solid,Bifold,1.75,', 'the portal name Samish (Smooth) offers Columbia\'s four cores, through the alias');
   const opts = await page.$$eval('#styles option', o => o.map(x => x.value).join(','));
-  check(opts === 'Clear 1-Lite,Columbia', 'style suggestions are the price list styles');
+  check(opts === 'Boston,Clear 1-Lite,Columbia', 'style suggestions are the price list styles, and what is on the shelf');
 
   // adding through the alias saves under the price list name
   await page.selectOption('#f-core', 'Bifold');
@@ -100,7 +111,7 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   await page.fill('#f-notes', 'Back wall');
   await page.click('#f-save');
   await page.waitForTimeout(200);
-  const added = STOCK.find(d => d.core === 'Bifold');
+  const added = STOCK.find(d => d.core === 'Bifold' && d.width_in === 29.5);
   check(added && added.style === 'Columbia' && added.width_in === 29.5 && added.qty === 3,
     'Samish (Smooth) is saved as Columbia, 29.5 wide, 3 of them');
   check(/Added Columbia 29 1\/2 x 80/.test(await msgText(page)), 'says what was added');
@@ -127,6 +138,12 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   check(STOCK.find(d => d.id === 's1').notes === 'Rack C', 'Edit saves the notes');
 
   // remove asks first
+  // a blank height and a Not recorded core save as nothing, not as a guess
+  await page.fill('#f-style', 'Columbia'); await page.fill('#f-w', '22'); await page.fill('#f-h', '');
+  await page.selectOption('#f-core', ''); await page.fill('#f-qty', '1'); await page.click('#f-save');
+  await page.waitForTimeout(150);
+  const blank = STOCK.find(d => Number(d.width_in) === 22);
+  check(blank && blank.height_in === null && blank.core === null, 'blank height and Not recorded core save as blank');
   await page.click('[data-del="s1"]');
   check(/for good/.test(await listText(page)), 'Remove asks first');
   if(SHOTS) await page.screenshot({path: SHOTS + '/inventory-admin.png', fullPage: true});
