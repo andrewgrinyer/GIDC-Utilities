@@ -74,4 +74,11 @@ assert.deepEqual(inventoryMatches([
   { doorStyle: "Whitman", width: "28", height: "80", productType: "1.375 Solid" },
   { doorStyle: "Whitman", width: "28", height: "84", productType: "1.375 Solid" },
 ], loose).map((m) => m.line), [1, 3]);
+
+// Other, with the real style name in the notes
+const other = [{ id: "o1", style: "Other", width_in: 24, height_in: 78, core: "Hollow", qty: 1, notes: "Style: Boston. Rack E" }];
+assert.deepEqual(inventoryMatches([
+  { doorStyle: "Custom", customStyle: "Boston", width: "24", height: "78", productType: "1.375 Hollow" },
+  { doorStyle: "Columbia", width: "24", height: "78", productType: "1.375 Hollow" },
+], other).map((m) => m.line), [1]);
 console.log("inventory matching: all good");

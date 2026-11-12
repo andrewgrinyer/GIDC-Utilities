@@ -138,7 +138,7 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
         <select id="f-core"></select></div>
       <div><label for="f-qty">How many</label><input id="f-qty" inputmode="numeric" value="1"></div>
       <div class="wide"><label for="f-notes">Notes</label>
-        <input id="f-notes" placeholder="Where it is, condition, handing"></div>
+        <input id="f-notes" placeholder="Where it is, condition, handing. For Other, the style name"></div>
       <div class="acts">
         <button class="save" id="f-save">Add</button>
         <button class="plain hide" id="f-cancel">Cancel</button>
@@ -155,7 +155,7 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
   <div class="list" id="list"><div class="empty">Loading&hellip;</div></div>
   <p class="count" id="count"></p>
 </div>
-<div class="gidc-build">Inventory 1.3 &middot; 12 Nov 2026</div>
+<div class="gidc-build">Inventory 1.4 &middot; 12 Nov 2026</div>
 
 <script>
 (function(){
@@ -195,7 +195,8 @@ var ME = null, ROWS = [], query = '', showZero = false, checkOnly = false;
 /* A line somebody needs to look at: the count sheet was unclear (its
    notes start "Check:"), or the price list does not know the style. */
 function needsCheck(d){
-  return /^\s*check:/i.test(d.notes || '') || (REF.ok && !REF.name[styleKey(d.style)]);
+  return /(^|\s)check:/i.test(d.notes || '') ||
+         (REF.ok && !isOther(d.style) && !REF.name[styleKey(d.style)]);
 }
 
 /* ---- the price list, which is where styles and cores come from --------
@@ -205,24 +206,48 @@ function needsCheck(d){
 var CORE_ORDER = ['Hollow', 'Solid', 'Bifold', '1.75'];
 var REF = {ok: false, name: {}, cores: {}, alias: {}};
 function styleKey(s){ var k = pnorm(s); return REF.alias[k] || k; }
+/* Andrew, 12 November: the list was not pulling the price list properly.
+   Two reasons. A style with no price filled in yet (Flush, 2 Panel,
+   Cheyenne and others) was left off. And Supabase hands back at most
+   1000 rows at a time, so a longer list lost its tail. Now every style on
+   the list is offered, read a thousand rows at a time until the end, and
+   only the cores are limited by price. The lines that are charges rather
+   than doors (shipping, re rail, astragals, paint) are left out. */
+var NOT_A_DOOR = /shipping|re ?rail|double stile|astragal|paint|c ?match/i;
+function readAll(path){
+  var rows = [];
+  function page(from){
+    return GIDCAuth.api(path + '&order=style.asc&offset=' + from + '&limit=1000', {headers: GIDCAuth.headers()})
+      .then(function(r){
+        if(!r.ok) throw new Error('price list ' + r.status);
+        return r.json();
+      })
+      .then(function(got){
+        rows = rows.concat(got || []);
+        return got && got.length === 1000 ? page(from + 1000) : rows;
+      });
+  }
+  return page(0);
+}
 function loadReference(){
   return Promise.all([
-    GIDCAuth.api('/rest/v1/wholesale_prices?select=style,size_key,price&limit=5000', {headers: GIDCAuth.headers()}),
+    readAll('/rest/v1/wholesale_prices?select=style,size_key,price'),
     GIDCAuth.api('/rest/v1/wholesale_style_alias?select=order_style,price_style', {headers: GIDCAuth.headers()})
-  ]).then(function(rs){
-    return Promise.all([rs[0].ok ? rs[0].json() : [], rs[1].ok ? rs[1].json() : []]);
-  }).then(function(got){
+      .then(function(r){ return r.ok ? r.json() : []; }).catch(function(){ return []; })
+  ]).then(function(got){
     (got[1] || []).forEach(function(a){
       if(a && a.order_style && a.price_style) REF.alias[pnorm(a.order_style)] = pnorm(a.price_style);
     });
     (got[0] || []).forEach(function(p){
-      if(!(Number(p.price) > 0)) return;
-      var k = pnorm(p.style), core = String(p.size_key || '').split('|').pop();
-      if(!REF.name[k]) REF.name[k] = String(p.style).trim();
-      (REF.cores[k] = REF.cores[k] || {})[core] = true;
+      var name = String(p.style || '').trim();
+      if(!name || NOT_A_DOOR.test(name)) return;
+      var k = pnorm(name), core = String(p.size_key || '').split('|').pop();
+      if(!REF.name[k]) REF.name[k] = name;
+      REF.cores[k] = REF.cores[k] || {};
+      if(Number(p.price) > 0) REF.cores[k][core] = true;
     });
     REF.ok = Object.keys(REF.name).length > 0;
-  }).catch(function(){ /* without it the form still works, with all four cores */ });
+  }).catch(function(err){ REF.error = err.message; });
 }
 /* THE STYLE IS A PROPER DROP DOWN
    Andrew, 12 November: clicking Style showed nothing. It was a typing box
@@ -230,19 +255,25 @@ function loadReference(){
    typed. Now it is a list of every style the price list sells, so a click
    shows them all. A line already on the shelf under a name the price list
    does not have keeps that name, marked, so it can still be edited. */
+var OTHER = 'Other';
+function isOther(s){ return pnorm(s) === 'other'; }
 function fillStyles(keep){
   var sel = $('f-style'), was = keep === undefined ? sel.value : (keep || '');
   var names = Object.keys(REF.name).map(function(k){ return REF.name[k]; })
     .sort(function(a, b){ return a.toLowerCase().localeCompare(b.toLowerCase()); });
-  var h = '<option value="">' + (REF.ok ? 'Pick a style' : 'The price list could not be read') + '</option>';
-  if(was && !(REF.ok && REF.name[styleKey(was)]))
+  var h = '<option value="">' + (REF.ok ? 'Pick a style' : 'The price list could not be read') + '</option>' +
+    /* Andrew, 12 November: for a door the price list does not have, pick
+       Other and put its real style name in the notes. */
+    '<option value="' + OTHER + '">Other (put the style in the notes)</option>';
+  if(was && was !== OTHER && !(REF.ok && REF.name[styleKey(was)]))
     h += '<option value="' + esc(was) + '">' + esc(was) + ' (not on the price list)</option>';
   h += names.map(function(n){ return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
   sel.innerHTML = h;
-  sel.value = was && REF.ok && REF.name[styleKey(was)] ? REF.name[styleKey(was)] : was;
+  sel.value = isOther(was) ? OTHER : was && REF.ok && REF.name[styleKey(was)] ? REF.name[styleKey(was)] : was;
 }
 function coresFor(style){
-  var have = REF.ok && REF.cores[styleKey(style)];
+  var have = REF.ok && !isOther(style) && REF.cores[styleKey(style)];
+  if(have && !Object.keys(have).length) have = null;     /* no prices yet: any core */
   var list = CORE_ORDER.filter(function(c){ return !have || have[c]; });
   return list.length ? list : CORE_ORDER;
 }
@@ -378,7 +409,7 @@ function draw(){
               esc(d.core || 'Core not recorded') + '</span>' +
             /* A style the price list does not know never matches an order
                until somebody picks the right name with Edit. */
-            (REF.ok && !REF.name[styleKey(d.style)] ? '<span class="chip warn">Not on the price list</span>' : '') +
+            (REF.ok && !isOther(d.style) && !REF.name[styleKey(d.style)] ? '<span class="chip warn">Not on the price list</span>' : '') +
           '</div>' +
           '<div class="meta">' + esc(sizeOf(d)) +
             (d.updated_by ? ' · last changed by ' + esc(d.updated_by) : '') + '</div>' +
@@ -445,6 +476,11 @@ function readForm(){
     /* A line from the count sheet under a name the list does not have may
        still have its count or notes changed; it stays marked until a
        style from the list is picked. */
+    if(isOther(style)){
+      known = OTHER;
+      if(!$('f-notes').value.trim())
+        throw new Error('For Other, type the door\'s style name in the notes.');
+    }
     if(!known && !(editing && editing.style === style))
       throw new Error(style + ' is not on the price list. Pick the style from the list.');
     if(known) style = known;
@@ -566,8 +602,8 @@ GIDCAuth.whoami().then(function(me){
   (canChange() ? loadReference() : Promise.resolve()).then(function(){
     fillStyles('');
     if(canChange() && !REF.ok)
-      message('bad', 'The price list could not be read, so there are no styles to pick from. ' +
-        'Reload the page; if it stays like this, tell Andrew.');
+      message('bad', 'The price list could not be read (' + (REF.error || 'it came back empty') +
+        '), so only Other can be picked. Reload the page; if it stays like this, tell Andrew.');
     return load();
   });
 });

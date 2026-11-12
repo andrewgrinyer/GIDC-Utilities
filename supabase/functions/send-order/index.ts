@@ -183,7 +183,12 @@ export function inventoryMatches(rows: unknown, stock: StockDoor[], ref: Ref = r
     const core = coreOfLine(r, ref);
     const hits = stock.filter((d) =>
       Number(d.qty) > 0 &&
-      ref.key(d.style) === key &&
+      /* Other: a door the price list does not have, with its real style
+         name in the notes (Andrew, 12 Nov). It matches when the order's
+         style is written there. */
+      (ref.key(d.style) === key ||
+       (pnorm(d.style) === "other" && key.length >= 3 &&
+        (pnorm(d.notes).includes(pnorm(style)) || pnorm(d.notes).includes(key)))) &&
       Math.abs(Number(d.width_in) - w) < 0.01 &&
       /* A height or core nobody wrote down on the count sheet matches
          any, the same as a line that does not say its core. */
@@ -454,7 +459,18 @@ Deno.serve(async (req) => {
       const [stock, prices, aliases] = await Promise.all([
         read("read the door inventory",
              "door_inventory?select=id,style,width_in,height_in,core,qty,notes&qty=gt.0"),
-        read("read the price list styles", "wholesale_prices?select=style,size_key,price&limit=5000"),
+        /* Supabase hands back at most 1000 rows a time, so page through. */
+        (async () => {
+          const all: unknown[] = [];
+          for (let from = 0; from < 20000; from += 1000) {
+            const got = await read("read the price list styles",
+              `wholesale_prices?select=style,size_key,price&order=style.asc&offset=${from}&limit=1000`);
+            if (!Array.isArray(got)) return all.length ? all : null;
+            all.push(...got);
+            if (got.length < 1000) break;
+          }
+          return all;
+        })(),
         read("read the style aliases", "wholesale_style_alias?select=order_style,price_style"),
       ]);
       if (Array.isArray(stock) && stock.length) {

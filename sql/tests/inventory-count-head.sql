@@ -1,9 +1,10 @@
 -- ====================================================================
 --  DOOR INVENTORY: THE COUNT OF 12 NOVEMBER 2026
 --  Run this in the Supabase SQL editor, after door-inventory.sql.
---  Safe to run twice: each line has a fixed id, and a line already
---  there is left exactly as it is, edits and all. A line somebody
---  removed on the tools page comes back if this is run again.
+--  Safe to run twice: each line has a fixed id. A line nobody has
+--  changed on the tools page is brought up to date with this file; a
+--  line somebody has changed there is left exactly as it is. A line
+--  somebody removed on the tools page comes back if this is run again.
 -- ====================================================================
 --
 --  From Andrew's spreadsheet GIDC_Door_Inventory.xlsx, itself typed up
@@ -12,9 +13,9 @@
 --    style   put under the price list's own name where the reading is
 --            clear: "1 Side Mirror" is 1-sided Mirror, "Demen" is
 --            Deman, "Rasio?" is Rasario (the sheet says so too). A style
---            the price list does not have is kept as written and its
---            notes start "Check:", and the tools page marks it "Not on
---            the price list" until somebody picks the right one.
+--            the price list does not have is Other, with the name from
+--            the sheet first in its notes ("Style: Boston."), as Andrew
+--            asked on 12 November.
 --    core    as written. 1 3/4" thick is 1.75. Where none was written
 --            and the price list sells the style only in solid, Solid.
 --            Otherwise left blank, which matches an order of any core.
@@ -25,8 +26,7 @@
 --            as two.
 --
 --  Every line's notes say which sheet and line it came from. Lines the
---  spreadsheet marked yellow, and any style not on the price list,
---  start with "Check:".
+--  spreadsheet marked yellow say "Check:" and show under Needs a check.
 -- ====================================================================
 
 do $$

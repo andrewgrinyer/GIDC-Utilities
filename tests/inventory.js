@@ -24,6 +24,8 @@ const PRICES = [
   {style:'Columbia', size_key:"6'8|Solid", price:303.84},
   {style:'Columbia', size_key:"6'8|Bifold", price:226.71},
   {style:'Columbia', size_key:"6'8|1.75", price:368.01},
+  {style:'Flush', size_key:"6'8|Hollow", price:0},
+  {style:'Shipping 1 Pallet > 30 Doors', size_key:"6'8|Solid", price:350},
 ];
 const ALIAS = [{order_style:'Samish (Smooth)', price_style:'Columbia'}];
 let ROLE = 'admin', STOCK, n = 0;
@@ -35,7 +37,14 @@ async function mock(page){
     const j = (b, s) => route.fulfill({status:s || 200, contentType:'application/json', body:JSON.stringify(b)});
     if(p === '/rest/v1/profiles') return j([{id:'a1', name:'Andrew', role:ROLE, active:true, email_verified_at:'2026-10-24'}]);
     if(p === '/auth/v1/user') return j({id:'a1'});
-    if(p === '/rest/v1/wholesale_prices') return j(ROLE === 'installer' ? [] : PRICES);
+    if(p === '/rest/v1/wholesale_prices'){
+      // Supabase gives at most 1000 rows a time: pad the list past that so
+      // the page has to ask twice, with Flush only on the second page
+      const all = ROLE === 'installer' ? [] : PRICES.slice(0, 6).concat(
+        Array.from({length: 1200}, (_, i) => ({style:'Columbia', size_key:"6'8|Hollow", price:212.77})), PRICES.slice(6));
+      const off = +(u.searchParams.get('offset') || 0), lim = Math.min(+(u.searchParams.get('limit') || 1000), 1000);
+      return j(all.slice(off, off + lim));
+    }
     if(p === '/rest/v1/wholesale_style_alias') return j(ALIAS);
     if(p === '/rest/v1/door_inventory'){
       const id = (u.searchParams.get('id') || '').replace('eq.', '');
@@ -123,7 +132,21 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   // cores come from the price list for the style picked
   const cores = async () => page.$$eval('#f-core option', o => o.map(x => x.value).join(','));
   const styleOpts = await page.$$eval('#f-style option', o => o.map(x => x.textContent).join(','));
-  check(styleOpts === 'Pick a style,Clear 1-Lite,Columbia', 'clicking Style lists the price list styles: ' + styleOpts);
+  check(styleOpts === 'Pick a style,Other (put the style in the notes),Clear 1-Lite,Columbia,Flush',
+    'clicking Style lists every door style, Flush with no price yet included, shipping left out: ' + styleOpts);
+  check(calls.filter(c => /wholesale_prices/.test(c)).length >= 2, 'the price list is read past the first 1000 rows');
+  await page.selectOption('#f-style', 'Flush');
+  check(await cores() === 'Hollow,Solid,Bifold,1.75,', 'a style with no prices yet offers every core');
+  // Other, with the style in the notes
+  await page.selectOption('#f-style', 'Other'); await page.fill('#f-w', '24'); await page.fill('#f-h', '78');
+  await page.fill('#f-notes', ''); await page.click('#f-save');
+  check(/style name in the notes/.test(await msgText(page)), 'Other with no notes asks for the style name');
+  await page.fill('#f-notes', 'Ballard, rack F'); await page.click('#f-save'); await page.waitForTimeout(150);
+  const oth = STOCK.find(d => d.style === 'Other');
+  check(oth && oth.notes === 'Ballard, rack F', 'Other saves with the name in the notes');
+  check(!/Other[^\n]*Not on the price list/.test(await listText(page)), 'Other is not marked as off the list');
+  STOCK.splice(STOCK.indexOf(oth), 1); await page.reload();
+  await page.waitForFunction(() => !/Loading/.test(document.getElementById('list').innerText));
   await page.selectOption('#f-style', 'Clear 1-Lite');
   check(await cores() === 'Solid,', 'Clear 1-Lite offers Solid only, as the price list sells it');
   await page.selectOption('#f-style', 'Columbia');
