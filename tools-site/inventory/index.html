@@ -148,14 +148,15 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
   </div>
 
   <div class="bar" id="filters">
-    <span class="search"><input id="q" type="search" placeholder="Search style, size or notes"></span>
+    <span class="search"><input id="q" type="search" autocomplete="off"
+      placeholder="Search: style, size like 30x80, core, notes" aria-label="Search the inventory"></span>
     <button class="chipbtn hide" id="checkonly"></button>
     <button class="chipbtn" id="showzero">Show none left</button>
   </div>
   <div class="list" id="list"><div class="empty">Loading&hellip;</div></div>
   <p class="count" id="count"></p>
 </div>
-<div class="gidc-build">Inventory 1.1 &middot; 12 Nov 2026</div>
+<div class="gidc-build">Inventory 1.2 &middot; 12 Nov 2026</div>
 
 <script>
 (function(){
@@ -274,15 +275,68 @@ function load(){
     });
 }
 
+/* ---- search ------------------------------------------------------------
+   Andrew, 12 November: a search on the inventory. One box, any order:
+
+     30x80, 30 x 80, 29 1/2 x 80   that exact width and height
+     30, 29.5, 29 1/2              that width or that height
+     hollow, solid, bifold, 1.75   that core
+     anything else                 style or notes, every word must be there
+
+   A style is found under either name: "samish" finds Columbia through the
+   alias table, the same way the order email matches. A door whose height
+   or core was not recorded is found by any height or core, which is also
+   how the email treats it. So "Columbia 30x80 hollow" lists exactly what
+   an order line for that door would be told about. */
+var NUM = '\\d+(?:\\.\\d+)?(?:[\\s-]+\\d+\\/\\d+)?';
+var CORE_WORDS = {hollow: 'Hollow', solid: 'Solid', bifold: 'Bifold', '1.75': '1.75', thick: '1.75'};
+function parseSearch(text){
+  var t = ' ' + String(text || '').toLowerCase().replace(/\u00d7/g, 'x').replace(/["\u201d]/g, ' ') + ' ';
+  var f = {w: null, h: null, nums: [], cores: [], words: [], text: ''};
+  var m = t.match(new RegExp('(' + NUM + ')\\s*(?:x|by)\\s*(' + NUM + ')'));
+  if(m){ f.w = inches(m[1]); f.h = inches(m[2]); t = t.replace(m[0], ' '); }
+  t = t.replace(new RegExp('(^|\\s)1\\.75(?=\\s)', 'g'), ' thick ');
+  t = t.replace(new RegExp('(^|\\s)(' + NUM + ')(?=\\s)', 'g'), function(all, sp, n){
+    var v = inches(n); if(v !== null) f.nums.push(v); return ' '; });
+  t.split(/\s+/).forEach(function(w){
+    if(!w) return;
+    if(CORE_WORDS[w]) f.cores.push(CORE_WORDS[w]); else f.words.push(w);
+  });
+  f.text = f.words.join(' ');
+  return f;
+}
+function searchHit(d, f){
+  var w = Number(d.width_in), h = d.height_in == null ? null : Number(d.height_in);
+  if(f.w !== null && !sameNum(w, f.w)) return false;
+  if(f.h !== null && h !== null && !sameNum(h, f.h)) return false;
+  for(var i = 0; i < f.nums.length; i++)
+    if(!sameNum(w, f.nums[i]) && (h === null || !sameNum(h, f.nums[i]))) return false;
+  if(f.cores.length && d.core && f.cores.indexOf(d.core) === -1) return false;
+  if(!f.words.length) return true;
+  /* the whole name of a style, through the alias table */
+  var whole = pnorm(f.text);
+  if(REF.alias[whole] && REF.alias[whole] === styleKey(d.style)) return true;
+  /* A word matches the start of a word in the style or the notes, so
+     "b" finds Rack B without finding every Columbia. A longer word may
+     sit anywhere in the style, so "lite" finds Clear 1-Lite. */
+  var styles = [d.style, REF.name[styleKey(d.style)] || ''];
+  var tokens = (styles.join(' ') + ' ' + (d.notes || '')).toLowerCase().split(/[^a-z0-9.\/]+/);
+  var joined = styles.map(pnorm).join(' ');
+  return f.words.every(function(word){
+    var wn = pnorm(word);
+    if(!wn) return true;
+    return tokens.some(function(tk){ return tk.indexOf(wn) === 0 || tk.indexOf(word) === 0; }) ||
+           (wn.length >= 3 && joined.indexOf(wn) !== -1);
+  });
+}
 function showing(){
-  var q = query.trim().toLowerCase(), qn = pnorm(q);
+  var q = query.trim(), f = q ? parseSearch(q) : null;
   return ROWS.filter(function(d){
-    if(checkOnly) return needsCheck(d);
-    if(!showZero && !(d.qty > 0)) return false;
-    if(!q) return true;
-    var size = sizeOf(d);
-    var hay = [d.style, size, d.core, d.notes].join(' ').toLowerCase();
-    return hay.indexOf(q) !== -1 || (qn && pnorm(d.style).indexOf(qn) !== -1);
+    if(checkOnly) return needsCheck(d) && (!f || searchHit(d, f));
+    /* A search looks at every line, including ones with none left, so
+       "do we have one" is answered in full. */
+    if(!f && !showZero && !(d.qty > 0)) return false;
+    return !f || searchHit(d, f);
   });
 }
 
@@ -336,7 +390,11 @@ function draw(){
     }).join('');
   }
   var onShelf = ROWS.reduce(function(t, d){ return t + (d.qty > 0 ? d.qty : 0); }, 0);
-  $('count').textContent = ROWS.length
+  var found = query.trim() ? showing() : null;
+  $('count').textContent = found
+    ? (found.length === 1 ? '1 line matches' : found.length + ' lines match') + ', ' +
+      found.reduce(function(t, d){ return t + (d.qty > 0 ? d.qty : 0); }, 0) + ' on the shelf'
+    : ROWS.length
     ? onShelf + (onShelf === 1 ? ' door' : ' doors') + ' on the shelf across ' +
       (function(n){ return n + (n === 1 ? ' line' : ' lines'); })(ROWS.filter(function(d){ return d.qty > 0; }).length)
     : '';

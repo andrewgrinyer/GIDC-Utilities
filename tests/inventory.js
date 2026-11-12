@@ -96,6 +96,26 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   check(/29 1\/2 x 80/.test(await listText(page)), 'Show none left shows it, with the size as 29 1/2');
   await page.click('#showzero');
 
+  // search
+  STOCK.push({id:'s5', style:'Columbia', width_in:'30.000', height_in:'84.000', core:'Solid', qty:1, notes:'Rack B'});
+  await page.reload(); await page.waitForFunction(() => !/Loading/.test(document.getElementById('list').innerText));
+  const find = async q => { await page.fill('#q', q); await page.waitForTimeout(50);
+    return page.$$eval('#list .row [data-inc]', b => b.map(x => x.dataset.inc).sort().join()); };
+  check(await find('30x80') === 's1', '30x80 finds the 30 x 80');
+  check(await find('30 X 80"') === 's1', '30 X 80" finds it too');
+  check(await find('30') === 's1,s5', '30 alone finds both 30 wide doors and not the 36 bifold');
+  check(await find('columbia 30 hollow') === 's1', 'style, width and core together');
+  check(await find('samish smooth 30x80') === 's1', 'the portal name finds Columbia through the alias');
+  check(await find('rack b') === 's5', 'notes are searched');
+  check(await find('36x96 bifold') === 's3', 'a bifold with no height is found by any height');
+  check(await find('29 1/2 x 80') === 's2', '29 1/2 x 80 finds the Clear 1-Lite, even with none left');
+  check(await find('lite') === 's2', 'part of a style name finds it');
+  await find('rack b');
+  check(/1 line matches, 1 on the shelf/.test(await page.$eval('#count', e => e.innerText)), 'count says how many match');
+  check(/Clear 1-Lite/.test(await (await find('clear'), listText(page))), 'a search shows lines with none left too');
+  await page.fill('#q', ''); await page.waitForTimeout(50);
+  STOCK.pop();
+
   // cores come from the price list for the style picked
   const cores = async () => page.$$eval('#f-core option', o => o.map(x => x.value).join(','));
   await page.fill('#f-style', 'Clear 1-Lite');
