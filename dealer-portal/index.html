@@ -279,6 +279,8 @@ tr.moved:hover > td{background:var(--info-soft)}
 .filters button{border:1px solid var(--rule);background:var(--card);border-radius:999px;
   padding:6px 13px;font:inherit;font-size:13px;cursor:pointer;color:var(--muted)}
 .filters button.on{background:var(--red);border-color:var(--red);color:#fff;font-weight:600}
+.filters button.hideshipped{margin-left:auto;border-style:dashed}
+.filters button.hideshipped.on{background:var(--dgreen);border-color:var(--dgreen);border-style:solid}
 .filterbar{margin:0 0 14px;font-size:13px;color:var(--muted);align-items:flex-end}
 .filterbar label{display:flex;flex-direction:column;gap:3px;font-size:12px;font-weight:600}
 .filterbar .inline{width:auto;min-width:150px;font-size:13px;padding:7px 9px}
@@ -961,7 +963,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.03 · 9 Nov 2026";
+const BUILD  = "Dealer portal 2.04 · 12 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -1472,6 +1474,7 @@ const state = {
   packing: null,      // the pallet whose packing list is on screen
   palOpen: {},        // which pallets are expanded on the pallet screen
   palShowShipped: false,   // shipped pallets are out of the way by default
+  hideShipped: false,      // the orders list, remembered per browser (below)
   /* what this person was last shown, so a status or a date that moved
      since can be marked once. Keyed by order id. */
   seen: {},
@@ -1520,6 +1523,27 @@ function clearPersonal(){
   /* and the panels, which hold a pointer to an order of theirs */
   redoFor = null; reopenFor = null;
 }
+
+/* HIDE SHIPPED ORDERS
+ *
+ * Andrew, 12 November: an option to hide every shipped order on the
+ * orders list. It is a way of looking at the list rather than something
+ * about whoever is signed in, so it is remembered by the browser and is
+ * deliberately not in clearPersonal: whoever ticks it on a computer finds
+ * it still ticked there tomorrow. Clear filters leaves it alone for the
+ * same reason, and the list always says when it is hiding anything.
+ */
+const HIDE_SHIPPED = "gidc:hideShipped";
+try{ state.hideShipped = localStorage.getItem(HIDE_SHIPPED) === "1"; }catch(e){}
+function setHideShipped(on){
+  state.hideShipped = !!on;
+  try{ on ? localStorage.setItem(HIDE_SHIPPED, "1") : localStorage.removeItem(HIDE_SHIPPED); }
+  catch(e){}
+}
+/* Picking the Shipped chip is asking to see them, so the status chip wins
+   over the switch, and the switch only hides while it is hiding something. */
+const hidingShipped = () => state.hideShipped && state.filter !== "shipped" &&
+                            state.orders.some(o => o.status === "shipped");
 
 /* ---------------- Supabase ---------------- */
 const SESSION = "gidc:session";
@@ -5549,6 +5573,7 @@ function matchesSearch(o){
 function listFilters(o){
   if(!matchesSearch(o)) return false;
   if(state.filter !== "all" && o.status !== state.filter) return false;
+  if(o.status === "shipped" && hidingShipped()) return false;
   /* THE DEALER FILTER IS AN ADMINISTRATOR'S FILTER
      Only they are shown the dropdown that sets it, so only they can see
      it is on or turn it off. Applying it to anybody else can only hide
@@ -5625,7 +5650,7 @@ function renderList(){
         : "") +
       "</div>" +
       '<p class="tallynote">' +
-        (anyFilter() ? "Counting the orders on this screen, not every order."
+        (anyFilter() || hidingShipped() ? "Counting the orders on this screen, not every order."
                      : "Counting every order.") +
         (draftDoors
           ? " " + nice(draftDoors) + (draftDoors === 1 ? " door is" : " doors are") +
@@ -5642,6 +5667,13 @@ function renderList(){
     h += '<button data-filter="' + k + '" class="' + (state.filter === k ? "on" : "") + '">' +
          label + " (" + counts[k] + ")</button>";
   });
+  /* the switch sits apart from the status chips, and only once there is
+     something shipped to hide */
+  if(counts.shipped){
+    h += '<button data-hideshipped="1" class="hideshipped' + (state.hideShipped ? " on" : "") +
+         '" title="Remembered on this computer">' +
+         (state.hideShipped ? "&#10003; Shipped hidden" : "Hide shipped") + "</button>";
+  }
   h += "</div>";
 
   /* THE SEARCH BOX
@@ -5671,8 +5703,13 @@ function renderList(){
     '<label>to <input class="inline" type="date" data-fto="1" value="' +
       esc(state.fTo || "") + '"></label>' +
     (anyFilter()
-      ? '<button class="btn sm" data-fclear="1">Clear filters</button>' +
-        '<span class="muted">' + mine.length + " of " + state.orders.length + " orders</span>"
+      ? '<button class="btn sm" data-fclear="1">Clear filters</button>'
+      : "") +
+    (anyFilter() || hidingShipped()
+      ? '<span class="muted">' + mine.length + " of " + state.orders.length + " orders" +
+        (hidingShipped()
+          ? ", " + state.orders.filter(o => o.status === "shipped").length + " shipped hidden"
+          : "") + "</span>"
       : "") +
     "</div>";
 
@@ -5754,6 +5791,13 @@ function renderList(){
           "address, the dealer, a door type. Try one word on its own." +
           '<div class="row" style="justify-content:center;margin-top:12px">' +
           '<button class="btn" data-fclear="1">Clear the filters</button></div>'
+        : !anyFilter() && hidingShipped()
+        /* every order is shipped and the switch is hiding them, which is
+           not the same thing as having none */
+        ? "<b>Every order here has shipped</b>" +
+          "Shipped orders are hidden on this computer." +
+          '<div class="row" style="justify-content:center;margin-top:12px">' +
+          '<button class="btn" data-hideshipped="1">Show shipped orders</button></div>'
         : anyFilter()
         /* SAY WHICH FILTER IS DOING IT, NOT JUST THAT ONE IS
            A dealer never sees the dealer dropdown, so a dealer filter
@@ -5770,6 +5814,7 @@ function renderList(){
             state.fFrom ? "ordered from " + fmtDate(state.fFrom) : "",
             state.fTo   ? "ordered up to " + fmtDate(state.fTo)  : ""
           ].filter(Boolean).join(", ") + "." +
+          (hidingShipped() ? " Shipped orders are hidden as well." : "") +
           '<div class="row" style="justify-content:center;margin-top:12px">' +
           '<button class="btn" data-fclear="1">Clear the filters</button></div>'
         : "<b>Nothing here yet</b>No orders on this account.") +
@@ -7803,7 +7848,7 @@ async function downloadWorkbook(order){
 
 /* ---------------- events ---------------- */
 const CLICK_KEYS = ["tick","tickall","untick","addpallet","pallets","palrm","palname",
-                    "pallimit","paldel","palxl","packxl","packpdf","palopen","palall","palshipped",
+                    "pallimit","paldel","palxl","packxl","packpdf","palopen","palall","palshipped","hideshipped",
                     "open","new","back","filter","addrow","import","upsize","upsizeall",
                     "rm","save","submit","xlsx","adminsave","signout","comboval","tab","expand",
                 "users","adduser","genpw","askclose","step","adddealer","getfile","emailorder","pwfor","pwcancel","pwmake","pwsave","rmuser","reread",
@@ -7908,6 +7953,7 @@ document.addEventListener("click", async e => {
   if(d.back !== undefined || d.new !== undefined || d.open !== undefined ||
      d.users !== undefined) state.notice = null;
   if(d.filter !== undefined){ state.filter = d.filter; return render(); }
+  if(d.hideshipped !== undefined){ setHideShipped(!state.hideShipped); return render(); }
 
   /* ---------------- pallets ---------------- */
   if(d.tick !== undefined){
