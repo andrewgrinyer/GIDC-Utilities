@@ -131,7 +131,7 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
     <h2 id="formtitle">Add a door</h2>
     <div class="form">
       <div class="style"><label for="f-style">Style</label>
-        <input id="f-style" list="styles" autocomplete="off" placeholder="Start typing a style"></div>
+        <select id="f-style"><option value="">Loading the price list&hellip;</option></select></div>
       <div><label for="f-w">Width (in)</label><input id="f-w" inputmode="decimal" placeholder="30"></div>
       <div><label for="f-h">Height (in)</label><input id="f-h" inputmode="decimal" placeholder="80, or blank"></div>
       <div><label for="f-core">Core</label>
@@ -144,7 +144,6 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
         <button class="plain hide" id="f-cancel">Cancel</button>
       </div>
     </div>
-    <datalist id="styles"></datalist>
   </div>
 
   <div class="bar" id="filters">
@@ -156,7 +155,7 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
   <div class="list" id="list"><div class="empty">Loading&hellip;</div></div>
   <p class="count" id="count"></p>
 </div>
-<div class="gidc-build">Inventory 1.2 &middot; 12 Nov 2026</div>
+<div class="gidc-build">Inventory 1.3 &middot; 12 Nov 2026</div>
 
 <script>
 (function(){
@@ -224,6 +223,23 @@ function loadReference(){
     });
     REF.ok = Object.keys(REF.name).length > 0;
   }).catch(function(){ /* without it the form still works, with all four cores */ });
+}
+/* THE STYLE IS A PROPER DROP DOWN
+   Andrew, 12 November: clicking Style showed nothing. It was a typing box
+   with suggestions, and most browsers only offer those once something is
+   typed. Now it is a list of every style the price list sells, so a click
+   shows them all. A line already on the shelf under a name the price list
+   does not have keeps that name, marked, so it can still be edited. */
+function fillStyles(keep){
+  var sel = $('f-style'), was = keep === undefined ? sel.value : (keep || '');
+  var names = Object.keys(REF.name).map(function(k){ return REF.name[k]; })
+    .sort(function(a, b){ return a.toLowerCase().localeCompare(b.toLowerCase()); });
+  var h = '<option value="">' + (REF.ok ? 'Pick a style' : 'The price list could not be read') + '</option>';
+  if(was && !(REF.ok && REF.name[styleKey(was)]))
+    h += '<option value="' + esc(was) + '">' + esc(was) + ' (not on the price list)</option>';
+  h += names.map(function(n){ return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join('');
+  sel.innerHTML = h;
+  sel.value = was && REF.ok && REF.name[styleKey(was)] ? REF.name[styleKey(was)] : was;
 }
 function coresFor(style){
   var have = REF.ok && REF.cores[styleKey(style)];
@@ -341,11 +357,6 @@ function showing(){
 }
 
 function draw(){
-  var styles = {};
-  Object.keys(REF.name).forEach(function(k){ styles[REF.name[k]] = 1; });
-  ROWS.forEach(function(d){ styles[d.style] = 1; });
-  $('styles').innerHTML = Object.keys(styles).sort().map(function(s){
-    return '<option value="' + esc(s) + '">'; }).join('');
   $('showzero').className = 'chipbtn' + (showZero ? ' on' : '');
   var toCheck = ROWS.filter(needsCheck).length;
   if(!toCheck) checkOnly = false;
@@ -403,7 +414,7 @@ function draw(){
 /* ---- the form ---------------------------------------------------------- */
 function clearForm(){
   editId = null;
-  $('f-style').value = ''; $('f-w').value = ''; $('f-h').value = '';
+  fillStyles(''); $('f-w').value = ''; $('f-h').value = '';
   fillCores('Hollow'); $('f-qty').value = '1'; $('f-notes').value = '';
   $('formtitle').textContent = 'Add a door';
   $('f-save').textContent = 'Add';
@@ -413,7 +424,7 @@ function startEdit(id){
   var d = ROWS.find(function(x){ return x.id === id; });
   if(!d) return;
   editId = id;
-  $('f-style').value = d.style; $('f-w').value = showIn(d.width_in); $('f-h').value = d.height_in == null ? '' : showIn(d.height_in);
+  fillStyles(d.style); $('f-w').value = showIn(d.width_in); $('f-h').value = d.height_in == null ? '' : showIn(d.height_in);
   fillCores(d.core); $('f-qty').value = d.qty; $('f-notes').value = d.notes || '';
   $('formtitle').textContent = 'Change this door';
   $('f-save').textContent = 'Save';
@@ -425,14 +436,18 @@ function readForm(){
   var style = $('f-style').value.trim();
   var w = inches($('f-w').value), hRaw = $('f-h').value.trim(), h = hRaw ? inches(hRaw) : null;
   var q = $('f-qty').value.trim();
-  if(!style) throw new Error('Which style is it?');
+  if(!style) throw new Error('Pick a style from the list.');
+  var editing = editId && ROWS.find(function(x){ return x.id === editId; });
   /* Saved under the price list's own spelling, so the list and the
      inventory never disagree about what a door is called. */
   if(REF.ok){
     var known = REF.name[styleKey(style)];
-    if(!known) throw new Error(style + ' is not on the price list. Pick the style from the list ' +
-      'as it is named there.');
-    style = known;
+    /* A line from the count sheet under a name the list does not have may
+       still have its count or notes changed; it stays marked until a
+       style from the list is picked. */
+    if(!known && !(editing && editing.style === style))
+      throw new Error(style + ' is not on the price list. Pick the style from the list.');
+    if(known) style = known;
   }
   var core = $('f-core').value || null;
   if(core && coresFor(style).indexOf(core) === -1)
@@ -536,7 +551,6 @@ document.addEventListener('keydown', function(e){
   if(e.key === 'Enter' && e.target && e.target.closest && e.target.closest('.form')) save();
 });
 $('q').addEventListener('input', function(e){ query = e.target.value; draw(); });
-$('f-style').addEventListener('input', function(){ fillCores(); });
 $('f-style').addEventListener('change', function(){ fillCores(); });
 
 /* ---- start ------------------------------------------------------------ */
@@ -549,7 +563,13 @@ GIDCAuth.whoami().then(function(me){
   else $('lede').textContent = 'Doors on the shelf, with how many of each. The office keeps this list.';
   /* An installer cannot read the price list, and does not need to: the
      list is only for adding and changing. */
-  (canChange() ? loadReference() : Promise.resolve()).then(load);
+  (canChange() ? loadReference() : Promise.resolve()).then(function(){
+    fillStyles('');
+    if(canChange() && !REF.ok)
+      message('bad', 'The price list could not be read, so there are no styles to pick from. ' +
+        'Reload the page; if it stays like this, tell Andrew.');
+    return load();
+  });
 });
 })();
 </script>

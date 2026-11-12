@@ -89,6 +89,10 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   await page.click('#checkonly');
   check(/Boston/.test(await listText(page)) && !/Rack A/.test(await listText(page)), 'Needs a check shows only that line');
   await page.click('#checkonly');
+  await page.click('[data-edit="s4"]');
+  check(/Boston \(not on the price list\)/.test(await page.$eval('#f-style', e => e.selectedOptions[0].textContent)), 'Edit on an off list style keeps it, marked');
+  await page.fill('#f-notes', 'Shelf D'); await page.click('#f-save'); await page.waitForTimeout(150);
+  check(STOCK.find(d => d.id === 's4').notes === 'Shelf D', 'its notes can still be saved');
   await page.click('[data-edit="s3"]');
   check(await page.inputValue('#f-h') === '' && await page.inputValue('#f-core') === 'Bifold', 'Edit keeps a blank height blank');
   await page.click('#f-cancel');
@@ -118,12 +122,12 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
 
   // cores come from the price list for the style picked
   const cores = async () => page.$$eval('#f-core option', o => o.map(x => x.value).join(','));
-  await page.fill('#f-style', 'Clear 1-Lite');
+  const styleOpts = await page.$$eval('#f-style option', o => o.map(x => x.textContent).join(','));
+  check(styleOpts === 'Pick a style,Clear 1-Lite,Columbia', 'clicking Style lists the price list styles: ' + styleOpts);
+  await page.selectOption('#f-style', 'Clear 1-Lite');
   check(await cores() === 'Solid,', 'Clear 1-Lite offers Solid only, as the price list sells it');
-  await page.fill('#f-style', 'samish smooth');
-  check(await cores() === 'Hollow,Solid,Bifold,1.75,', 'the portal name Samish (Smooth) offers Columbia\'s four cores, through the alias');
-  const opts = await page.$$eval('#styles option', o => o.map(x => x.value).join(','));
-  check(opts === 'Boston,Clear 1-Lite,Columbia', 'style suggestions are the price list styles, and what is on the shelf');
+  await page.selectOption('#f-style', 'Columbia');
+  check(await cores() === 'Hollow,Solid,Bifold,1.75,', 'Columbia offers its four cores');
 
   // adding through the alias saves under the price list name
   await page.selectOption('#f-core', 'Bifold');
@@ -133,16 +137,16 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   await page.waitForTimeout(200);
   const added = STOCK.find(d => d.core === 'Bifold' && d.width_in === 29.5);
   check(added && added.style === 'Columbia' && added.width_in === 29.5 && added.qty === 3,
-    'Samish (Smooth) is saved as Columbia, 29.5 wide, 3 of them');
+    'Columbia is saved 29.5 wide, 3 of them');
   check(/Added Columbia 29 1\/2 x 80/.test(await msgText(page)), 'says what was added');
 
   // the same door again is refused, a style not on the list is refused
-  await page.fill('#f-style', 'Columbia'); await page.selectOption('#f-core', 'Hollow');
+  await page.selectOption('#f-style', 'Columbia'); await page.selectOption('#f-core', 'Hollow');
   await page.fill('#f-w', '30'); await page.fill('#f-h', '80'); await page.click('#f-save');
   check(/already on the list/.test(await msgText(page)), 'the same door twice is refused');
-  await page.fill('#f-style', 'Made Up Style'); await page.click('#f-save');
-  check(/not on the price list/.test(await msgText(page)), 'a style not on the price list is refused');
-  await page.fill('#f-style', 'Columbia'); await page.fill('#f-w', 'thirty'); await page.click('#f-save');
+  await page.selectOption('#f-style', ''); await page.click('#f-save');
+  check(/Pick a style/.test(await msgText(page)), 'no style picked is refused');
+  await page.selectOption('#f-style', 'Columbia'); await page.fill('#f-w', 'thirty'); await page.click('#f-save');
   check(/width should be inches/.test(await msgText(page)), 'a width that is not inches is refused');
 
   // plus and minus
@@ -159,7 +163,7 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
 
   // remove asks first
   // a blank height and a Not recorded core save as nothing, not as a guess
-  await page.fill('#f-style', 'Columbia'); await page.fill('#f-w', '22'); await page.fill('#f-h', '');
+  await page.selectOption('#f-style', 'Columbia'); await page.fill('#f-w', '22'); await page.fill('#f-h', '');
   await page.selectOption('#f-core', ''); await page.fill('#f-qty', '1'); await page.click('#f-save');
   await page.waitForTimeout(150);
   const blank = STOCK.find(d => Number(d.width_in) === 22);
