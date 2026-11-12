@@ -1,7 +1,9 @@
 // Supabase Edge Function: send-order
 //
 // Emails an order to Grinyer with the order form attached, along with
-// whatever the dealer dropped in: the Proliner file and the sales contract.
+// whatever the dealer dropped in: the Proliner file, its .prld file and the
+// sales contract. Grinyer's copy also says if a door on the order may
+// already be in inventory (12 Nov 2026).
 //
 // The sending key never leaves Supabase. The browser sends only the signed
 // in person's own token and the workbook it just built, and this function
@@ -88,6 +90,138 @@ const PRICE_NOTE = "Estimate only, in US dollars. Final pricing to be confirmed,
 const esc = (v: unknown) =>
   String(v ?? "").replace(/[&<>"]/g, (c) =>
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c] as string));
+
+/* MAY BE IN INVENTORY
+ *
+ * Andrew, 12 Nov: when a dealer order comes in, say in Grinyer's email if a
+ * door on it might already be on the shelf. Agreed with him that day:
+ *
+ *   same style, same core, exactly the same width and height.
+ *
+ * Styles and cores are not a list of their own. Andrew asked that they be
+ * cross referenced against what the system already holds, so they are read
+ * the same way the portal prices a line:
+ *
+ *   style   compared with case, spaces and punctuation ignored (pnorm, so
+ *           "Clear 1-Lite" is "Clear 1 Lite"), each side first put through
+ *           wholesale_style_alias, so the portal's name for a door and the
+ *           price list's name for it are the same door.
+ *   core    the price list's own core columns: Hollow, Solid, Bifold, 1.75.
+ *           An order line's core is worked out the way the portal's coreKey
+ *           does it, including a style the price list only sells in solid.
+ *           A line whose core cannot be told matches any core, because
+ *           "might be" is the point: somebody looks before cutting.
+ *
+ * Inventory is door_inventory (sql/door-inventory.sql), team only. This
+ * reads it with the service key. If anything here cannot be read the order
+ * email goes exactly as it did before: an alert that failed must never cost
+ * an order. Only Grinyer's email carries the note, never the dealer's copy. */
+const pnorm = (s: unknown) => String(s ?? "").toLowerCase().replace(/[^a-z0-9]/g, "");
+
+/* "30", "29.5", "29 1/2" and "29-1/2" all read as inches. Anything else is
+   not a size and matches nothing. */
+function inches(v: unknown): number | null {
+  const t = String(v ?? "").trim().replace(/["”]|in$/gi, "").trim();
+  let m = t.match(/^(\d+(?:\.\d+)?)$/);
+  if (m) return Number(m[1]);
+  m = t.match(/^(\d+)[\s-]+(\d+)\/(\d+)$/);
+  if (m && Number(m[3])) return Number(m[1]) + Number(m[2]) / Number(m[3]);
+  return null;
+}
+
+/* A Custom style carries its typed name in customStyle (portal 2.02). */
+function styleOfLine(r: any): string {
+  const st = String(r?.doorStyle ?? "").trim();
+  const typed = String(r?.customStyle ?? "").trim();
+  return pnorm(st) === "custom" && typed ? typed : st;
+}
+
+type PriceRow = { style: string; size_key: string; price: number | string | null };
+type AliasRow = { order_style: string; price_style: string };
+type StockDoor = { id: string; style: string; width_in: number | string;
+                   height_in: number | string; core: string; qty: number; notes?: string | null };
+type StockMatch = { line: number; location: string; wanted: number; style: string;
+                    width: number; height: number; core: string | null; stock: StockDoor[] };
+
+/* The two existing tables, boiled down to what matching needs: which name a
+   style goes by on the price list, and which cores that list sells it in. */
+export function reference(prices: PriceRow[] = [], aliases: AliasRow[] = []) {
+  const alias: Record<string, string> = {};
+  for (const a of aliases) if (a?.order_style && a?.price_style)
+    alias[pnorm(a.order_style)] = pnorm(a.price_style);
+  const cores: Record<string, Set<string>> = {};
+  for (const p of prices) {
+    if (!(Number(p?.price) > 0)) continue;
+    const core = String(p.size_key ?? "").split("|").pop() ?? "";
+    (cores[pnorm(p.style)] ??= new Set()).add(core);
+  }
+  const key = (style: unknown) => { const k = pnorm(style); return alias[k] || k; };
+  return { key, cores: (style: unknown) => cores[key(style)] ?? new Set<string>() };
+}
+type Ref = ReturnType<typeof reference>;
+
+/* The portal's coreKey, read against the price list. */
+function coreOfLine(r: any, ref: Ref): string | null {
+  const t = String(r?.doorType ?? ""), p = String(r?.productType ?? "");
+  if (/bifold/i.test(t)) return "Bifold";
+  if (/1\.75|thick/i.test(p)) return "1.75";
+  if (/solid|stile|rail|glass/i.test(p)) return "Solid";
+  const sold = ref.cores(styleOfLine(r));
+  if (sold.has("Solid") && !sold.has("Hollow")) return "Solid";
+  if (/hollow/i.test(p)) return "Hollow";
+  return null;
+}
+
+export function inventoryMatches(rows: unknown, stock: StockDoor[], ref: Ref = reference()): StockMatch[] {
+  const out: StockMatch[] = [];
+  const lines = Array.isArray(rows) ? rows : [];
+  lines.forEach((r: any, i: number) => {
+    const style = styleOfLine(r), key = ref.key(style);
+    const w = inches(r?.width), h = inches(r?.height);
+    if (!key || key === "custom" || w === null || h === null) return;
+    const core = coreOfLine(r, ref);
+    const hits = stock.filter((d) =>
+      Number(d.qty) > 0 &&
+      ref.key(d.style) === key &&
+      Math.abs(Number(d.width_in) - w) < 0.01 &&
+      Math.abs(Number(d.height_in) - h) < 0.01 &&
+      (core === null || d.core === core));
+    if (hits.length) out.push({
+      line: i + 1, location: String(r?.location ?? "").trim(),
+      wanted: Math.max(1, Math.round(Number(r?.qty) || 1)),
+      style, width: w, height: h, core, stock: hits });
+  });
+  return out;
+}
+
+const fmtIn = (n: number) => String(Number(n.toFixed(3)));
+
+export function inventoryNote(found: StockMatch[]): string {
+  if (!found.length) return "";
+  const rowsHtml = found.map((m) => {
+    const onHand = m.stock.reduce((t, d) => t + Number(d.qty || 0), 0);
+    const notes = m.stock.map((d) => String(d.notes ?? "").trim()).filter(Boolean).join("; ");
+    return `<tr>` +
+      `<td style="padding:4px 10px 4px 0;vertical-align:top">Line ${m.line}` +
+        (m.location ? `<br><span style="color:#6E6E76">${esc(m.location)}</span>` : "") + `</td>` +
+      `<td style="padding:4px 10px 4px 0;vertical-align:top"><b>${esc(m.style)}</b>, ` +
+        `${esc(fmtIn(m.width))} x ${esc(fmtIn(m.height))}, ` +
+        `${esc(m.core ?? m.stock[0].core)}<br>` +
+        `<span style="color:#6E6E76">Ordered ${m.wanted}, on the shelf ${onHand}` +
+        (m.stock.some((d) => pnorm(d.style) !== pnorm(m.style))
+          ? ` as ${esc([...new Set(m.stock.map((d) => d.style))].join(", "))}` : "") +
+        (notes ? `. ${esc(notes)}` : "") + `</span></td>` +
+      `</tr>`;
+  }).join("");
+  return `<div style="margin:16px 0;padding:12px 14px;background:#ECF5EE;border:1px solid #BFDCC6;` +
+    `border-radius:8px;color:#17171A">` +
+    `<p style="margin:0 0 8px;color:#2F6B3A"><b>May be in inventory.</b> ` +
+    `${found.length === 1 ? "One door on this order matches" : `${found.length} lines on this order match`} ` +
+    `a door on the shelf by style, size and core. Worth checking before cutting.</p>` +
+    `<table style="border-collapse:collapse;font-size:13.5px">${rowsHtml}</table>` +
+    `<p style="margin:8px 0 0;color:#6E6E76;font-size:12.5px">From Door Inventory on the tools site. ` +
+    `The dealer's copy of this email does not mention it.</p></div>`;
+}
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -229,7 +363,7 @@ Deno.serve(async (req) => {
 
     /* The order form first, because it is the thing being ordered. Then the
        dealer's own files. */
-    const ORDER_OF_KINDS = ["orderform", "proliner", "contract"];
+    const ORDER_OF_KINDS = ["orderform", "proliner", "prld", "contract"];
 
     /* THE SAME FILE DROPPED IN TWICE
      *
@@ -257,6 +391,13 @@ Deno.serve(async (req) => {
     if (replaced.length)
       console.log("not attaching, replaced by newer: " +
         replaced.map((f: any) => f.name ?? f.path).join(", "));
+
+    /* Andrew, 9 Nov: an order with a Proliner .xml must carry its .prld file
+       too. The portal will not submit one without it from 2.03, so this only
+       catches an order sent from an older page, and says so rather than
+       leaving the shop to notice. */
+    const noPrld = kept.some((f: any) => f.kind === "proliner") &&
+                   !kept.some((f: any) => f.kind === "prld");
 
     const missing: string[] = [];
     for (const f of kept as any[]) {
@@ -299,6 +440,34 @@ Deno.serve(async (req) => {
     const money = (n: unknown) =>
       "$" + Number(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
 
+    let stockNote = "";
+    try {
+      const read = (what: string, path: string) =>
+        call(what, `${url}/rest/v1/${path}`, { headers: asAdmin })
+          .then(async (r) => r.ok ? await r.json().catch(() => []) : null)
+          .catch(() => null);
+      const [stock, prices, aliases] = await Promise.all([
+        read("read the door inventory",
+             "door_inventory?select=id,style,width_in,height_in,core,qty,notes&qty=gt.0"),
+        read("read the price list styles", "wholesale_prices?select=style,size_key,price&limit=5000"),
+        read("read the style aliases", "wholesale_style_alias?select=order_style,price_style"),
+      ]);
+      if (Array.isArray(stock) && stock.length) {
+        let rows = order?.form?.rows;
+        if (typeof order?.form === "string") {
+          try { rows = JSON.parse(order.form).rows; } catch { rows = []; }
+        }
+        const found = inventoryMatches(rows, stock,
+          reference(Array.isArray(prices) ? prices : [], Array.isArray(aliases) ? aliases : []));
+        console.log(`inventory: ${stock.length} line(s) on the shelf, ${found.length} may match`);
+        stockNote = inventoryNote(found);
+      } else {
+        console.log("inventory: nothing on the shelf, or not readable, so no note");
+      }
+    } catch (e) {
+      console.log("inventory check skipped: " + ((e as Error)?.message ?? e));
+    }
+
     const html =
       `<div style="font:14px/1.5 -apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#17171A">` +
       `<p>An order has come in through the dealer portal.</p>` +
@@ -316,6 +485,7 @@ Deno.serve(async (req) => {
       line("Wholesale total (USD)", order.order_total ? money(order.order_total) : "") +
       `</table>` +
       `<p style="color:#6E6E76">${esc(PRICE_NOTE)}</p>` +
+      stockNote +
       (attachments.length ? "" :
         `<p style="color:#9A4A12">Nothing could be attached to this email. ` +
         `The order form is on the order in the portal.</p>`) +
@@ -327,6 +497,9 @@ Deno.serve(async (req) => {
           `It is kept with the order in the portal but is not attached here.</p>` : "") +
       (missing.length
         ? `<p style="color:#9A4A12">Could not attach: ${esc(missing.join(", "))}.</p>` : "") +
+      (noPrld
+        ? `<p style="color:#9A4A12">This order has a Proliner .xml but no .prld file ` +
+          `came with it. Ask the dealer for it.</p>` : "") +
       `</div>`;
 
     const from = Deno.env.get("ORDER_EMAIL_FROM") ?? "onboarding@resend.dev";
