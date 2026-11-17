@@ -1339,16 +1339,30 @@ const W_LYNDEN  = [16,18,20,22,24,26,28,30,32,34,36];
 const W_LYN_8   = [16,18,24,28,30,32,34,36];
 const W_MASON   = [12,14,15,16,18,20,22,24,26,28,30,32,34,36];
 const W_TRIM    = [18,24,26,28,30,32,34,36];
+const W_MAS_SP  = [18,24,28,30,32,34,36];               // Masonite specialty rows
+/* A list is the stock widths. {upto:n} is any width up to n (the door is
+   made to size), with {from:m} where the reference gives a smallest. */
+const UPTO48 = {upto:48}, UPTO36 = {upto:36, from:12};
 const SUPPLIER_LINES = {
   lynden:   {name:'Lynden molded panel', heights:{80:W_LYNDEN, 84:W_LYNDEN, 96:W_LYN_8},
-             check:{96:'8\'0" depends on the style (Benton has one), check with Lynden'},
+             check:{96:'8\'0" is model dependent, check with Lynden'},
              bifold:{80:[24,30,36,48,60,72]}},
-  flush:    {name:'Lynden flush', heights:{80:'upto48', 84:'upto48', 96:'upto48'}},
-  fineline: {name:'Lynden Fineline', heights:{80:'upto48', 84:'upto48', 96:'upto48'},
-             wideCheck:36, wideWhy:'Fineline over 3\'0" is select profiles only, up to 4\'0"'},
+  flush:    {name:'Lynden flush', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48}},
+  fineline: {name:'Lynden Fineline', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48},
+             wideCheck:36, wideWhy:'Fineline over 3\'0" is select profiles only, up to 4\'0"',
+             bifoldStyles:['Robson','Deman','MontLake'],
+             bifold:{80:[24,30,36,48,60,72]},
+             bifoldWhy:'Fineline bifold sizes are not on the reference; taken as the Lynden molded bifold sizes'},
+  vanair:   {name:'Lynden VanAir', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48},
+             always:'VanAir sizes follow the Lynden style it is built into; check with Lynden'},
   masonite: {name:'Masonite molded panel', heights:{80:W_MASON, 84:W_MASON, 96:W_MASON},
              tall84:['2 Panel Square','2 Panel Roman Smooth','Livingston','Lincoln Park'],
              bifold:{80:[24,28,30,32,36]}, thickCheck:'1 3/4" is select Masonite styles only'},
+  archtop:  {name:'Masonite 2 Panel Arch Top', heights:{80:W_MAS_SP}},
+  louver:   {name:'Masonite Plantation Louver', heights:{80:W_MAS_SP}, thinOnly:true},
+  lite4:    {name:'Masonite 4 lite', glass:true, heights:{80:[24,26,28,30,32,34,36]}, thinOnly:true,
+             always:'Supplier for 4 lite is still to be confirmed on the price list'},
+  jeldwen:  {name:'Jeld-Wen moulded panel', heights:{80:UPTO36, 84:UPTO36, 96:UPTO36}},
   shaker:   {name:'Trimlite shaker', heights:{80:W_TRIM, 84:W_TRIM, 96:W_TRIM},
              solidOnly:true, thinOnly:true},
   /* Trimlite glass: what is stocked depends on the lite count (5 row grid) */
@@ -1361,21 +1375,30 @@ const SUPPLIER_LINES = {
              solidOnly:true, thinOnly:true, grid:{under:32, say:'10 lite is the usual grid at 2\'6" and narrower'},
              noTall:'15 lite is not stocked at 7\'0"'},
 };
+/* Styles by line, from Andrew's reference of 17 Nov (second version).
+   "Deman" in the app is Lynden's Denman. Flat Slab is a slab, so flush. */
 const STYLE_LINE = {};
-['Columbia','Bonneville','Kingston','Rosario','Samish (Smooth)','Lopez','Mercer','Whitman',
- 'Aberdeen','Yarrow','Winthrop','Benton','Deman','Alki','Robson'].forEach(s => STYLE_LINE[s] = 'lynden');
-['Lincoln Park','Logan','Winslow','Berkley','Melrose','2 Panel Square','Riverside','Cheyenne',
- '2 Panel Roman Smooth','Livingston'].forEach(s => STYLE_LINE[s] = 'masonite');
-STYLE_LINE['Flush'] = 'flush';
-STYLE_LINE['Flat Slab'] = 'fineline';
-['1 Panel True Shaker','2 Panel True Shaker','3 Panel Equal Shaker','3 Panel Shaker (T-Shape)',
- '4 Panel True Shaker','5 Panel True Shaker'].forEach(s => STYLE_LINE[s] = 'shaker');
-['1 Lite Clear','1 Lite Laminated','1 Lite Mirror','1 Lite Mirror Double Sided','1 Lite Reed',
- '1 Lite Rain','1 Lite Pantry','1 Lite Laundry'].forEach(s => STYLE_LINE[s] = 'lite1');
-['3 Lite Privacy','3 Lite Clear'].forEach(s => STYLE_LINE[s] = 'lite3');
-['5 Lite Privacy','5 Lite Clear'].forEach(s => STYLE_LINE[s] = 'lite5');
-STYLE_LINE['10 Lite Clear'] = 'lite10';
-STYLE_LINE['15 Lite Clear'] = 'lite15';
+const lineOf = (key, names) => names.forEach(n => STYLE_LINE[n] = key);
+lineOf('lynden', ['Columbia','Bonneville','Kingston','Rosario','Samish (Smooth)','Lopez','Mercer',
+  'Whitman','Aberdeen','Yarrow','Winthrop','Benton']);
+lineOf('fineline', ['Alki','Robson','Deman','MontLake','Laurelhurst','Ravenna','Ballard','Granville','Fairview']);
+lineOf('flush', ['Flush','Flat Slab']);
+lineOf('vanair', ['Van Air Ventilated']);
+lineOf('masonite', ['Lincoln Park','Logan','Winslow','Berkley','Melrose','2 Panel Square','Riverside',
+  'Cheyenne','2 Panel Roman Smooth','Livingston']);
+lineOf('archtop', ['2 Panel Arch Top']);
+lineOf('louver', ['Plantation Louver']);
+lineOf('lite4', ['4 Lite Privacy','4 Lite Clear']);
+lineOf('jeldwen', ['Monroe Smooth','Birkdale Smooth','Rockport Smooth','Santa Fe Smooth','Colonist Textured',
+  'Carrara Smooth','Conmore Smooth','Craftsman III Smooth','Madison Smooth','Camden Textured']);
+lineOf('shaker', ['1 Panel True Shaker','2 Panel True Shaker','3 Panel Equal Shaker','3 Panel Shaker (T-Shape)',
+  '4 Panel True Shaker','5 Panel True Shaker']);
+lineOf('lite1', ['1 Lite Clear','1 Lite Laminated','1 Lite Mirror','1 Lite Mirror Double Sided','1 Lite Reed',
+  '1 Lite Rain','1 Lite Pantry','1 Lite Laundry']);
+lineOf('lite3', ['3 Lite Privacy','3 Lite Clear']);
+lineOf('lite5', ['5 Lite Privacy','5 Lite Clear']);
+lineOf('lite10', ['10 Lite Clear']);
+lineOf('lite15', ['15 Lite Clear']);
 
 /* 32 shows as 2'8", the way the suppliers write it */
 function ftin(n){
@@ -1385,15 +1408,29 @@ function ftin(n){
 const STOCK_H = [80, 84, 96];
 /* One door line checked against its supplier.
    {status:'ok'|'check'|'so'|'none', line, stock, why:[...]} */
-function sizeCheck(op, o){
+/* GDL, Andrew 17 Nov: "the sizes are in the price list; if they're not in
+   that sheet they're not available". So a GDL line is judged by the price
+   the workbook gives it (msrp, the line's Door MSRP from the review): a
+   price is stock, S/O or nothing is not available. */
+const isGdlLine = (o, type) => o.v.productType === 'GDL' || /^GDL /.test(type) ||
+  /^GDL/.test(((LISTS.doorStyle || []).find(d => d.n === o.v.doorStyle) || {}).f || '');
+function sizeCheck(op, o, msrp){
   const style = o.v.doorStyle || '', type = o.v.doorType || quoteType(op);
   const res = {status:'ok', line:'', stock:'', why:[]};
   const so = w => { res.status = 'so'; res.why.push(w); };
   const ck = w => { if(res.status === 'ok') res.status = 'check'; res.why.push(w); };
+  if(style && isGdlLine(o, type)){
+    res.line = 'GDL price list';
+    const w = parseFloat(op.width), hNeed = parseFloat(exportHeight(op.height));
+    if(!(w > 0) || !(hNeed > 0)){ res.status = 'none'; res.why.push('Width and height needed first'); return res; }
+    if(msrp === undefined){ res.status = 'none'; res.why.push('GDL sizes come from the price list, shown on Review order'); return res; }
+    if(typeof msrp === 'number' && msrp > 0){ res.stock = sizeText(w) + '" x ' + sizeText(hNeed) + '"'; return res; }
+    so('This GDL size is not in the price list, so it is not available');
+    return res;
+  }
   const key = STYLE_LINE[style];
   if(!style || !key){ res.status = 'none';
     res.why.push(style ? style + ' is not on the supplier size list' : 'No door style yet'); return res; }
-  if(o.v.productType === 'GDL' || /^GDL /.test(type)){ res.status = 'none'; res.why.push('GDL is not on the supplier size list'); return res; }
   const L = SUPPLIER_LINES[key]; res.line = L.name;
   const w = parseFloat(op.width), hNeed = parseFloat(exportHeight(op.height));
   if(!(w > 0) || !(hNeed > 0)){ res.status = 'none'; res.why.push('Width and height needed first'); return res; }
@@ -1414,6 +1451,7 @@ function sizeCheck(op, o){
     else ck('Masonite 8\'0" is select styles and widths only');
   }
   if(L.check && L.check[h]) ck(L.check[h]);
+  if(L.always) ck(L.always);
 
   // width: bifolds by unit width where the line lists them, otherwise by leaf
   const isBi = BIFOLD_TYPES.indexOf(type) >= 0;
@@ -1421,15 +1459,22 @@ function sizeCheck(op, o){
                : BYPASS_TYPES.indexOf(type) >= 0 ? Math.max(1, Number(op.qty) || 2) : 1;
   let list = L.heights[h], need = w / leaves, what = leaves > 1 ? 'each leaf' : 'the door';
   if(isBi){
+    if(L.bifoldStyles && L.bifoldStyles.indexOf(style) < 0){
+      so(style + ' does not come as a bifold (' + L.name + ' bifolds: ' +
+         L.bifoldStyles.map(x => x === 'Deman' ? 'Denman' : x).join(', ') + ')');
+      return res;
+    }
     if(L.bifold){
       list = L.bifold[h]; need = w; what = 'the bifold';
       if(!list){ so(L.name + ' bifolds are 6\'8" only'); return res; }
+      if(L.bifoldWhy) ck(L.bifoldWhy);
     } else ck(L.name + ' bifold sizes are not on the reference, check with the supplier');
   }
-  if(list === 'upto48'){
-    if(need > 48) so(L.name + ' goes up to 4\'0" wide');
+  if(list && list.upto){
+    if(need > list.upto + 0.01) so(L.name + ' goes up to ' + ftin(list.upto) + ' wide');
     else if(L.wideCheck && need > L.wideCheck) ck(L.wideWhy);
-    res.stock = ftin(Math.ceil(need)) + ' x ' + ftin(h);
+    if(list.from && need < list.from - 0.01) ck('Narrower than ' + ftin(list.from) + ', the narrowest ' + L.name);
+    res.stock = sizeText(Math.ceil(need * 8) / 8) + '" x ' + ftin(h);
   } else {
     const stockW = list.find(x => x >= need - 0.01);
     if(stockW === undefined){
@@ -1719,10 +1764,10 @@ function renderReview(){
        '</tr></thead><tbody>';
   lines.slice(0, PAGE_ROWS.length).forEach((ln, i) => {
     const row = PAGE_ROWS[i], {op, o} = ln;
-    const sz = sizeCheck(op, o).status;
+    const sz = sizeCheck(op, o, cv('R' + row)).status;
     const flags = (bifoldTooWide(op) || sz === 'so' ? ' rv-stop' : '') + (narrowGlass(op) ? ' rv-glass' : '');
     h += '<tr class="' + flags + '"><td class="rv-n">' + op.number + '</td>' + cols.map(c => {
-      if(c.k === 'size'){ const z = sizeCheck(op, o);
+      if(c.k === 'size'){ const z = sizeCheck(op, o, cv('R' + row));
         return '<td class="rv-size rv-' + z.status + '" title="' + esc(z.why.join('. ')) + '"><b>' +
           SIZE_WORD[z.status] + '</b>' + (z.stock ? '<span>' + esc(z.stock) + '</span>' : '') + '</td>'; }
       if(c.money){ const v = cv(c.c + row);
@@ -1736,14 +1781,16 @@ function renderReview(){
   const notes = [];
   // the supplier size check, one line per door that is not plain stock
   const sizeNotes = [];
-  lines.slice(0, PAGE_ROWS.length).forEach(({op, o}) => {
-    const z = sizeCheck(op, o);
+  const lineSize = (l, i) => sizeCheck(l.op, l.o, cv('R' + PAGE_ROWS[i]));
+  lines.slice(0, PAGE_ROWS.length).forEach(({op, o}, i) => {
+    const z = lineSize({op, o}, i);
     if(z.status === 'so' || z.status === 'check')
       sizeNotes.push('<li class="rv-' + z.status + '"><b>Opening ' + op.number + ' · ' + SIZE_WORD[z.status] +
         '</b> ' + esc((o.v.doorStyle || '') + (z.line ? ' (' + z.line + ')' : '')) + ': ' +
         esc(z.why.join('. ')) + '</li>');
   });
-  const unchecked = lines.slice(0, PAGE_ROWS.length).filter(({op, o}) => sizeCheck(op, o).status === 'none').length;
+  const unchecked = lines.slice(0, PAGE_ROWS.length).filter((l, i) => lineSize(l, i).status === 'none').length;
+  state.reviewSO = lines.slice(0, PAGE_ROWS.length).filter((l, i) => lineSize(l, i).status === 'so').length;
   if(sizeNotes.length || unchecked)
     h += '<div class="rv-sizes"><h3>Supplier sizes</h3>' +
       (sizeNotes.length ? '<ul>' + sizeNotes.join('') + '</ul>' : '<p>Every door checked is a stock size.</p>') +
@@ -1784,8 +1831,8 @@ function renderReview(){
   $('#dock').innerHTML =
     '<div class="count">' + (miss.length
       ? esc(miss[0]) + (miss.length > 1 ? ' (+' + (miss.length - 1) + ' more)' : '')
-      : lines.some(({op, o}) => sizeCheck(op, o).status === 'so')
-        ? lines.filter(({op, o}) => sizeCheck(op, o).status === 'so').length + ' special order' +
+      : state.reviewSO
+        ? state.reviewSO + ' special order' +
           (prices && typeof cv('U54') === 'number' ? ' · Grand total ' + esc(money(cv('U54'))) : '')
       : !prices ? lines.length + ' line' + (lines.length === 1 ? '' : 's')
       : typeof cv('U54') === 'number' ? 'Grand total ' + esc(money(cv('U54')))
@@ -3079,6 +3126,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.4 · 17 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.5 · 17 Nov 2026</div>
 </body>
 </html>

@@ -24,8 +24,8 @@ const server = http.createServer((q, r) => {
 const CASES = [
   ['Lynden panel 32 x 80', 'Single Swing', '1.375 Hollow', 'Columbia', 32, 80, 1, 'ok'],
   ['Lynden panel 38 wide', 'Single Swing', '1.375 Hollow', 'Columbia', 38, 80, 1, 'so', 'wider than the widest'],
-  ['Lynden panel 20 at 8 foot orders 2\'0"', 'Single Swing', '1.375 Solid', 'Benton', 20, 96, 1, 'check', 'depends on the style'],
-  ['Lynden panel at a 90 range orders 8 foot', 'Single Swing', '1.375 Hollow', 'Kingston', 30, 90, 1, 'check', 'depends on the style'],
+  ['Lynden panel 20 at 8 foot orders 2\'0"', 'Single Swing', '1.375 Solid', 'Benton', 20, 96, 1, 'check', 'model dependent'],
+  ['Lynden panel at a 90 range orders 8 foot', 'Single Swing', '1.375 Hollow', 'Kingston', 30, 90, 1, 'check', 'model dependent'],
   ['Lynden panel 12 wide: cut down', 'Single Swing', '1.375 Hollow', 'Lopez', 12, 80, 1, 'check', 'Cut down'],
   ['Lynden double swing 60: leaves 30', 'Double Swing AST', '1.375 Hollow', 'Lopez', 60, 80, 2, 'ok'],
   ['Lynden double swing 76: leaves 38', 'Double Swing AST', '1.375 Hollow', 'Lopez', 76, 80, 2, 'so', 'Each leaf'],
@@ -41,7 +41,20 @@ const CASES = [
   ['Masonite 1 3/4"', 'Single Swing', '1.75 Thick', 'Berkley', 30, 80, 1, 'check', '1 3/4'],
   ['Flush 46 wide', 'Single Swing', '1.375 Hollow', 'Flush', 46, 80, 1, 'ok'],
   ['Flush 50 wide', 'Single Swing', '1.375 Hollow', 'Flush', 50, 80, 1, 'so', '4\'0"'],
-  ['Fineline 40 wide', 'Single Swing', '1.375 Solid', 'Flat Slab', 40, 80, 1, 'check', 'select profiles'],
+  ['Fineline 40 wide', 'Single Swing', '1.375 Solid', 'Alki', 40, 80, 1, 'check', 'select profiles'],
+  ['Fineline 30 x 96', 'Single Swing', '1.375 Hollow', 'Ballard', 30, 96, 1, 'ok'],
+  ['Fineline 50 wide', 'Single Swing', '1.375 Hollow', 'Granville', 50, 80, 1, 'so', '4\'0"'],
+  ['Fineline Ballard bifold: not made', 'Bifold', '1.375 Hollow', 'Ballard', 30, 80, 1, 'so', 'does not come as a bifold'],
+  ['Fineline Robson bifold 48', 'Bifold', '1.375 Hollow', 'Robson', 48, 80, 2, 'check', 'Fineline bifold sizes'],
+  ['Flat Slab is flush', 'Single Swing', '1.375 Hollow', 'Flat Slab', 46, 96, 1, 'ok'],
+  ['VanAir follows its host', 'Single Swing', '1.375 Hollow', 'Van Air Ventilated', 30, 80, 1, 'check', 'built into'],
+  ['Arch Top 30 x 80', 'Single Swing', '1.375 Hollow', '2 Panel Arch Top', 30, 80, 1, 'ok'],
+  ['Arch Top at 7\'0"', 'Single Swing', '1.375 Hollow', '2 Panel Arch Top', 30, 84, 1, 'so', 'not stocked at 7\'0"'],
+  ['Louver 1 3/4"', 'Single Swing', '1.75 Thick', 'Plantation Louver', 30, 80, 1, 'so', '1 3/8'],
+  ['4 lite 30: supplier to confirm', 'Single Swing', '1.375 Glass', '4 Lite Clear', 30, 80, 1, 'check', 'still to be confirmed'],
+  ['4 lite 20: glass not cut down', 'Single Swing', '1.375 Glass', '4 Lite Privacy', 20, 80, 1, 'so', 'not cut down'],
+  ['Jeld-Wen 30 x 96', 'Single Swing', '1.375 Hollow', 'Monroe Smooth', 30, 96, 1, 'ok'],
+  ['Jeld-Wen 40 wide', 'Single Swing', '1.375 Hollow', 'Camden Textured', 40, 80, 1, 'so', '3\'0"'],
   ['Trimlite shaker solid 30 x 84', 'Single Swing', '1.375 Solid', '2 Panel True Shaker', 30, 84, 1, 'ok'],
   ['Trimlite shaker hollow', 'Single Swing', '1.375 Hollow', '2 Panel True Shaker', 30, 80, 1, 'so', 'solid core only'],
   ['Trimlite shaker 1 3/4"', 'Single Swing', '1.75 Thick', '5 Panel True Shaker', 30, 80, 1, 'so', '1 3/8'],
@@ -61,8 +74,8 @@ const CASES = [
   ['bypass 60 in 2: leaves 30', 'Bypass', '1.375 Hollow', 'Columbia', 60, 80, 2, 'ok'],
   ['bypass 96 in 2: leaves 48', 'Bypass', '1.375 Hollow', 'Columbia', 96, 80, 2, 'so'],
   ['bypass 96 in 3: leaves 32', 'Bypass', '1.375 Hollow', 'Columbia', 96, 80, 3, 'ok'],
-  ['Jeld-Wen style not checked', 'Single Swing', '1.375 Hollow', 'Monroe Smooth', 30, 80, 1, 'none'],
-  ['GDL not checked', 'GDL ByPass', 'GDL', 'Glissade Square Style 1', 60, 80, 2, 'none'],
+  ['Custom style not checked', 'Single Swing', '1.375 Hollow', 'Custom - See Notes', 30, 80, 1, 'none'],
+  ['GDL without a price yet is not judged', 'GDL ByPass', 'GDL', 'Glissade Square Style 1', 60, 80, 2, 'none'],
   ['no size yet', 'Single Swing', '1.375 Hollow', 'Columbia', '', 80, 1, 'none'],
   ['taller than 8 foot', 'Single Swing', '1.375 Solid', 'Columbia', 30, 100, 1, 'so', 'Taller'],
 ];
@@ -92,11 +105,25 @@ const check = (name, ok, got) => {
     check(c[0] + ' -> ' + c[7], r.status === c[7] && (!words || r.why.join(' ').includes(words)), r);
   });
 
+  // GDL: judged by the workbook's own price, on the review screen
+  const gdl = await page.evaluate(() => {
+    const mk = (w, h) => { const op = newOpening(1); op.width = String(w); op.height = h; op.qty = 2;
+      Object.assign(op.options[0].v, {doorType:'GDL ByPass', productType:'GDL', doorStyle:'Glissade Square Style 1'});
+      return op; };
+    const a = mk(60, 80), b = mk(60, 80);
+    return [sizeCheck(a, a.options[0], 1234).status, sizeCheck(b, b.options[0], 'S/O').status,
+            sizeCheck(b, b.options[0], '#VALUE!').why.join()];
+  });
+  check('GDL with a price in the list is stock', gdl[0] === 'ok', gdl);
+  check('GDL priced S/O is special order, not available', gdl[1] === 'so' && gdl[2].includes('not in the price list'), gdl);
+
   // on the review screen
   await page.evaluate(cases => {
     state.me = {name:'admin', role:'admin'};
     const j = newJob(); j.customer = 'Sizes'; j.openings = [];
-    [cases[0], cases[1], cases[13], cases[39]].forEach(([what, type, prod, style, w, h, q], i) => {
+    const pick = w => cases.find(c => c[0] === w);
+    [pick('Lynden panel 32 x 80'), pick('Lynden panel 38 wide'), pick('Masonite 8\'0" hollow'),
+     pick('Custom style not checked')].forEach(([what, type, prod, style, w, h, q], i) => {
       const op = newOpening(i + 1); op.location = 'Den'; op.width = String(w); op.height = h; op.qty = q;
       Object.assign(op.options[0].v, {doorType:type, productType:prod, doorStyle:style});
       j.openings.push(op);
