@@ -148,6 +148,11 @@ select:focus,input:focus{outline:2px solid var(--brass);outline-offset:-1px;bord
 .other{margin-top:10px}
 .other label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
 .hint{margin:0 0 8px;font-size:13px;color:var(--muted)}
+/* quantity rules, 17 Nov: a fixed quantity shows as a chip that cannot be tapped */
+.chip[disabled]{opacity:1;cursor:default}
+.warn{margin:8px 0 12px;padding:10px 12px;border-radius:9px;font-size:14px;
+  background:#FFF6E0;border:1px solid #E0B040;color:#6B4A00}
+.warn.stop{background:var(--brass-soft);border-color:var(--brass-line);color:var(--brass)}
 .chip.now{background:var(--brass-soft);border-color:var(--brass-line);color:var(--ink)}
 .chip .badge{margin-left:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
   color:var(--brass-line);font-weight:700}
@@ -313,7 +318,57 @@ function isDouble(op){
   if(DOUBLE_TYPES.indexOf(op.existingType) >= 0) return true;
   return op.options.some(o => DOUBLE_TYPES.indexOf(o.v.doorType) >= 0);
 }
-const widthsFor = op => isDouble(op) ? WIDTHS_DOUBLE : WIDTHS;
+/* QUANTITY FOLLOWS THE DOOR TYPE
+ *
+ * Andrew, 17 Nov: a single swing is always 1 and a double swing always 2.
+ * A bifold is 1 up to 36 inches wide and 2 above that, up to 72; nothing
+ * wider is made, so a wider bifold cannot be written. A bypass has to have
+ * its quantity picked, from 2, 3 or 4. Every other door type is typed in
+ * as before. The GDL and Premium bifolds, and the GDL bypass, follow the
+ * same rule as the plain ones. */
+const BIFOLD_TYPES = ['Bifold', 'GDL BiFold', 'Premium Bifold'];
+const BYPASS_TYPES = ['Bypass', 'GDL ByPass'];
+const BIFOLD_MAX = 72, BIFOLD_ONE = 36;
+/* The door being quoted decides: the ticked option, else the first one with
+   a type, else what is installed today. */
+function quoteType(op){
+  const on = op.options.find(o => o.include && o.v.doorType);
+  const any = op.options.find(o => o.v.doorType);
+  return (on && on.v.doorType) || (any && any.v.doorType) || op.existingType || '';
+}
+const isBifold = op => BIFOLD_TYPES.indexOf(quoteType(op)) >= 0;
+const widthNum = op => { const w = parseFloat(op.width); return isNaN(w) ? 0 : w; };
+/* {fixed, why} when the type settles it, {choices, why} when the rep picks
+   from a short list, null when it is typed in freely. */
+function qtyRule(op){
+  const t = quoteType(op);
+  if(t === 'Single Swing') return {fixed:1, why:'A single swing is always 1.'};
+  if(DOUBLE_TYPES.indexOf(t) >= 0) return {fixed:2, why:'A double swing is always 2.'};
+  if(BIFOLD_TYPES.indexOf(t) >= 0){
+    const w = widthNum(op);
+    if(w > 0 && w <= BIFOLD_ONE) return {fixed:1, why:'A bifold ' + BIFOLD_ONE + '" or narrower is 1.'};
+    if(w > BIFOLD_ONE && w <= BIFOLD_MAX)
+      return {fixed:2, why:'A bifold over ' + BIFOLD_ONE + '" up to ' + BIFOLD_MAX + '" is 2.'};
+    return {choices:[1,2], why:'A bifold is 1 or 2. The width sets it once it is in.'};
+  }
+  if(BYPASS_TYPES.indexOf(t) >= 0) return {choices:[2,3,4], why:'Pick how many bypass doors.', must:true};
+  return null;
+}
+/* Brings the stored quantity into line with the rule. A bypass left on a
+   quantity it cannot have goes blank, so the rep has to pick one. */
+function applyQtyRule(op){
+  const r = qtyRule(op);
+  if(!r){ if(!(Number(op.qty) >= 1)) op.qty = 1; return; }
+  if(r.fixed) op.qty = r.fixed;
+  else if(r.choices.indexOf(Number(op.qty)) < 0) op.qty = r.must ? '' : r.choices[0];
+}
+const bifoldTooWide = op => isBifold(op) && widthNum(op) > BIFOLD_MAX;
+/* Glass is the Glass product type, or any style with lites in it. */
+const isGlass = o => o.v.productType === '1.375 Glass' || /\blite\b/i.test(o.v.doorStyle || '');
+const narrowGlass = op => { const w = widthNum(op);
+  return w > 0 && w < 24 && op.options.some(o => o.include && isGlass(o)); };
+const BIFOLD_WIDTHS = WIDTHS.concat(WIDTHS_DOUBLE.filter(w => w > BIFOLD_ONE));
+const widthsFor = op => isDouble(op) ? WIDTHS_DOUBLE : (isBifold(op) ? BIFOLD_WIDTHS : WIDTHS);
 
 /* Door type and opening size belong to the OPENING, not to an option: the hole
    in the wall is one size, and the door in it today is one door. Each door type
@@ -746,6 +801,11 @@ function missing(job){
       out.push('Opening ' + op.number + ': ' + on.length +
                ' door types ticked, only one can be quoted');
     }
+    if(bifoldTooWide(op))
+      out.push('Opening ' + op.number + ': bifold over ' + BIFOLD_MAX + '" is not available');
+    const r = qtyRule(op);
+    if(r && r.choices && r.choices.indexOf(Number(op.qty)) < 0)
+      out.push('Opening ' + op.number + ': pick the quantity (' + r.choices.join(', ') + ')');
   });
   job.openings.forEach(op => {
     op.options.filter(o => o.include).forEach((o, i) => {
@@ -1147,6 +1207,23 @@ function chips(f, o, opId){
   return h;
 }
 
+/* Quantity at the opening, shaped by the door type (see qtyRule). */
+function qtyField(op){
+  const r = qtyRule(op);
+  let h = '<div class="field"><label>Quantity (door leaves)' +
+          (r && r.must && !op.qty ? ' <span style="color:var(--brass)">required</span>' : '') +
+          '</label>';
+  if(!r) return h + '<input type="number" min="1" data-f="qty" data-op="' + op.id +
+                    '" value="' + op.qty + '"></div>';
+  h += '<div class="chips num">';
+  (r.fixed ? [r.fixed] : r.choices).forEach(n => {
+    h += '<button type="button" class="chip' + (Number(op.qty) === n ? ' on' : '') + '"' +
+         (r.fixed ? ' disabled' : ' data-pickqty="' + n + '" data-op="' + op.id + '"') +
+         '>' + n + '</button>';
+  });
+  return h + '</div><p class="hint">' + esc(r.why) + '</p></div>';
+}
+
 /* Door type chips at the opening. The first tick is the door that is there
    today; every tick after it is a door the customer could change to, and each
    of those is an option, which is one line on the contract. */
@@ -1494,6 +1571,7 @@ function renderJob(){
   }
 
   job.openings.forEach((op, oi) => {
+    applyQtyRule(op);              // older jobs, imports and a changed tick
     const isOpen = state.openOpening === op.id;
     const inc = op.options.filter(o => o.include).length;
     h += '<div class="card" id="op-' + op.id + '">';
@@ -1503,7 +1581,9 @@ function renderJob(){
          '<span>' + (op.existingType ? op.existingType + ' now · ' : '') +
          op.options.length + ' option' + (op.options.length === 1 ? '' : 's') +
          ' · ' + (inc === 1 ? 'ready' : (inc === 0 ? 'none ticked' : inc + ' ticked, pick one')) +
-         ' · qty ' + op.qty + '</span></div>' +
+         ' · ' + (op.qty ? 'qty ' + op.qty : 'qty not picked') +
+         (bifoldTooWide(op) ? ' · too wide' : '') +
+         (narrowGlass(op) ? ' · narrow glass' : '') + '</span></div>' +
          '<span class="crumb">' + (isOpen ? 'Hide' : 'Open') + '</span></div>';
     if(isOpen){
       h += '<div class="card-body">';
@@ -1512,10 +1592,14 @@ function renderJob(){
               ? combo('location', op.location, 'data-f="location" data-op="' + op.id + '"')
               : '<select data-f="location" data-op="' + op.id + '">' +
                 opt('location', op.location) + '</select>') + '</div>';
-      h += '<div class="field"><label>Quantity (door leaves)</label>' +
-           '<input type="number" min="1" data-f="qty" data-op="' + op.id + '" value="' + op.qty + '"></div>';
+      h += qtyField(op);
       h += typeChips(op);
       h += sizeChips(op, 'width', widthsFor(op), 'Other width');
+      if(bifoldTooWide(op))
+        h += '<p class="warn stop">A bifold wider than ' + BIFOLD_MAX + '" is not available. ' +
+             'Change the width or the door type before the workbook can be written.</p>';
+      if(narrowGlass(op))
+        h += '<p class="warn">Glass door under 24" wide. Check with the office before ordering.</p>';
       h += sizeChips(op, 'height', HEIGHTS, 'Other height');
 
       /* PRODUCT TYPE IS MEASURED, NOT SET AT A DESK
@@ -1663,7 +1747,7 @@ function renderJob(){
 const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done',
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
-  'applydef','cleardef','repopen',
+  'applydef','cleardef','repopen','pickqty',
   'comboval','sure','jfclear'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
@@ -1851,10 +1935,16 @@ document.addEventListener('click', async e => {
     }
     if(!state.editOption || !op.options.some(o => o.id === state.editOption))
       state.editOption = op.options[0] && op.options[0].id;
+    applyQtyRule(op);
+    await persist(); return render();
+  }
+  if(d.pickqty){
+    op.qty = Number(d.pickqty); applyQtyRule(op);
     await persist(); return render();
   }
   if(d.osize){
     op[d.osize] = (String(op[d.osize]) === d.val) ? '' : d.val;
+    if(d.osize === 'width') applyQtyRule(op);
     if(d.osize === 'height'){
       // a range means the door gets cut down, so re-rail is not optional
       if(needsReRail(op)) op.options.forEach(o => { o.v.reRail = 'YES'; });
@@ -2005,8 +2095,14 @@ document.addEventListener('change', async e => {
       t.value = fixed;
     }
     op.location = t.value; await persist(); return render(); }
-  if(d.f === 'qty'){ op.qty = Math.max(1, parseInt(t.value || '1', 10)); await persist(); return render(); }
+  if(d.f === 'qty'){ op.qty = Math.max(1, parseInt(t.value || '1', 10));
+    applyQtyRule(op); await persist(); return render(); }
+  if(d.of === 'width' && isBifold(op) && parseFloat(t.value) > BIFOLD_MAX){
+    t.value = '';
+    return toast('A bifold wider than ' + BIFOLD_MAX + '" is not available');
+  }
   if(d.of){ op[d.of] = t.value;
+    if(d.of === 'width') applyQtyRule(op);
     if(d.of === 'height' && !needsReRail(op)) op.options.forEach(o => {
       if(o.v.reRail === 'YES' && !o.reRailByHand) o.v.reRail = '';
     });
@@ -2140,6 +2236,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 1.9 · 16 Oct 2026</div>
+<div class="gidc-build">Measurement app 2.1 · 17 Nov 2026</div>
 </body>
 </html>
