@@ -46,6 +46,13 @@ const check = (name, ok, got) => {
   });
   const tapType = t => page.click('[data-dtype="' + t + '"]');
   const tapWidth = w => page.click('[data-osize="width"][data-val="' + w + '"]');
+  // 2.3: sizes are typed on the number pad
+  const padType = async (f, digits) => {
+    await page.click('[data-padof="' + f + '"]');
+    for(const k of String(digits)) await page.click('#pad [data-pk="' + k + '"]');
+    await page.click('#pad [data-pk="done"]');
+    await page.waitForTimeout(100);
+  };
   const pickProduct = p => page.click('[data-chip="productType"][data-val="' + p + '"]');
   const reset = () => page.evaluate(() => {
     state.job.openings = [newOpening(1)];
@@ -77,15 +84,14 @@ const check = (name, ok, got) => {
   check('bifold width list stops at 72',
         !(await page.$('[data-osize="width"][data-val="76"]')) &&
         !!(await page.$('[data-osize="width"][data-val="72"]')), 'chips');
-  await page.fill('input[data-of="width"]', '80');
-  await page.press('input[data-of="width"]', 'Tab');
-  await page.waitForTimeout(100);
+  await padType('width', 80);
   s = await op();
   check('typing 80 on a bifold is refused', String(s.width) === '72', s.width);
+  check('and the pad stays up to fix it', !!(await page.$('#pad')), 'pad closed');
+  await page.click('#pad [data-pk="cancel"]');
   // a wide opening that becomes a bifold afterwards is blocked, not lost
   await reset(); await tapType('Pocket'); await pickProduct('1.375 Hollow');
-  await page.fill('input[data-of="width"]', '80');
-  await page.press('input[data-of="width"]', 'Tab'); await page.waitForTimeout(100);
+  await padType('width', 80);
   await page.evaluate(() => { state.job.openings[0].options[0].v.doorType = 'Bifold'; render(); });
   s = await op();
   check('bifold over 72 blocks the workbook',

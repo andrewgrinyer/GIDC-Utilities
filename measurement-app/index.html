@@ -90,7 +90,7 @@ header{
 .field:last-child{border-bottom:0}
 .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
 .field .row{display:flex;gap:8px;align-items:center}
-select,input[type=text],input[type=number]{
+select,input[type=text],input[type=number],input[type=tel],input[type=email],input[type=date]{
   width:100%;padding:11px 12px;border:1px solid var(--rule);border-radius:9px;
   background:var(--card);min-height:44px;appearance:none;
 }
@@ -200,6 +200,59 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
 }
 .warn.stop{background:var(--brass-soft);border-color:var(--brass-line);color:var(--brass)}
 .chip.now{background:var(--brass-soft);border-color:var(--brass-line);color:var(--ink)}
+.chip.on.now{background:var(--brass);border-color:var(--brass);color:#fff}
+.chip.on.now .badge{color:#fff}
+/* a double tap is ours, not the browser's zoom */
+.chip, .padbox{touch-action:manipulation}
+.padbox{width:100%;min-height:48px;border:1px dashed var(--rule);border-radius:9px;background:var(--card);
+  font:inherit;font-size:15px;color:var(--muted);text-align:left;padding:0 12px;cursor:pointer}
+.padbox.set{border-style:solid;border-color:var(--brass);color:var(--ink);font-weight:600}
+
+/* the number pad: nearly the whole screen */
+body.padding{overflow:hidden}
+.pad{position:fixed;inset:0;z-index:90;background:rgba(20,20,26,.55);display:flex;
+  align-items:center;justify-content:center;padding:max(10px,env(safe-area-inset-top)) 10px
+  max(10px,env(safe-area-inset-bottom))}
+.pad-card{background:var(--card);border-radius:18px;width:100%;max-width:560px;height:100%;
+  max-height:860px;display:flex;flex-direction:column;padding:14px;gap:10px;
+  box-shadow:0 20px 60px rgba(0,0,0,.3)}
+.pad-head b{display:block;font-size:18px}
+.pad-head span{font-size:14px;color:var(--muted)}
+.pad-show{font-size:52px;font-weight:700;text-align:right;padding:6px 10px;border-radius:12px;
+  background:var(--paper);font-variant-numeric:tabular-nums;line-height:1.15}
+.pad-show i{font-style:normal;color:var(--skip)}
+.pad-show small{font-size:20px;color:var(--muted);margin-left:6px;font-weight:500}
+.pad-fr{display:grid;grid-template-columns:repeat(7,1fr);gap:6px}
+.pad-fr button{min-height:48px;border:1px solid var(--rule);border-radius:10px;background:var(--card);
+  font:inherit;font-size:16px;font-weight:600;touch-action:manipulation}
+.pad-fr button.on{background:var(--brass);border-color:var(--brass);color:#fff}
+.pad-keys{flex:1;display:grid;grid-template-columns:repeat(3,1fr);grid-auto-rows:1fr;gap:8px;min-height:0}
+.pad-keys button{border:1px solid var(--rule);border-radius:14px;background:#FAFAFC;font:inherit;
+  font-size:32px;font-weight:600;touch-action:manipulation;min-height:54px}
+.pad-keys button.soft{font-size:20px;color:var(--muted)}
+.pad-keys button:active, .pad-fr button:active{background:var(--brass-soft)}
+.pad-go{display:grid;grid-template-columns:1fr 2fr;gap:8px}
+.pad-go .btn{justify-content:center;min-height:56px;font-size:18px}
+
+/* an opening's fields: one column on a phone, in this order */
+.op-grid{display:flex;flex-direction:column}
+.op-left, .op-right{display:contents}
+.o-loc{order:1} .o-qty{order:2} .o-type{order:3} .o-w{order:4} .o-warn{order:5} .o-h{order:6} .o-prod{order:7}
+.o-warn .warn{margin-top:0}
+
+/* A TABLET HELD SIDEWAYS (2.3): the door on the left, its size on the
+   right, bigger targets, and the page uses the width of the screen. */
+@media (orientation:landscape) and (min-width:900px){
+  body:not(.reviewing) .wrap, body:not(.reviewing) .bar{max-width:1240px}
+  .op-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start}
+  .op-left, .op-right{display:block}
+  .op-right{position:sticky;top:110px}
+  .chip{min-height:56px;font-size:17px;padding:0 18px}
+  .chips.num{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:10px}
+  .chips{gap:10px}
+  .padbox{min-height:56px;font-size:17px}
+  .field label{font-size:14px}
+}
 .chip .badge{margin-left:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
   color:var(--brass-line);font-weight:700}
 
@@ -407,6 +460,29 @@ function applyQtyRule(op){
   if(!r){ if(!(Number(op.qty) >= 1)) op.qty = 1; return; }
   if(r.fixed) op.qty = r.fixed;
   else if(r.choices.indexOf(Number(op.qty)) < 0) op.qty = r.must ? '' : r.choices[0];
+}
+/* A size typed in (the box or the pad). Refuses a bifold over the limit;
+   a height that is not a range lets go of a re-rail the range had set. */
+function setOpeningSize(op, f, val){
+  if(f === 'width' && isBifold(op) && parseFloat(val) > BIFOLD_MAX){
+    toast('A bifold wider than ' + BIFOLD_MAX + '" is not available');
+    return false;
+  }
+  op[f] = val;
+  if(f === 'width') applyQtyRule(op);
+  if(f === 'height' && !needsReRail(op)) op.options.forEach(o => {
+    if(o.v.reRail === 'YES' && !o.reRailByHand) o.v.reRail = '';
+  });
+  return true;
+}
+/* 32.5 shows as 32 1/2: tapes read in eighths */
+function sizeText(v){
+  const n = parseFloat(v);
+  if(isNaN(n)) return String(v);
+  const w = Math.floor(n), e = Math.round((n - w) * 8);
+  if(e === 0 || e === 8) return String(e === 8 ? w + 1 : w);
+  const g = e % 4 === 0 ? 4 : e % 2 === 0 ? 2 : 1;
+  return (w ? w + ' ' : '') + (e / g) + '/' + (8 / g);
 }
 const bifoldTooWide = op => isBifold(op) && widthNum(op) > BIFOLD_MAX;
 /* Glass is the Glass product type, or any style with lites in it. */
@@ -1233,6 +1309,84 @@ function addExcelExtras(HF){
 }
 
 
+/* ---------------- the number pad ----------------
+ *
+ * Andrew, 17 Nov: tapping the opening width or height brings up an almost
+ * full screen number pad. Whole inches on the keys, eighths on a row of
+ * their own because that is how a tape reads. Done stores it the same way
+ * the typed box did, through setOpeningSize, so every rule still applies. */
+let pad = null;                 // {op, f, whole, eighths}
+function openPad(op, f){
+  const n = parseFloat(op[f]);
+  const ok = !isNaN(n) && !rangeFor(op[f]);
+  const w = ok ? Math.floor(n) : 0, e = ok ? Math.round((n - w) * 8) : 0;
+  pad = {opId: op.id, f, whole: ok && (w || e) ? String(w + (e === 8 ? 1 : 0)) : '',
+         eighths: e === 8 ? 0 : e, fresh: true};
+  drawPad();
+}
+function padValue(){
+  const w = parseInt(pad.whole || '0', 10), v = w + pad.eighths / 8;
+  return (pad.whole === '' && !pad.eighths) ? '' : String(v);
+}
+function drawPad(){
+  let el = document.getElementById('pad');
+  if(!pad){ if(el) el.remove(); document.body.classList.remove('padding'); return; }
+  if(!el){ el = document.createElement('div'); el.id = 'pad'; el.className = 'pad';
+    el.addEventListener('click', padClick); document.body.appendChild(el); }
+  document.body.classList.add('padding');
+  const op = state.job.openings.find(o => o.id === pad.opId);
+  const v = padValue();
+  const fr = ['1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
+  el.innerHTML = '<div class="pad-card" role="dialog" aria-label="Type a size">' +
+    '<div class="pad-head"><b>' + (pad.f === 'width' ? 'Opening width' : 'Opening height') + '</b>' +
+    '<span>Opening ' + (op ? op.number + (op.location ? ' · ' + esc(op.location) : '') : '') + '</span></div>' +
+    '<div class="pad-show">' + (v === '' ? '<i>0</i>' : esc(sizeText(v))) + '<small>in</small></div>' +
+    '<div class="pad-fr">' + fr.map((x, i) =>
+      '<button type="button" data-pk="f' + (i + 1) + '"' + (pad.eighths === i + 1 ? ' class="on"' : '') +
+      '>' + x + '</button>').join('') + '</div>' +
+    '<div class="pad-keys">' + ['7','8','9','4','5','6','1','2','3','C','0','back'].map(k =>
+      '<button type="button" data-pk="' + k + '"' + (k === 'C' || k === 'back' ? ' class="soft"' : '') + '>' +
+      (k === 'back' ? '\u232B' : k === 'C' ? 'Clear' : k) + '</button>').join('') + '</div>' +
+    '<div class="pad-go"><button type="button" class="btn" data-pk="cancel">Cancel</button>' +
+    '<button type="button" class="btn btn-primary" data-pk="done">Done</button></div></div>';
+}
+async function padKey(k){
+  if(!pad) return;
+  if(k === 'cancel'){ pad = null; return drawPad(); }
+  if(k === 'done'){
+    const job = state.job, op = job && job.openings.find(o => o.id === pad.opId);
+    const f = pad.f, v = padValue();
+    if(op && !setOpeningSize(op, f, v)) return;      // refused: the pad stays up to fix it
+    pad = null; drawPad();
+    if(op){ await persist(); render(); }
+    return;
+  }
+  if(k === 'C'){ pad.whole = ''; pad.eighths = 0; }
+  else if(k === 'back'){ if(pad.eighths) pad.eighths = 0; else pad.whole = pad.whole.slice(0, -1); }
+  else if(k[0] === 'f'){ const e = +k.slice(1); pad.eighths = pad.eighths === e ? 0 : e; }
+  else {
+    if(pad.fresh){ pad.whole = ''; pad.eighths = 0; }   // first key replaces what was there
+    if(pad.whole.length < 3) pad.whole = (pad.whole === '0' ? '' : pad.whole) + k;
+  }
+  pad.fresh = false;
+  drawPad();
+}
+function padClick(e){
+  e.stopPropagation();
+  const b = e.target.closest('[data-pk]');
+  if(b) return padKey(b.dataset.pk);
+  if(e.target.id === 'pad') padKey('cancel');          // the dark around it
+}
+document.addEventListener('keydown', e => {
+  if(!pad) return;
+  if(/^[0-9]$/.test(e.key)) padKey(e.key);
+  else if(e.key === 'Backspace') padKey('back');
+  else if(e.key === 'Enter') padKey('done');
+  else if(e.key === 'Escape') padKey('cancel');
+  else return;
+  e.preventDefault();
+});
+
 /* ---------------- review and pricing ----------------
  *
  * Andrew, 17 Nov: a button that opens the whole order laid out like the
@@ -1711,16 +1865,59 @@ function qtyField(op){
    of those is an option, which is one line on the contract. */
 function typeChips(op){
   let h = '<div class="field"><label>Door type</label>' +
-          '<p class="hint">First tap marks what is installed today. Tap more to add ' +
-          'options to quote.</p><div class="chips">';
+          '<p class="hint">Tap the door to quote. Tap it again to clear it. ' +
+          'Double tap marks the door that is there now.</p><div class="chips">';
   LISTS.doorType.forEach(t => {
     const isNow = op.existingType === t;
     const isOpt = op.options.some(o => o.v.doorType === t);
-    h += '<button type="button" class="chip' + (isNow ? ' now' : (isOpt ? ' on' : '')) +
+    h += '<button type="button" class="chip' + (isOpt ? ' on' : '') + (isNow ? ' now' : '') +
          '" data-dtype="' + esc(t) + '" data-op="' + op.id + '">' + esc(t) +
          (isNow ? '<span class="badge">now</span>' : '') + '</button>';
   });
   return h + '</div></div>';
+}
+/* THE DOOR TYPE CHIPS, 17 NOV
+ *
+ * They used to do two jobs on the same tap: the first tap was what is
+ * installed today, every later tap added another option, and the chip for
+ * a door that was both showed only one of the two. Untick the one and the
+ * other stayed lit, which is the "button stays selected" Andrew reported.
+ *
+ * Now a tap only ever picks the door being quoted, and a tap on a
+ * different type switches to it rather than adding a second line. A double
+ * tap marks the door that is there now (and quotes it too, if nothing is
+ * picked yet, since like for like is the usual case). Each job has its own
+ * look: filled for quoted, a NOW badge for installed, both at once if so.
+ *
+ * The option the tap changes is the one open in the editor, else the
+ * first, so an office user who adds a second option fills that one. */
+let lastTypeTap = null;
+function typeTarget(op){
+  if(!op.options.length) op.options.push(newOption(state.job && state.job.defaults));
+  return op.options.find(o => o.id === state.editOption) || op.options[0];
+}
+function tapDoorType(op, t){
+  const at = Date.now(), last = lastTypeTap;
+  if(last && last.op === op.id && last.t === t && at - last.at < 450){
+    // the second tap of a double: take back the first, then mark it as there now
+    const before = JSON.parse(last.before);
+    op.existingType = before.existingType; op.options = before.options;
+    lastTypeTap = null;
+    op.existingType = op.existingType === t ? '' : t;
+    const tgt = typeTarget(op);
+    if(op.existingType && !op.options.some(o => o.v.doorType)) tgt.v.doorType = t;
+    return;
+  }
+  lastTypeTap = {op: op.id, t, at,
+                 before: JSON.stringify({existingType: op.existingType, options: op.options})};
+  const tgt = typeTarget(op);
+  const has = op.options.find(o => o.v.doorType === t);
+  if(has === tgt) tgt.v.doorType = '';                     // tap the picked one: clear it
+  else if(has){                                            // another option has it: drop that one
+    if(op.options.length > 1) op.options.splice(op.options.indexOf(has), 1);
+    else has.v.doorType = '';
+  }
+  else tgt.v.doorType = t;                                 // a different type: switch to it
 }
 
 function sizeChips(op, f, items, custom){
@@ -1751,9 +1948,13 @@ function sizeChips(op, f, items, custom){
     if(r) h += '<p class="hint" style="color:var(--brass)">Orders as ' + r.to +
                '" with re-rail.</p>';
   }
+  /* Not a text box: a tap opens the big number pad (2.3), because the
+     phone's own keyboard is small and covers the sizes it is entering. */
+  const typed = (isPreset || rangeFor(val)) ? '' : (val || '');
   h += '<div class="other"><label>' + custom + '</label>' +
-       '<input type="number" data-of="' + f + '" data-op="' + op.id + '" value="' +
-       esc((isPreset || rangeFor(val)) ? '' : (val || '')) + '" placeholder="type a size"></div></div>';
+       '<button type="button" class="padbox' + (typed ? ' set' : '') + '" data-padof="' + f +
+       '" data-op="' + op.id + '">' + (typed ? esc(sizeText(typed)) + '"' : 'Tap to type a size') +
+       '</button></div></div>';
   return h;
 }
 
@@ -2071,20 +2272,18 @@ function renderJob(){
          '<span class="crumb">' + (isOpen ? 'Hide' : 'Open') + '</span></div>';
     if(isOpen){
       h += '<div class="card-body">';
-      h += '<div class="field"><label>Location</label>' +
+      /* On a phone these run down the screen in this order. On a tablet held
+         sideways they sit in two columns, the door on the left and its size
+         on the right, so a whole opening fits without scrolling (2.3). */
+      h += '<div class="op-grid"><div class="op-left">';
+      h += '<div class="o-loc"><div class="field"><label>Location</label>' +
            (isCombo('location')
               ? combo('location', op.location, 'data-f="location" data-op="' + op.id + '"')
               : '<select data-f="location" data-op="' + op.id + '">' +
-                opt('location', op.location) + '</select>') + '</div>';
-      h += qtyField(op);
-      h += typeChips(op);
-      h += sizeChips(op, 'width', widthsFor(op), 'Other width');
-      if(bifoldTooWide(op))
-        h += '<p class="warn stop">A bifold wider than ' + BIFOLD_MAX + '" is not available. ' +
-             'Change the width or the door type before the workbook can be written.</p>';
-      if(narrowGlass(op))
-        h += '<p class="warn">Glass door under 24" wide. Check with the office before ordering.</p>';
-      h += sizeChips(op, 'height', HEIGHTS, 'Other height');
+                opt('location', op.location) + '</select>') + '</div></div>';
+      h += '<div class="o-qty">' + qtyField(op) + '</div>';
+      h += '<div class="o-type">' + typeChips(op) + '</div>';
+      h += '<div class="o-prod">';
 
       /* PRODUCT TYPE IS MEASURED, NOT SET AT A DESK
          Andrew, 8 Oct: the reps enter it on site. It lives on the option
@@ -2105,6 +2304,17 @@ function renderJob(){
                chips(pf, o, op.id) + '</div>';
         });
       }
+      h += '</div></div><div class="op-right">';
+      h += '<div class="o-w">' + sizeChips(op, 'width', widthsFor(op), 'Other width') + '</div>';
+      h += '<div class="o-warn">';
+      if(bifoldTooWide(op))
+        h += '<p class="warn stop">A bifold wider than ' + BIFOLD_MAX + '" is not available. ' +
+             'Change the width or the door type before the workbook can be written.</p>';
+      if(narrowGlass(op))
+        h += '<p class="warn">Glass door under 24" wide. Check with the office before ordering.</p>';
+      h += '</div>';
+      h += '<div class="o-h">' + sizeChips(op, 'height', HEIGHTS, 'Other height') + '</div>';
+      h += '</div></div>';
 
 
       op.options.forEach((o, i) => {
@@ -2232,7 +2442,7 @@ function renderJob(){
 const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done',
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
-  'applydef','cleardef','repopen','pickqty','review','revback','revprint',
+  'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
   'comboval','sure','jfclear'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
@@ -2256,6 +2466,7 @@ document.addEventListener('click', async e => {
   const d = t.dataset;
   const job = state.job;
   if(d.review !== undefined) return openReview();
+  if(d.padof){ const o = job && job.openings.find(x => x.id === d.op); if(o) openPad(o, d.padof); return; }
   if(d.revback !== undefined){ state.view = 'job'; return render(); }
   if(d.revprint !== undefined) return window.print();
 
@@ -2399,28 +2610,11 @@ document.addEventListener('click', async e => {
     state.editOption = opening_now ? null : (opening.options[0] && opening.options[0].id);
     return render(); }
 
-  const op = job && job.openings.find(o => o.id === d.op);
+  /* Add another option names its opening in data-addopt, not data-op; looking
+     only at data-op left it doing nothing since 1.9 (fixed in 2.3). */
+  const op = job && job.openings.find(o => o.id === (d.op || d.addopt));
   if(d.dtype){
-    const t = d.dtype;
-    if(!op.existingType){
-      op.existingType = t;                                  // first tap: what is there now
-      // quoting like for like is the common case, so seed the first option with
-      // it; the rep can tick something else and untick this one
-      if(!op.options.length) op.options.push(newOption(job.defaults));
-      if(!op.options[0].v.doorType) op.options[0].v.doorType = t;
-    } else if(op.existingType === t){
-      op.existingType = '';                                 // tapping it again clears it
-    } else {
-      const idx = op.options.findIndex(o => o.v.doorType === t);
-      if(idx >= 0){
-        // never leave an opening with nowhere to record the details
-        if(op.options.length === 1) op.options[0].v.doorType = '';
-        else op.options.splice(idx, 1);
-      } else {
-        if(op.options.length === 1 && !op.options[0].v.doorType) op.options[0].v.doorType = t;
-        else { const o = newOption(job.defaults); o.v.doorType = t; op.options.push(o); }
-      }
-    }
+    tapDoorType(op, d.dtype);
     if(!state.editOption || !op.options.some(o => o.id === state.editOption))
       state.editOption = op.options[0] && op.options[0].id;
     applyQtyRule(op);
@@ -2586,15 +2780,8 @@ document.addEventListener('change', async e => {
     op.location = t.value; await persist(); return render(); }
   if(d.f === 'qty'){ op.qty = Math.max(1, parseInt(t.value || '1', 10));
     applyQtyRule(op); await persist(); return render(); }
-  if(d.of === 'width' && isBifold(op) && parseFloat(t.value) > BIFOLD_MAX){
-    t.value = '';
-    return toast('A bifold wider than ' + BIFOLD_MAX + '" is not available');
-  }
-  if(d.of){ op[d.of] = t.value;
-    if(d.of === 'width') applyQtyRule(op);
-    if(d.of === 'height' && !needsReRail(op)) op.options.forEach(o => {
-      if(o.v.reRail === 'YES' && !o.reRailByHand) o.v.reRail = '';
-    });
+  if(d.of){
+    if(!setOpeningSize(op, d.of, t.value)){ t.value = ''; return; }
     await persist(); return render(); }
   if(d.v){ const o = op.options.find(x => x.id === d.o);
     if(d.combo){
@@ -2725,6 +2912,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.2 · 17 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.3 · 17 Nov 2026</div>
 </body>
 </html>
