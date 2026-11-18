@@ -47,7 +47,7 @@ const pdftext = file => { try{ return require('child_process').execFileSync('pdf
       const e = HANDLE_PHOTOS[s]; out.push([s, c, e && e.f[c] ? e.f[c][0] : null]); }));
     return out;
   });
-  const gaps = all.filter(([s, c, f]) => !f || !fs.existsSync(path.join(DIR, 'docs', 'handles', f + '.jpg')));
+  const gaps = all.filter(([s, c, f]) => !f || !fs.existsSync(path.join(DIR, f + '.jpg')));
   check('every handle style and finish has a photo file (' + all.length + ')', gaps.length === 0, gaps.slice(0, 5));
 
   const setup = (doors) => page.evaluate(doors => {
