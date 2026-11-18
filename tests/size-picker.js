@@ -38,7 +38,7 @@ const check = (name, ok, got) => {
   const page = await start({width:390, height:844});
   await page.click('[data-padof="openW"]');
   const whole = await page.$$eval('#pad .pk-whole button', b => b.map(x => x.textContent));
-  check('phone: inches 12 to 72, no eighths yet', whole.length === 61 && whole[0] === '12' && whole[60] === '72' &&
+  check('phone: even inches 12 to 72, no eighths yet', whole.length === 31 && whole[0] === '12' && whole[1] === '14' && whole[30] === '72' &&
         !(await page.$('#pad .pk-fr')), whole.length);
   await page.click('#pad [data-pk="w60"]');
   const fr = await page.$$eval('#pad .pk-fr button', b => b.map(x => x.textContent));
@@ -49,9 +49,9 @@ const check = (name, ok, got) => {
   check('phone: 60 then 1/4 stores 60.25 and closes', (await op(page)).w === '60.25' && !(await page.$('#pad')), await op(page));
   await page.click('[data-padof="openH"]');
   const hs = await page.$$eval('#pad .pk-whole button', b => b.map(x => x.textContent));
-  check('phone: heights 60 to 108', hs.length === 49 && hs[0] === '60' && hs[48] === '108', hs.length);
-  await page.click('#pad [data-pk="w81"]'); await page.click('#pad [data-pk="pf0"]'); await page.waitForTimeout(150);
-  check('phone: 81 exact stores 81', (await op(page)).h === '81', await op(page));
+  check('phone: heights 78, 80, 84, 90, 96', hs.join() === '78,80,84,90,96', hs);
+  await page.click('#pad [data-pk="w80"]'); await page.click('#pad [data-pk="pf4"]'); await page.waitForTimeout(150);
+  check('phone: 80 1/2 stores 80.5', (await op(page)).h === '80.5', await op(page));
   await page.click('[data-padof="openW"]'); await page.click('#pad [data-pk="manual"]');
   check('Manual entry opens the number pad', !!(await page.$('#pad .pad-keys')), null);
   for(const k of ['C', '1', '4', '4']) await page.click('#pad [data-pk="' + k + '"]');

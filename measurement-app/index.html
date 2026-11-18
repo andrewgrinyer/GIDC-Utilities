@@ -3428,15 +3428,17 @@ function padValue(){
 /* 2.36, Andrew 18 Nov: sizes are picked, not typed. A tablet shows the
    whole inches and the eighths together; a phone shows the whole inches,
    then the eighths (with Back). Manual entry at the bottom opens the number
-   pad. Widths list 12 to 72, heights 60 to 108. */
+   pad. Widths list 12 to 72 by even inches, heights 78, 80, 84, 90, 96. */
 const PICK_FR = ['0','1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
-const pickRange = f => /^(height|openH|doorH)$/.test(f) ? [60, 108] : [12, 72];
+// Andrew 18 Nov: widths by even inches from 12 to 72; heights 78, 80, 84, 90, 96
+const PICK_W = Array.from({length:31}, (_, i) => 12 + i * 2), PICK_H = [78, 80, 84, 90, 96];
+const pickNums = f => /^(height|openH|doorH)$/.test(f) ? PICK_H : PICK_W;
 const pickWide = () => Math.min(window.innerWidth, window.innerHeight) >= 600;
 function drawPick(el, op){
-  const [lo, hi] = pickRange(pad.f), wide = pickWide(), whole = pad.whole === '' ? null : +pad.whole;
+  const wide = pickWide(), whole = pad.whole === '' ? null : +pad.whole;
   const title = ({width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height',
     doorW:'Each door width', doorH:'Each door height'}[pad.f] || 'Size');
-  const nums = []; for(let n = lo; n <= hi; n++) nums.push(n);
+  const nums = pickNums(pad.f);
   const wholeGrid = '<div class="pk-whole">' + nums.map(n => '<button type="button" data-pk="w' + n + '"' +
     (n === whole ? ' class="on"' : '') + '>' + n + '</button>').join('') + '</div>';
   const frGrid = '<div class="pk-fr">' + PICK_FR.map((x, i) => '<button type="button" data-pk="pf' + i + '"' +
@@ -5415,6 +5417,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.36 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.37 · 18 Nov 2026</div>
 </body>
 </html>
