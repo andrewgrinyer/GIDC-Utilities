@@ -76,6 +76,7 @@ edge functions for anything needing an admin key.
 | `kpi-import` | the only door numbers come in through | `KPI_IMPORT_KEY` |
 | `send-goback` | emails a go back to the office | `RESEND_API_KEY` |
 | `send-contract` | measurement app 2.23: emails the signed contract PDF to the customer and the signed in sales associate (price roles only, job read as the caller) | `RESEND_API_KEY`, optional `CONTRACT_EMAIL_FROM`, `CONTRACT_EMAIL_BCC` |
+| `remote-sign` | measurement app 2.26: emails the customer a private signing link; customer opens, signs (server time and IP recorded), PDF stored in Storage signed-contracts and emailed. JWT verification OFF, checks the associate itself; customer by link secret (only its SHA-256 is stored in sign_requests) | service role, `RESEND_API_KEY`, optional `SIGN_PAGE_URL` |
 | `send-order-function` | emails a dealer order | `RESEND_API_KEY` |
 
 `kpi-import` writes all rows or none. One bad row rejects the batch with

@@ -209,6 +209,18 @@ Deno.serve(async (req) => {
         "Use Email it on the review screen, or send the saved PDF yourself." }, 502);
     }
 
+    // 2.26: keep a copy in the private signed-contracts store too, when the
+    // store exists (sql/remote-sign.sql). A failure here never fails the send.
+    const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    if (service) {
+      const at = String(job.signed?.at ?? new Date().toISOString()).slice(0, 19).replace(/[:T]/g, "-");
+      const path = `in-person/${encodeURIComponent(id)}/${at}-${fileName(body.filename).replace(/\s+/g, "-")}`;
+      await call("store a copy", `${url}/storage/v1/object/signed-contracts/${path}`, {
+        method: "POST", body: Uint8Array.from(atob(pdf), (c) => c.charCodeAt(0)) as BodyInit,
+        headers: { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/pdf", "x-upsert": "true" },
+      }).catch(() => null);
+    }
+
     console.log(`done in ${Date.now() - t0}ms`);
     return json({ ok: true, to });
   } catch (e) {

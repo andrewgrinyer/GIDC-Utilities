@@ -288,6 +288,7 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   .ps-sign i{width:3.4in}
   .ps-sign span{font-weight:700;font-size:11pt}
   .ps-sign em{position:absolute;left:18px;top:100%;margin-top:1px;font-style:normal;font-size:8pt}
+  .ps-remote{position:absolute;left:18px;top:100%;margin-top:13px;font-size:6.5pt;color:#6B6B6B;white-space:nowrap}
   .print-terms .print-sig{margin:6px 0 0 22px}
   .pw-foot{display:table-footer-group!important}
   .pw .print-sig{margin:8px 0 14px}
@@ -543,6 +544,34 @@ body.signing{overflow:hidden}
 .btn-sign{background:#2A2A2A;color:#fff;border-color:#2A2A2A}
 .rv-signed{background:#EEF6EE;border:1px solid #9CC79C;border-radius:10px;padding:8px 12px;font-size:13px;margin:0 0 10px}
 .rv-signed .btn{margin-left:6px}
+.rv-remote{background:#F2F2F2;border:1px solid #C8C8C8;border-radius:10px;padding:8px 12px;font-size:13px;margin:0 0 10px}
+.rv-remote .btn{margin-left:6px}
+@media print{ .rv-remote{display:none!important} }
+/* 2.26: the customer's signing page */
+body.remote #app{max-width:1100px;margin:0 auto}
+.rs-head .lh{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1.5px solid #2A2A2A;padding:4px 0 8px;margin:4px 0 12px}
+.rs-head .lh img{height:44px;width:auto}
+.rs-head .lh-addr{text-align:right;font-size:11px;line-height:1.45;color:#6B6B6B}
+.rs-card h2{margin:0 0 8px;font-size:20px}
+.rs-card p{font-size:15px;line-height:1.5;margin:0 0 10px}
+.rs-who{color:#6B6B6B;font-size:13px!important}
+body.remote .print-kick{display:block;color:#B5121B;font-size:11px;font-weight:800;letter-spacing:.12em;text-transform:uppercase;margin:18px 0 6px}
+.rs-scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
+.rs-table{width:100%;border-collapse:collapse;font-size:13px;min-width:760px;background:#fff}
+.rs-table th{background:#2A2A2A;color:#fff;text-align:left;font-size:10.5px;text-transform:uppercase;letter-spacing:.04em;padding:6px 6px}
+.rs-table td{padding:6px;border-bottom:1px solid #E2E2E2;vertical-align:top}
+.rs-table .num{text-align:right;white-space:nowrap}
+.rs-picks{display:flex;flex-wrap:wrap;gap:14px;align-items:flex-end}
+.rs-picks > div{width:110px;text-align:center;font-size:12px}
+.rs-picks b{display:block;margin-top:4px}
+.rs-picks span{display:block;color:#6B6B6B;font-size:11px}
+.rs-door{width:62px;height:165px;object-fit:fill;display:block;margin:0 auto}
+.rs-handle{width:90px;height:90px;object-fit:contain;display:block;margin:0 auto}
+.rs-docs{display:flex;flex-wrap:wrap;gap:8px;align-items:flex-start}
+.rs-docs details{flex:1 1 100%;background:#fff;border:1px solid #E2E2E2;border-radius:10px;padding:8px 12px}
+.rs-docs summary{cursor:pointer;font-weight:700;font-size:14px}
+.rs-terms{font-size:12px;line-height:1.45;padding-left:18px}
+.rs-terms li{margin:0 0 8px}
 .print-top, .print-kick, .print-foot{display:none}
 .ps-mark{position:absolute;left:4px;right:4px;bottom:1px;height:38px;width:calc(100% - 8px)}
 .ini-mark{position:absolute;left:0;right:0;bottom:0;height:16px;width:100%}
@@ -974,7 +1003,8 @@ const TERMS_HTML = "<li><b>Doors will be installed approx. (6-8 weeks) after the
 const sigBlock = (job, id) => { const m = markOf(job, id);
   return '<div class="print-sig"><div class="ps-date"><span>Date:</span><i>' + (m ? '<b>' + esc(signDay(m.at)) + '</b>' : '') + '</i></div>' +
   '<div class="ps-sign"><span>X</span><i>' + markSvg(m, 'ps-mark') + '</i><em>Customer Signature' +
-  (m && job.signed.name ? ': ' + esc(job.signed.name) : '') + '</em></div></div>' + docFoot(); };
+  (m && job.signed.name ? ': ' + esc(job.signed.name) : '') + '</em>' +
+  (m && remoteLine(job.signed) ? '<small class="ps-remote">' + esc(remoteLine(job.signed)) + '</small>' : '') + '</div></div>' + docFoot(); };
 /* 2.23: the line along the bottom of Andrew's forms, on every printed page */
 const docFoot = () => '<div class="print-foot">For more information, contact <b>Grinyer Interior Doors &amp; Closets</b>' +
   '  |  info@grinyer.ca  |  877 566 4052</div>';
@@ -1161,6 +1191,7 @@ async function contractPdf(job){
     pg.drawLine({start:{x:x + 198, y}, end:{x:x + 440, y}, thickness:0.8, color:INK});
     mark(pg, m, x + 200, y + 1, 200, 34);
     text(pg, 'Customer Signature' + (m && job.signed.name ? ': ' + job.signed.name : ''), x + 210, y - 10, {size:8});
+    if(m && remoteLine(job.signed)) text(pg, remoteLine(job.signed), x + 210, y - 19, {size:6.5, color:GREY});
   };
   const foot = (pg, W) => {
     pg.drawLine({start:{x:28, y:30}, end:{x:W - 28, y:30}, thickness:0.6, color:RULE});
@@ -1355,11 +1386,220 @@ async function contractPdf(job){
     const [pg] = await pdf.copyPages(src, [0]); pdf.addPage(pg);
     const m = signed('form-' + d.id), H = pg.getHeight();
     if(m && d.sign){ mark(pg, m, d.sign.x, H - d.sign.y + 1, 300, 17);
-      text(pg, signDay(m.at), d.sign.dx, H - d.sign.y + 5, {size:9}); }
+      text(pg, signDay(m.at), d.sign.dx, H - d.sign.y + 5, {size:9});
+      if(remoteLine(job.signed)) text(pg, remoteLine(job.signed), pg.getWidth() / 2, 6, {size:6, color:GREY, center:true}); }
+  }
+
+  /* 5. 2.26: signed remotely, the record of how, when and from where */
+  if(signedOk(job) && job.signed.where === 'remote'){
+    const W = 612, H = 792, pg = pdf.addPage([W, H]), s = job.signed;
+    let y = head(pg, W, H, 'Electronic signing record', who);
+    const marks = Object.keys(s.marks || {});
+    const rows = [
+      ['Contract', (job.docType || '') + ' for ' + (job.customer || '') + ', ' + docAddress(job)],
+      ['Reference', s.request || ''],
+      ['Sent by', [s.sentBy, s.sentByEmail].filter(Boolean).join(', ')],
+      ['Sent to', s.sentTo || job.email || ''],
+      ['Sent', stampTime(s.sentAt)],
+      ['First opened', stampTime(s.openedAt)],
+      ['Signed by', s.name || ''],
+      ['Signed', stampTime(s.at) + '  (' + new Date(s.at).toISOString().replace('.000', '') + ')'],
+      ['IP address', s.ip || 'unknown'],
+      ['Device and browser', s.agent || ''],
+      ['Fields', marks.filter(k => k.indexOf('ini-') !== 0).length + ' signatures and ' + marks.filter(k => k.indexOf('ini-') === 0).length + ' initials'],
+    ];
+    y -= 10;
+    const wrap = (t, w, sz) => { const out = ['']; safe(t).split(' ').forEach(wd => { const c = (out[out.length - 1] + ' ' + wd).trim();
+      if(F.widthOfTextAtSize(c, sz) <= w || !out[out.length - 1]) out[out.length - 1] = c; else out.push(wd); }); return out; };
+    rows.forEach(([k, v]) => {
+      const ls = wrap(v, W - 56 - 140, 9.5);
+      pg.drawLine({start:{x:28, y:y + 12}, end:{x:W - 28, y:y + 12}, thickness:0.4, color:RULE});
+      text(pg, k.toUpperCase(), 28, y, {size:7, font:FB, color:GREY});
+      ls.forEach((l, i) => text(pg, l, 168, y - i * 12, {size:9.5}));
+      y -= Math.max(1, ls.length) * 12 + 10;
+    });
+    y -= 10;
+    wrap('The signer opened a private link emailed to the address above, reviewed this contract on their own device and ' +
+      'signed or initialled each field in turn. Times are from Grinyer\'s server, not the signer\'s device. The order exactly ' +
+      'as it was sent is kept by Grinyer with this record.', W - 56, 9).forEach((l, i) => text(pg, l, 28, y - i * 12, {size:9, color:INK}));
+    foot(pg, W);
   }
   return await pdf.save();
 }
 
+/* REMOTE SIGNING (2.26, Andrew 18 Nov)
+ *
+ * Send to sign emails the customer a private link (the remote-sign function
+ * in Supabase). The link opens this same app with #sign=<secret>: no login,
+ * just the contract, read only, with the same signing steps as in person.
+ * The server records the time (its own clock) and the customer's IP address
+ * and browser; the page then makes the signed PDF with those printed under
+ * every signature and a signing record page at the end, and hands it back
+ * to be stored in Supabase and emailed to the customer and the associate.
+ * The server keeps the order exactly as it was sent, so what was signed can
+ * always be shown, whatever happens to the job afterwards. */
+const REMOTE_FN = '/functions/v1/remote-sign';
+const remoteToken = () => { const m = /[#&]sign=([A-Za-z0-9_-]{40,60})/.exec(location.hash || ''); return m ? m[1] : ''; };
+const stampTime = iso => { const d = new Date(iso); if(isNaN(d)) return '';
+  return d.toLocaleString('en-CA', {timeZone:'America/Toronto', year:'numeric', month:'long', day:'numeric',
+    hour:'numeric', minute:'2-digit', second:'2-digit'}) + ' Eastern'; };
+// one line under every signature on a remotely signed contract
+const remoteLine = s => s && s.where === 'remote' ? 'Signed electronically ' + stampTime(s.at) + ', IP ' + (s.ip || 'unknown') : '';
+async function remoteCall(body, asStaff){
+  const r = await fetch(CONFIG.supabaseUrl + REMOTE_FN, {method:'POST',
+    headers: asStaff ? sbHeaders(true) : {apikey:CONFIG.supabaseAnonKey, 'Content-Type':'application/json'},
+    body:JSON.stringify(body)});
+  const j = await r.json().catch(() => ({}));
+  if(!r.ok){ const e = new Error(j.error || ('The signing service did not answer (' + r.status + ')')); e.info = j; throw e; }
+  return j;
+}
+
+/* ---------- the associate's side ---------- */
+async function sendToSign(job, again){
+  if(!SB) return toast('Sending to sign needs the online database');
+  if(!reviewLines(job).length) return toast('There are no doors on this order');
+  const miss = missing(job);
+  if(miss.length) return toast('Fill these in before sending: ' + miss.slice(0, 2).join('; ') + (miss.length > 2 ? ' and ' + (miss.length - 2) + ' more' : ''));
+  if(prices0(job)) return toast('Every door needs a price before sending. Type the Door MSRP on the S/O lines.');
+  const to = String(job.email || '').trim();
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return toast('Put the customer email on the job first');
+  if(!again && !await sure({title:'Email the contract to sign?', what:'A private link goes to ' + to + '.',
+      why:'They read it and sign on their own phone or computer. A link sent before for this job stops working.', go:'Send'})) return;
+  try{ await persist(); }catch(e){ return; }
+  try{
+    const res = await remoteCall({action:'send', id:job.id, fp:signFp(job), again:!!again}, true);
+    job.remoteSign = res.request; await persist().catch(() => {}); render();
+    toast('Sent to ' + to);
+  }catch(err){
+    if(err.info && err.info.already && await sure({title:'Send it again?', what:err.message,
+        why:'The customer signs again and the new signatures replace the old ones.', go:'Send again'})) return sendToSign(job, true);
+    if(!(err.info && err.info.already)) toast(err.message);
+  }
+}
+async function remoteCheck(job, quiet){
+  try{
+    const res = await remoteCall({action:'status', id:job.id}, true);
+    if(res.request && res.request.status === 'done'){
+      const fresh = await loadJob(job.id);          // the server wrote the signatures onto it
+      Object.assign(job, {signed:fresh.signed, remoteSign:fresh.remoteSign || res.request});
+    } else job.remoteSign = res.request;
+    render();
+    if(!quiet) toast(!res.request ? 'Never sent' : res.request.status === 'done' ? 'Signed ' + signDay(res.request.signedAt)
+      : res.request.status === 'signed' ? 'Signed, the PDF is still on its way' : res.request.status === 'cancelled' ? 'That link was stopped'
+      : res.request.openedAt ? 'Opened ' + signDay(res.request.openedAt) + ', not signed yet' : 'Not opened yet');
+    return res;
+  }catch(err){ if(!quiet) toast(err.message); }
+}
+function remoteBanner(job){
+  const r = job.remoteSign;
+  if(!r || !canSeePrices() || state.remote) return '';
+  if(r.status === 'sent') return '<p class="rv-remote">Sent to sign to ' + esc(r.sentTo) + ' on ' + esc(signDay(r.sentAt)) +
+    (r.openedAt ? ', opened ' + esc(signDay(r.openedAt)) : ', not opened yet') + '.' +
+    ' <button class="btn btn-sm" data-rscheck="1">Check</button> <button class="btn btn-sm" data-rsstop="1">Stop the link</button></p>';
+  if(r.status === 'cancelled') return '';
+  if(job.signed && job.signed.where === 'remote')
+    return '<p class="rv-remote">Signed remotely by ' + esc(job.signed.name) + ', ' + esc(stampTime(job.signed.at)) +
+      ', IP ' + esc(job.signed.ip || '') + '. <button class="btn btn-sm" data-rsdl="1">Stored PDF</button></p>';
+  return '<p class="rv-remote">Signed remotely. <button class="btn btn-sm" data-rscheck="1">Check</button></p>';
+}
+
+/* ---------- the customer's side ---------- */
+async function remoteOpen(){
+  state.view = 'remote'; state.remote = {token:remoteToken(), phase:'loading'}; render();
+  try{
+    const res = await remoteCall({action:'open', token:state.remote.token});
+    state.remote.req = res.request;
+    const job = res.job || res.signedJob;
+    if(job){ state.job = job; await getCalc(); calcJob(job); }
+    if(res.job) state.remote.phase = 'ready';
+    else if(res.signed){ state.remote.phase = 'finishing'; render(); return remoteFinish(res.signed); }
+    else state.remote.phase = 'done';
+  }catch(err){ state.remote.phase = 'gone'; state.remote.msg = err.message; }
+  render();
+}
+function remoteSignNow(){
+  openSignPad(state.job, async signed => {
+    if(!signed) return;
+    state.remote.phase = 'saving'; render();
+    try{
+      const res = await remoteCall({action:'sign', token:state.remote.token, signed});
+      state.remote.req = res.request;
+      await remoteFinish(signed);
+    }catch(err){ state.remote.phase = 'ready'; render(); toast(err.message + ' Nothing was signed; try again.'); }
+  });
+}
+async function remoteFinish(signed){
+  const job = state.job, q = state.remote.req;
+  const marks = {}; Object.keys(signed.marks || {}).forEach(k => { marks[k] = Object.assign({}, signed.marks[k], {at:q.signedAt}); });
+  job.signed = Object.assign({}, signed, {at:q.signedAt, name:q.name || signed.name, where:'remote', ip:q.ip, agent:q.agent,
+    request:q.id, sentAt:q.sentAt, sentBy:q.sentBy, sentByEmail:q.sentByEmail, sentTo:q.sentTo, openedAt:q.openedAt, marks});
+  job.signed.fp = signFp(job);
+  try{
+    const bytes = await contractPdf(job);
+    state.remote.pdf = bytes;
+    const res = await remoteCall({action:'finish', token:state.remote.token, pdf:toB64(bytes)});
+    state.remote.req = res.request; state.remote.emailed = res.emailed || []; state.remote.phase = 'done';
+  }catch(err){ state.remote.phase = 'retry'; state.remote.msg = err.message; state.remote.signed = signed; }
+  render();
+}
+function renderRemote(){
+  const R = state.remote, job = state.job;
+  document.body.classList.add('remote');
+  $('#bar').innerHTML = '<h1>Your Grinyer contract</h1>';
+  const card = inner => '<div class="card rs-card"><div class="card-body" style="border-top:0;padding-top:16px">' + inner + '</div></div>';
+  let h = '', dock = '';     // the app's own bar already carries the logo
+  if(R.phase === 'loading') h += card('<p>Opening your contract...</p>');
+  else if(R.phase === 'gone') h += card('<h2>This link cannot be used</h2><p>' + esc(R.msg || '') + '</p><p>Grinyer Interior Doors &amp; Closets, 877 566 4052, info@grinyer.ca</p>');
+  else if(R.phase === 'saving' || R.phase === 'finishing') h += card('<h2>Saving your signed contract...</h2><p>Please keep this page open. It takes a few seconds.</p>');
+  else if(R.phase === 'retry'){
+    h += card('<h2>Your signatures are saved</h2><p>The signed copy did not finish sending: ' + esc(R.msg || '') + '</p>');
+    dock = '<button class="btn btn-primary" data-rsretry="1">Try again</button>';
+  }
+  else if(R.phase === 'done'){
+    const q = R.req || {};
+    h += card('<h2>Thank you, your contract is signed</h2><p>Signed by ' + esc(q.name || '') + ', ' + esc(stampTime(q.signedAt)) + '.</p>' +
+      ((R.emailed && R.emailed.length) || (q.emailedTo && q.emailedTo.length)
+        ? '<p>A copy has been emailed to ' + esc(q.sentTo || '') + '.</p>' : '<p>Your Grinyer sales associate will send you a copy.</p>') +
+      '<p>Questions? Call 877 566 4052 or reply to the email.</p>');
+    if(R.pdf) dock = '<button class="btn btn-primary" data-rssave="1">Save a copy</button>';
+  }
+  else {
+    const q = R.req || {}, lines = reviewLines(job).slice(0, PAGE_ROWS.length);
+    h += card('<h2>Hello ' + esc(job.customer || '') + '</h2><p>' + esc(q.sentBy || 'Grinyer') + ' has sent your contract to read and sign. ' +
+      'Look over the order below, then press <b>Sign the contract</b>. You sign or initial each place one at a time, ' +
+      'with your finger, a pen or the trackpad, and a signed copy is emailed to you.</p>' +
+      '<p class="rs-who">' + esc([job.customer, docAddress(job), job.phone, job.email].filter(Boolean).join('  ·  ')) + '</p>');
+    h += '<div class="print-kick rs-kick">Doors on this order</div><div class="rs-scroll"><table class="rs-table"><thead><tr>' +
+      ['#', 'Location', 'Qty', 'Door', 'Style', 'Size', 'Handle', 'Finish', 'Paint', 'Door total', 'Handle'].map((c, i) =>
+        '<th' + (i >= 9 ? ' class="num"' : '') + '>' + c + '</th>').join('') + '</tr></thead><tbody>' +
+      lines.map((l, i) => { const v = l.o.v, row = PAGE_ROWS[i];
+        return '<tr><td>' + esc(l.op.number) + '</td><td>' + esc(l.op.location || '') + '</td><td>' + esc(l.op.qty || 1) + '</td><td>' +
+          esc(v.doorType || '') + '</td><td>' + esc(styleName(v.doorStyle || '')) + '</td><td>' + esc((l.op.width || '') + ' x ' + (l.op.height || '')) +
+          '</td><td>' + esc([v.handleType, v.handleStyle].filter(x => x && x !== 'N/A').join(', ')) + '</td><td>' + esc(v.hwColour || '') +
+          '</td><td>' + esc(v.paintColour || '') + '</td><td class="num">' + esc(money(cv('T' + row))) + '</td><td class="num">' +
+          esc(money(cv('U' + row))) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+    h += '<div class="print-kick rs-kick">Pricing summary</div><div class="rv-boxes">' + sumBoxes().map(b =>
+      '<div class="rv-box"><h3>' + esc(b.title) + '</h3><table class="rv rv-small"><tbody>' + b.rows.map(r =>
+        '<tr' + (b.price && r === 54 ? ' class="rv-total"' : '') + '>' + b.cols.map((c, j) =>
+          '<td' + (j ? ' class="num"' : '') + '>' + esc(boxText(b, c, r, j)) + '</td>').join('') + '</tr>').join('') +
+      '</tbody></table></div>').join('') + '</div>';
+    const picks = doorPicks(job), hp = handlePicks(job);
+    if(picks.length) h += '<div class="print-kick rs-kick">Your door' + (hp.length ? ' and handle' : '') + ' selections</div><div class="rs-picks">' +
+      picks.map(p => '<div>' + (p.photo ? '<img class="rs-door" src="' + p.photo + '" alt="">' : '') + '<b>' + esc(styleName(p.style)) + '</b><span>' +
+        esc(p.qty + (p.qty === 1 ? ' door' : ' doors')) + '</span></div>').join('') +
+      hp.map(x => '<div><img class="rs-handle" src="' + x.photo + '" alt=""><b>' + esc(x.title) + '</b><span>' + esc(x.rose + ', ' + x.colour) + '</span></div>').join('') + '</div>';
+    const docs = jobDocs(job);
+    h += '<div class="print-kick rs-kick">To read before you sign</div><div class="rs-docs">' +
+      '<details><summary>Install Instructions and Contract Amendment</summary><ol class="rs-terms">' +
+      termsItems().map(t => '<li>' + t.replace(INI_TAG, '') + '</li>').join('') + '</ol></details>' +
+      docs.map(d => '<a class="btn btn-sm" href="' + d.file + '" target="_blank" rel="noopener" data-doc="' + d.id + '">' + esc(d.title) + '</a>').join(' ') +
+      ' <button class="btn btn-sm" data-rspdf="1">The whole contract as a PDF</button></div>';
+    dock = '<div class="count">' + (typeof cv('U54') === 'number' ? 'Grand total ' + esc(money(cv('U54'))) : '') + '</div>' +
+      '<button class="btn btn-primary btn-sign" data-rssign="1">Sign the contract</button>';
+  }
+  $('#app').innerHTML = h;
+  $('#dock').innerHTML = dock || '<div class="count"></div>';
+}
 const contractName = job => ((job.customer || 'Customer') + ' signed contract ' +
   new Date((job.signed && job.signed.at) || Date.now()).toISOString().slice(0, 10)).replace(/[^\w\- ]+/g, '').trim() + '.pdf';
 function saveBytes(bytes, name, type){
@@ -2629,7 +2869,8 @@ document.addEventListener('keydown', e => {
  * Prices are shown to the roles that may see the price list: administrators,
  * staff and sales. Anybody else gets the same screen without the money. */
 const PRICE_ROLES = ['admin', 'user', 'sales'];
-const canSeePrices = () => PRICE_ROLES.indexOf(String((state.me && state.me.role) || '')) !== -1;
+/* 2.26: the customer on their own signing link sees the prices of their own order */
+const canSeePrices = () => !!(state.remote && state.view === 'remote') || PRICE_ROLES.indexOf(String((state.me && state.me.role) || '')) !== -1;
 const HF_SRC = 'hyperformula-3.0.1.min.js';
 let calc = null;                       // {hf, sid, orig}
 
@@ -2840,6 +3081,7 @@ function renderReview(){
         (job.signed.emailed ? '' : ' <button class="btn btn-sm" data-signmail="1">Email it</button>') + '</p>'
       : '<p class="warn stop">This order was signed by ' + esc(job.signed.name) + ' on ' + esc(signDay(job.signed.at)) +
         ' and has changed since. The signatures no longer show. Sign again for the new order.</p>';
+  h += remoteBanner(job);
 
   // the head of the contract: who, where, and which price list
   const H = [['Customer', job.customer], ['Address', job.address], ['City', job.city],
@@ -2983,11 +3225,14 @@ function renderReview(){
     '<button class="btn" data-revprint="1">Print</button>' +
     (prices ? '<button class="btn btn-sign" data-sign="1"' + (lines.length ? '' : ' disabled') + '>' +
       (signedOk(job) ? 'Signed' : 'Sign') + '</button>' : '') +
+    (prices && SB ? '<button class="btn" data-sendsign="1"' + (lines.length ? '' : ' disabled') + '>Send to sign</button>' : '') +
     '<button class="btn btn-primary" data-xml="1"' + (lines.length ? '' : ' disabled') + '>Download workbook</button>';
 }
 
 async function openReview(){
   state.view = 'review'; state.reviewReady = !!calc;
+  // 2.26: a contract out for signing may have come back since
+  if(SB && state.job.remoteSign && ['sent', 'signed'].includes(state.job.remoteSign.status)) remoteCheck(state.job, true);
   if(calc) calcJob(state.job);
   render();
   if(calc) return;
@@ -3343,6 +3588,7 @@ function sizeLine(o){
 
 function render(){
   document.body.classList.remove('reviewing');
+  if(state.view === 'remote') return renderRemote();
   if(state.view === 'review') return renderReview();
   if(state.view === 'setup')  return renderSetup();
   if(state.view === 'signin') return renderSignin();
@@ -3826,7 +4072,8 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
-  'comboval','sure','jfclear','doc','custopen','revaddop','revrm','sign','signpdf','signmail'];
+  'comboval','sure','jfclear','doc','custopen','revaddop','revrm','sign','signpdf','signmail',
+  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 async function persist(){ await saveJob(state.job); }
@@ -3853,6 +4100,33 @@ document.addEventListener('click', async e => {
   if(d.revback !== undefined){ state.view = 'job'; return render(); }
   /* 2.20, Andrew 18 Nov: a door added straight from the review. It is a new
      opening with the job's defaults, and its line is filled in right here. */
+  /* 2.26: remote signing */
+  if(d.sendsign !== undefined) return sendToSign(job);
+  if(d.rscheck !== undefined) return remoteCheck(job);
+  if(d.rsstop !== undefined){
+    if(!await sure({title:'Stop the signing link?', what:'The link sent to ' + ((job.remoteSign || {}).sentTo || 'the customer') + ' stops working.',
+        why:'You can send a new one any time.', go:'Stop it'})) return;
+    try{ const res = await remoteCall({action:'cancel', id:job.id}, true); job.remoteSign = res.request; await persist().catch(() => {}); render(); toast('Stopped'); }
+    catch(err){ toast(err.message); }
+    return;
+  }
+  if(d.rsdl !== undefined){
+    const w = window.open('', '_blank');
+    const res = await remoteCheck(job, true);
+    if(res && res.pdfUrl){ if(w) w.location.href = res.pdfUrl; else location.href = res.pdfUrl; }
+    else { if(w) w.close(); toast('The stored PDF is not there yet'); }
+    return;
+  }
+  if(d.rssign !== undefined) return remoteSignNow();
+  if(d.rsretry !== undefined){ state.remote.phase = 'finishing'; render(); return remoteFinish(state.remote.signed); }
+  if(d.rssave !== undefined) return saveBytes(state.remote.pdf, contractName(job), 'application/pdf');
+  if(d.rspdf !== undefined){
+    const w = window.open('', '_blank');
+    try{ const url = URL.createObjectURL(new Blob([await contractPdf(job)], {type:'application/pdf'}));
+      if(w) w.location.href = url; else location.href = url; setTimeout(() => URL.revokeObjectURL(url), 120000); }
+    catch(err){ if(w) w.close(); toast(err.message || String(err)); }
+    return;
+  }
   /* 2.23: the customer signs */
   if(d.sign !== undefined){
     if(signedOk(job) && !await sure({title:'Sign this order again?', what:'It was signed by ' + job.signed.name + ' on ' + signDay(job.signed.at) + '.',
@@ -4323,6 +4597,7 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
 }
 
 (async function init(){
+  if(remoteToken()) return remoteOpen();      // 2.26: a customer's signing link, no login
   if(SB){
     try{
       loadSession();
@@ -4367,6 +4642,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.25.1 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.26 · 18 Nov 2026</div>
 </body>
 </html>
