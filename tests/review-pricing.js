@@ -174,6 +174,22 @@ const check = (name, ok, got) => {
                  await litePrice('15 Lite Clear', 32, 84), await litePrice('10 Lite Clear', 28, 84)];
   check('15 lite 6/8 is $255, 10 lite 6/8 $225, 15 lite 7/0 $708, 10 lite 7/0 not priced',
         lites[0] === 255 && lites[1] === 225 && lites[2] === 708 && lites[3] === 'S/O', lites);
+  // 2.10: a size the supplier size check calls special order gets no price
+  const rain = [await litePrice('1 Lite Rain', 30, 80), await litePrice('1 Lite Rain', 40, 80)];
+  const rainTotal = await page.evaluate(() => [cv('T9'), cv('U54'), document.querySelector('#dock').textContent]);
+  check('1 Lite Rain at 30 has a price, at 40 (special order size) it is S/O',
+        typeof rain[0] === 'number' && rain[0] > 0 && rain[1] === 'S/O', rain);
+  check('and the total stops, as for any S/O door',
+        typeof rainTotal[1] !== 'number' && rainTotal[2].toLowerCase().includes('no grand total'), rainTotal);
+  const xml = await page.evaluate(() => { const { unzipSync, strFromU8 } = fflate;
+    return fillSheet(strFromU8(unzipSync(templateBytes())['xl/worksheets/sheet3.xml']), state.job); });
+  const r9 = (xml.match(/<c r="R9"[^>]*>[\s\S]*?<\/c>/) || [''])[0], r10 = (xml.match(/<c r="R10"[^>]*>[\s\S]*?<\/c>/) || [''])[0];
+  check('the downloaded workbook says S/O on that line too, other lines keep the formula',
+        r9.includes('>S/O<') && !r9.includes('<f>') && r10.includes('<f>'), [r9.slice(0, 120), r10.slice(0, 60)]);
+  const back = await litePrice('1 Lite Rain', 30, 80);
+  check('back to 30 wide, the price comes back', typeof back === 'number' && back === rain[0], back);
+  const keep = await litePrice('15 Lite Clear', 32, 84);
+  check('15 lite at 7\'0" keeps its $708 special order price', keep === 708, keep);
   await page.evaluate(() => { const op = state.job.openings[0], v = op.options[0].v;
     Object.assign(v, {doorStyle:'Columbia', productType:'1.375 Hollow'}); calcJob(state.job); render(); });
 

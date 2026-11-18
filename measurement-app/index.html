@@ -1160,6 +1160,7 @@ function sheetInputs(job){
     const line = lines[i];
     if(!line){
       Object.values(COLMAP).forEach(c => out.push([c + row, '']));
+      out.push(['R' + row, null]);
       return;
     }
     const {op, o} = line;
@@ -1182,6 +1183,15 @@ function sheetInputs(job){
       if(k === 'reRail' && needsReRail(op)) val = 'YES';
       out.push([col + row, val === '' ? '' : String(val)]);
     });
+    /* 2.10, Andrew 18 Nov: a door the supplier size check calls special
+       order cannot carry a price. The price list only knows style, core and
+       height, never width, so a 40" door priced like a 30" one. Such a line
+       gets S/O in Door MSRP, exactly like a door the price list has no price
+       for, and the totals stop the same way. The one exception is a price
+       Andrew gave for a special order size (15 lite at 7'0", $708).
+       Otherwise the sheet's own formula stays (null = leave it). */
+    const z = sizeCheck(op, o);
+    out.push(['R' + row, z.status === 'so' && !z.keepPrice ? 'S/O' : null]);
   });
 
   // special materials and rework, rows 55 to 57
@@ -1197,6 +1207,7 @@ function sheetInputs(job){
 const INPUT_REFS = (() => {
   const r = Object.values(HEADMAP);
   PAGE_ROWS.forEach(row => Object.values(COLMAP).forEach(c => r.push(c + row)));
+  PAGE_ROWS.forEach(row => r.push('R' + row));      // 2.10: the size check can set S/O
   [55, 56, 57].forEach(row => ['F','J','K'].forEach(c => r.push(c + row)));
   return r;
 })();
@@ -1440,7 +1451,7 @@ const SUPPLIER_LINES = {
   lite15:   {name:'Trimlite glass, 15 lite', glass:true, heights:{80:[28,30,32,34,36], 84:[28,30,32,34,36]},
              solidOnly:true, thinOnly:true, grid:{under:32, say:'10 lite is the usual grid at 2\'6" and narrower'},
              /* Andrew 18 Nov: 7'0" 15 lite is special order, at $708 */
-             noTall:'15 lite at 7\'0" is special order ($708 on the price list)'},
+             noTall:'15 lite at 7\'0" is special order ($708 on the price list)', tallPriced:true},
 };
 /* Styles by line, from Andrew's reference of 17 Nov (second version).
    "Deman" in the app is Lynden's Denman. Flat Slab is a slab, so flush. */
@@ -1511,7 +1522,7 @@ function sizeCheck(op, o, msrp){
   const h = STOCK_H.find(x => x >= hNeed - 0.01);
   if(!h){ so('Taller than 8\'0"'); return res; }
   if(!L.heights[h]){ so(L.name + ' is not stocked at ' + ftin(h) + (h === 96 ? ' (8\'0" is special order)' : '')); return res; }
-  if(h === 84 && L.noTall) { so(L.noTall); return res; }
+  if(h === 84 && L.noTall) { so(L.noTall); if(L.tallPriced) res.keepPrice = true; return res; }
   if(h === 84 && L.tall84 && L.tall84.indexOf(style) < 0) so(style + ' is not offered at 7\'0" by Masonite');
   if(h === 96 && key === 'masonite'){
     if(o.v.productType === '1.375 Hollow') so('Masonite 8\'0" is usually solid core only');
@@ -1900,7 +1911,8 @@ function renderReview(){
     if(narrowGlass(op)) notes.push('Opening ' + op.number + ': glass door under 24" wide. Check with the office.');
   });
   if(prices && lines.some((l, i) => i < PAGE_ROWS.length && cv('R' + PAGE_ROWS[i]) === 'S/O'))
-    notes.push('S/O means special order: the price list in the workbook has no price for that door. ' +
+    notes.push('S/O means special order: the price list in the workbook has no price for that door, ' +
+               'or the supplier size check says that size is special order. ' +
                'The workbook cannot add up the order until it has one, so the totals show #VALUE! there too.');
   h += [...new Set(notes)].map(n => '<p class="warn">' + esc(n) + '</p>').join('');
 
@@ -1931,7 +1943,8 @@ function renderReview(){
       ? esc(miss[0]) + (miss.length > 1 ? ' (+' + (miss.length - 1) + ' more)' : '')
       : state.reviewSO
         ? state.reviewSO + ' special order' +
-          (prices && typeof cv('U54') === 'number' ? ' · Grand total ' + esc(money(cv('U54'))) : '')
+          (!prices ? '' : typeof cv('U54') === 'number' ? ' · Grand total ' + esc(money(cv('U54')))
+            : ' · no grand total until every door has a price')
       : !prices ? lines.length + ' line' + (lines.length === 1 ? '' : 's')
       : typeof cv('U54') === 'number' ? 'Grand total ' + esc(money(cv('U54')))
       : 'No grand total until every door has a price') + '</div>' +
@@ -3224,6 +3237,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.9 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.10 · 18 Nov 2026</div>
 </body>
 </html>
