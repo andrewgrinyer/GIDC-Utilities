@@ -187,6 +187,13 @@ table.rv-two td{white-space:normal}
 table.rv-two select{width:100%;min-width:0;max-width:100%}
 table.rv-two input[type=number]{width:100%;min-width:52px;max-width:76px}
 table.rv-two tr.rv-h2 th{background:#3A3A42;font-weight:500;font-size:11px;padding:4px 6px}
+/* 2.9: the titles sit above each cell; the two header rows are kept for
+   screen readers only */
+table.rv-two thead{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}
+.rv-cap{display:block;font-style:normal;font-size:11px;color:var(--muted);margin:0 0 2px;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+table.rv-two td{vertical-align:top;padding-top:6px}
+table.rv-two td.rv-n{vertical-align:middle}
 table.rv-two th.num{text-align:right}
 table.rv-two tr.rv-l1 td{border-top:2px solid #9A968C}
 table.rv-two tr.rv-l2 td{border-top:1px dashed var(--rule-soft);padding-bottom:7px}
@@ -290,8 +297,7 @@ body.padding{overflow:hidden}
   .op-grid .hint.lh{display:none}
   .op-grid .hint{margin:4px 0 0;font-size:12px}
   .op-grid .chips.ranges{display:grid;grid-template-columns:repeat(4,1fr);margin-top:8px}
-  .op-grid .other{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;margin-top:8px}
-  .op-grid .other label{margin:0}
+  .op-grid .other{margin-top:8px}
   .op-right{top:76px}
   /* the logo and the job bar share one row, so the header takes less height */
   header{display:flex;align-items:center;gap:18px;padding-top:calc(env(safe-area-inset-top) + 8px);padding-bottom:8px}
@@ -1852,13 +1858,16 @@ function renderReview(){
     const z = sizeCheck(op, o, cv('R' + row));
     const flags = (i % 2 ? ' rv-alt' : '') + (bifoldTooWide(op) || z.status === 'so' ? ' rv-stop' : '') +
                   (narrowGlass(op) ? ' rv-glass' : '');
+    // 2.9: every cell carries its own title above it, so the second line
+    // reads without looking up at the header
+    const cap = c => '<i class="rv-cap">' + (short[c.k] || c.label) + '</i>';
     const cell = (c, n) => {
       if(c.k === 'size')
-        return '<td' + cs(n) + ' class="rv-size rv-' + z.status + '" title="' + esc(z.why.join('. ')) + '"><b>' +
+        return '<td' + cs(n) + ' class="rv-size rv-' + z.status + '" title="' + esc(z.why.join('. ')) + '">' + cap(c) + '<b>' +
           SIZE_WORD[z.status] + '</b>' + (z.stock ? '<span>' + esc(z.stock) + '</span>' : '') + '</td>';
       if(c.money){ const v = cv(c.c + row);
-        return '<td' + cs(n) + ' class="num' + (isErr(v) || v === 'S/O' ? ' rv-err' : '') + '">' + money(v) + '</td>'; }
-      return '<td' + cs(n) + '>' + reviewEditor(c, op, o) + '</td>';
+        return '<td' + cs(n) + ' class="num' + (isErr(v) || v === 'S/O' ? ' rv-err' : '') + '">' + cap(c) + money(v) + '</td>'; }
+      return '<td' + cs(n) + '>' + cap(c) + reviewEditor(c, op, o) + '</td>';
     };
     h += '<tr class="rv-l1' + flags + '"' + doorVars(op) + '><td class="rv-n" rowspan="2">' + op.number + '</td>' +
            L1.map((c, k) => cell(c, S1[k])).join('') + '</tr>' +
@@ -3215,6 +3224,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.8 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.9 · 18 Nov 2026</div>
 </body>
 </html>
