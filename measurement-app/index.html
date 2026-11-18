@@ -565,6 +565,11 @@ body.signing{overflow:hidden}
 .btn-sign{background:#2A2A2A;color:#fff;border-color:#2A2A2A}
 .rv-signed{background:#EEF6EE;border:1px solid #9CC79C;border-radius:10px;padding:8px 12px;font-size:13px;margin:0 0 10px}
 .rv-signed .btn{margin-left:6px}
+.rv-history{background:#F7F7F7;border:1px solid #C8C8C8;border-radius:10px;padding:8px 12px;font-size:13px;margin:0 0 10px}
+.rv-history ul{margin:4px 0 0;padding-left:18px}
+.rv-history li{margin:2px 0}
+.pt-rev{color:#B5121B;font-size:.6em;margin-left:8px}
+@media print{.rv-history{display:none!important}}
 .rv-remote{background:#F2F2F2;border:1px solid #C8C8C8;border-radius:10px;padding:8px 12px;font-size:13px;margin:0 0 10px}
 .rv-remote .btn{margin-left:6px}
 @media print{ .rv-remote{display:none!important} }
@@ -1079,6 +1084,36 @@ function signFp(job){
 }
 const signedOk = job => !!(job && job.signed && job.signed.at && job.signed.fp === signFp(job));
 const markOf = (job, id) => signedOk(job) ? ((job.signed.marks || {})[id] || null) : null;
+/* REVISIONS (2.28, Andrew 18 Nov)
+ *
+ * When a signed order changes and is signed again (in person or by link),
+ * the new contract is Rev 001, then Rev 002 and so on. The one it replaces
+ * is never thrown away: it moves to job.contracts, marked superseded (when,
+ * and by which revision), with where its PDF is stored. That stored PDF
+ * also gets a copy stamped SUPERSEDED beside it (stampSuperseded). The
+ * first contract has no revision number, as before. */
+const revLabel = r => 'Rev ' + String(r).padStart(3, '0');
+function nextRev(job){
+  const r = (job.contracts || []).map(c => c.rev || 0);
+  if(job.signed && job.signed.at) r.push(job.signed.rev || 0);
+  return r.length ? Math.max(...r) + 1 : 0;
+}
+// the revision this contract is: signed, its own; not signed (or changed), the next one
+const revOf = job => signedOk(job) ? (job.signed.rev || 0) : nextRev(job);
+// the contract this revision replaces
+function replacedOf(job){
+  const r = revOf(job); if(!r) return null;
+  if(signedOk(job)) return (job.contracts || []).filter(c => c.supersededBy === r).pop() || null;
+  return job.signed && job.signed.at ? job.signed : (job.contracts || []).slice(-1)[0] || null;
+}
+const revNote = job => { const r = revOf(job), p = replacedOf(job);
+  return r ? revLabel(r) + (p ? '. Replaces the contract signed ' + signDay(p.at) + ', which is superseded.' : '.') : ''; };
+// the signed contract into the history, marked superseded by revision rev
+function supersede(job, rev){
+  const s = job.signed; if(!s || !s.at) return;
+  job.contracts = (job.contracts || []).concat([{rev:s.rev || 0, at:s.at, name:s.name || '', where:s.where || 'in person',
+    ip:s.ip || '', request:s.request || '', path:s.path || '', fp:s.fp || '', supersededAt:new Date().toISOString(), supersededBy:rev}]);
+}
 const markSvg = (m, cls) => !m ? '' :
   '<svg class="' + cls + '" viewBox="0 0 ' + m.w + ' ' + m.h + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">' +
   '<path d="' + m.d + '" fill="none" stroke="#14213D" stroke-width="' + (m.sw || 3) + '" stroke-linecap="round" stroke-linejoin="round"/></svg>';
@@ -1327,7 +1362,9 @@ async function contractPdf(job, opts){
     const w = F.widthOfTextAtSize(a, 7) + FB.widthOfTextAtSize(b, 7) + F.widthOfTextAtSize(c, 7);
     let x = W / 2 - w / 2; x += text(pg, a, x, 20, {size:7, color:GREY}); x += text(pg, b, x, 20, {size:7, font:FB, color:RED});
     text(pg, c, x, 20, {size:7, color:GREY});
+    if(rnote) text(pg, fitText(rnote, F, 6.5, W - 56), W / 2, 9, {size:6.5, color:RED, center:true});
   };
+  const rnote = revNote(job);
   const head = (pg, W, H, title, sub) => {
     if(logo){ const s = 34 / logo.height; pg.drawImage(logo, {x:28, y:H - 28 - 34, width:logo.width * s, height:34}); }
     ['1177 Franklin Blvd', 'Cambridge, ON', '877 566 4052'].forEach((l, i) => text(pg, l, W - 28, H - 36 - i * 10, {size:7.5, right:true, color:GREY}));
@@ -1355,7 +1392,7 @@ async function contractPdf(job, opts){
   do {
     const pg = pdf.addPage([LW, LH]); pageNo++;
     if(orderFrom == null) orderFrom = pdf.getPageCount() - 1;
-    let y = head(pg, LW, LH, (job.docType || 'Order').replace(/ - .*/, ''), who);
+    let y = head(pg, LW, LH, (job.docType || 'Order').replace(/ - .*/, '') + (revOf(job) ? '  ' + revLabel(revOf(job)) : ''), who);
     if(pageNo === 1){
       pg.drawRectangle({x:28, y:y - 50, width:LW - 56, height:50, color:PANEL});
       const H2 = [['Document', job.docType], ['Customer', job.customer], ['Address', job.address], ['City', job.city],
@@ -1521,6 +1558,7 @@ async function contractPdf(job, opts){
     const [pg] = await pdf.copyPages(src, [0]); pdf.addPage(pg);
     const m = signed('form-' + d.id), H = pg.getHeight();
     if(d.sign) spot(pg, 'form-' + d.id, d.sign.x - 4, H - d.sign.y - 3, 308, 22);
+    if(rnote) text(pg, fitText(rnote, F, 6.5, 400), pg.getWidth() - 20, H - 12, {size:6.5, color:RED, right:true});
     if(m && d.sign){ mark(pg, m, d.sign.x, H - d.sign.y + 1, 300, 17);
       text(pg, signDay(m.at), d.sign.dx, H - d.sign.y + 5, {size:9});
       if(remoteLine(job.signed)) text(pg, remoteLine(job.signed), pg.getWidth() / 2, 6, {size:6, color:GREY, center:true}); }
@@ -1599,16 +1637,18 @@ async function sendToSign(job, again){
   if(prices0(job)) return toast('Every door needs a price before sending. Type the Door MSRP on the S/O lines.');
   const to = String(job.email || '').trim();
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return toast('Put the customer email on the job first');
-  if(!again && !await sure({title:'Email the contract to sign?', what:'A private link goes to ' + to + '.',
-      why:'They read it and sign on their own phone or computer. A link sent before for this job stops working.', go:'Send'})) return;
+  const nr = nextRev(job), old = job.signed && job.signed.at ? job.signed : null;
+  if(!again && !await sure({title:nr ? 'Email ' + revLabel(nr) + ' to sign?' : 'Email the contract to sign?', what:'A private link goes to ' + to + '.',
+      why:'They read it and sign on their own phone or computer. A link sent before for this job stops working.' +
+        (old ? ' Once they sign, the contract signed ' + signDay(old.at) + ' is kept, marked superseded.' : ''), go:'Send'})) return;
   try{ await persist(); }catch(e){ return; }
   try{
     const res = await remoteCall({action:'send', id:job.id, fp:signFp(job), again:!!again}, true);
     job.remoteSign = res.request; await persist().catch(() => {}); render();
     toast('Sent to ' + to);
   }catch(err){
-    if(err.info && err.info.already && await sure({title:'Send it again?', what:err.message,
-        why:'The customer signs again and the new signatures replace the old ones.', go:'Send again'})) return sendToSign(job, true);
+    if(err.info && err.info.already && await sure({title:'Send ' + revLabel(nr || 1) + ' to sign?', what:err.message,
+        why:'The customer signs the new revision. The signed contract is kept, marked superseded.', go:'Send'})) return sendToSign(job, true);
     if(!(err.info && err.info.already)) toast(err.message);
   }
 }
@@ -1617,7 +1657,8 @@ async function remoteCheck(job, quiet){
     const res = await remoteCall({action:'status', id:job.id}, true);
     if(res.request && res.request.status === 'done'){
       const fresh = await loadJob(job.id);          // the server wrote the signatures onto it
-      Object.assign(job, {signed:fresh.signed, remoteSign:fresh.remoteSign || res.request});
+      Object.assign(job, {signed:fresh.signed, contracts:fresh.contracts || job.contracts, remoteSign:fresh.remoteSign || res.request});
+      setTimeout(() => stampSuperseded(job), 0);
     } else job.remoteSign = res.request;
     render();
     if(!quiet) toast(!res.request ? 'Never sent' : res.request.status === 'done' ? 'Signed ' + signDay(res.request.signedAt)
@@ -1666,9 +1707,11 @@ function remoteSignNow(){
 }
 async function remoteFinish(signed){
   const job = state.job, q = state.remote.req;
+  let rev = job.signed && job.signed.request === q.id ? (job.signed.rev || 0) : nextRev(job);
+  if(!(job.signed && job.signed.request === q.id) && job.signed && job.signed.at) supersede(job, rev);
   const marks = {}; Object.keys(signed.marks || {}).forEach(k => { marks[k] = Object.assign({}, signed.marks[k], {at:q.signedAt}); });
   job.signed = Object.assign({}, signed, {at:q.signedAt, name:q.name || signed.name, where:'remote', ip:q.ip, agent:q.agent,
-    request:q.id, sentAt:q.sentAt, sentBy:q.sentBy, sentByEmail:q.sentByEmail, sentTo:q.sentTo, openedAt:q.openedAt, marks});
+    request:q.id, sentAt:q.sentAt, sentBy:q.sentBy, sentByEmail:q.sentByEmail, sentTo:q.sentTo, openedAt:q.openedAt, marks, rev});
   job.signed.fp = signFp(job);
   try{
     const bytes = await contractPdf(job);
@@ -1737,7 +1780,52 @@ function renderRemote(){
   $('#app').innerHTML = h;
   $('#dock').innerHTML = dock || '<div class="count"></div>';
 }
+/* 2.28: the earlier contracts, each marked superseded, with its stored PDF */
+function historyBanner(job){
+  const cs = job.contracts || [];
+  if(!cs.length || !canSeePrices() || state.remote) return '';
+  return '<div class="rv-history"><b>Earlier contracts</b><ul>' + cs.map((c, i) => '<li>' +
+    esc((c.rev ? revLabel(c.rev) : 'Original') + ', signed ' + (c.where === 'remote' ? 'remotely ' : '') + 'by ' + (c.name || '') +
+      ' on ' + signDay(c.at) + '. Superseded ' + signDay(c.supersededAt) + ' by ' + revLabel(c.supersededBy) + '.') +
+    (SB && (c.path || c.request) ? ' <button class="btn btn-sm" data-oldpdf="' + i + '">' + (c.stampedPath ? 'Superseded PDF' : 'Stored PDF') + '</button>'
+      : ' <span class="hint">No stored copy.</span>') + '</li>').join('') + '</ul></div>';
+}
+/* a copy of a stored contract with SUPERSEDED across every page */
+async function stampPdf(bytes, c){
+  if(!window.PDFLib) await loadScript(PDFLIB_SRC);
+  const { PDFDocument, StandardFonts, rgb, degrees } = window.PDFLib;
+  const pdf = await PDFDocument.load(bytes), FB = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const RED = rgb(0.71, 0.07, 0.106), WHITE = rgb(1, 1, 1);
+  const line = 'SUPERSEDED by ' + revLabel(c.supersededBy) + ' on ' + signDay(c.supersededAt) + '. This contract is no longer in effect.';
+  pdf.getPages().forEach(pg => {
+    const W = pg.getWidth(), H = pg.getHeight(), sz = Math.min(W, H) / 7.2, word = 'SUPERSEDED';
+    const w = FB.widthOfTextAtSize(word, sz), a = Math.atan2(H, W), cx = W / 2, cy = H / 2;
+    pg.drawText(word, {x:cx - Math.cos(a) * w / 2 + Math.sin(a) * sz / 3, y:cy - Math.sin(a) * w / 2 - Math.cos(a) * sz / 3,
+      size:sz, font:FB, color:RED, opacity:0.22, rotate:degrees(a * 180 / Math.PI)});
+    pg.drawRectangle({x:0, y:H - 16, width:W, height:16, color:RED});
+    const lsz = Math.min(8.5, (W - 20) / FB.widthOfTextAtSize(line, 1));
+    pg.drawText(line, {x:W / 2 - FB.widthOfTextAtSize(line, lsz) / 2, y:H - 11.5, size:lsz, font:FB, color:WHITE});
+  });
+  pdf.setTitle('SUPERSEDED ' + (pdf.getTitle() || 'contract'));
+  return await pdf.save();
+}
+async function stampSuperseded(job){
+  if(!SB) return;
+  for(const c of job.contracts || []){
+    if(c.stampedPath || !(c.path || c.request)) continue;
+    try{
+      const got = await remoteCall({action:'pdf', id:job.id, path:c.path, request:c.request}, true);
+      if(!got.url) continue;
+      const bytes = new Uint8Array(await (await fetch(got.url)).arrayBuffer());
+      const res = await remoteCall({action:'supersede', id:job.id, path:got.path, rev:c.supersededBy,
+                                    supersededAt:c.supersededAt, pdf:toB64(await stampPdf(bytes, c))}, true);
+      c.path = got.path; c.stampedPath = res.path;
+      await persist().catch(() => {}); render();
+    }catch(err){ console.log('superseded stamp: ' + (err.message || err)); }
+  }
+}
 const contractName = job => ((job.customer || 'Customer') + ' signed contract ' +
+  (job.signed && job.signed.rev ? revLabel(job.signed.rev) + ' ' : '') +
   new Date((job.signed && job.signed.at) || Date.now()).toISOString().slice(0, 10)).replace(/[^\w\- ]+/g, '').trim() + '.pdf';
 function saveBytes(bytes, name, type){
   const a = document.createElement('a');
@@ -1765,6 +1853,10 @@ async function signContract(job){
   if(prices0(job)) return toast('Every door needs a price before signing. Type the Door MSRP on the S/O lines.');
   openSignPad(job, async signed => {
     if(!signed) return;
+    // 2.28: signed before, the old one is kept, superseded, and this is the next revision
+    const rev = nextRev(job);
+    if(job.signed && job.signed.at) supersede(job, rev);
+    signed.rev = rev;
     job.signed = signed;
     try{ await persist(); }catch(e){ /* toast said so; the PDF below still keeps the signatures */ }
     render();
@@ -1774,9 +1866,12 @@ async function signContract(job){
     saveBytes(bytes, contractName(job), 'application/pdf');
     try{
       const res = await emailContract(job, bytes);
-      job.signed.emailed = {at:new Date().toISOString(), to:res.to || []}; await persist(); render();
+      job.signed.emailed = {at:new Date().toISOString(), to:res.to || []};
+      if(res.stored) job.signed.path = res.stored;
+      await persist(); render();
       toast('Signed, saved and emailed to ' + ((res.to || []).join(' and ') || 'the customer and you'));
     }catch(err){ job.signed.emailError = String(err.message || err); await persist(); render(); toast('Signed and saved. ' + (err.message || err)); }
+    stampSuperseded(job);
   });
 }
 // a line with no price (S/O or #VALUE!) cannot be signed for
@@ -3208,16 +3303,19 @@ function renderReview(){
   let h = '<table class="pw"><tfoot class="pw-foot"><tr><td>' + sigBlock(job, 'contract') + '</td></tr></tfoot><tbody><tr><td>';
   // 2.23: the printed order opens like Andrew's forms: letterhead, then the document as a title
   h += '<div class="print-top">' + letterhead() + '<div class="pt-title"><h1>' + esc((job.docType || 'Order').replace(/ - .*/, '')) +
-       '</h1><span>' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  \u00b7  ')) + '</span></div></div>';
+       (revOf(job) ? ' <b class="pt-rev">' + revLabel(revOf(job)) + '</b>' : '') + '</h1><span>' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  \u00b7  ')) + '</span></div></div>';
+  const rv = job.signed && job.signed.rev ? ' (' + revLabel(job.signed.rev) + ')' : '';
   if(job.signed && job.signed.at)
     h += signedOk(job)
-      ? '<p class="rv-signed">Signed by ' + esc(job.signed.name) + ' on ' + esc(signDay(job.signed.at)) +
+      ? '<p class="rv-signed">Signed' + rv + ' by ' + esc(job.signed.name) + ' on ' + esc(signDay(job.signed.at)) +
         (job.signed.emailed ? '. Emailed ' + esc(signDay(job.signed.emailed.at)) + ' to ' + esc((job.signed.emailed.to || []).join(', ')) + '.' :
          job.signed.emailError ? '. Not emailed: ' + esc(job.signed.emailError) : '.') +
         ' <button class="btn btn-sm" data-signpdf="1">Download signed PDF</button>' +
         (job.signed.emailed ? '' : ' <button class="btn btn-sm" data-signmail="1">Email it</button>') + '</p>'
-      : '<p class="warn stop">This order was signed by ' + esc(job.signed.name) + ' on ' + esc(signDay(job.signed.at)) +
-        ' and has changed since. The signatures no longer show. Sign again for the new order.</p>';
+      : '<p class="warn stop">This order was signed' + rv + ' by ' + esc(job.signed.name) + ' on ' + esc(signDay(job.signed.at)) +
+        ' and has changed since. The signatures no longer show. Sign it again here or with Send to sign: the new contract is ' +
+        revLabel(nextRev(job)) + ', and the signed one is kept, marked superseded.</p>';
+  h += historyBanner(job);
   h += remoteBanner(job);
 
   // the head of the contract: who, where, and which price list
@@ -4210,7 +4308,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','sign','signpdf','signmail',
-  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry'];
+  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 async function persist(){ await saveJob(state.job); }
@@ -4247,6 +4345,15 @@ document.addEventListener('click', async e => {
     catch(err){ toast(err.message); }
     return;
   }
+  if(d.oldpdf !== undefined){
+    const c = (job.contracts || [])[+d.oldpdf]; if(!c) return;
+    const w = window.open('', '_blank');
+    try{ const got = await remoteCall({action:'pdf', id:job.id, path:c.stampedPath || c.path, request:c.stampedPath ? '' : c.request}, true);
+      if(!got.url) throw new Error('That PDF is not in the store');
+      if(w) w.location.href = got.url; else location.href = got.url; }
+    catch(err){ if(w) w.close(); toast(err.message); }
+    return;
+  }
   if(d.rsdl !== undefined){
     const w = window.open('', '_blank');
     const res = await remoteCheck(job, true);
@@ -4266,8 +4373,9 @@ document.addEventListener('click', async e => {
   }
   /* 2.23: the customer signs */
   if(d.sign !== undefined){
-    if(signedOk(job) && !await sure({title:'Sign this order again?', what:'It was signed by ' + job.signed.name + ' on ' + signDay(job.signed.at) + '.',
-        why:'The new signatures replace the old ones.', go:'Sign again'})) return;
+    if(job.signed && job.signed.at && !await sure({title:'Sign ' + revLabel(nextRev(job)) + '?',
+        what:'This order was signed by ' + job.signed.name + ' on ' + signDay(job.signed.at) + (signedOk(job) ? '.' : ' and has changed since.'),
+        why:'The new contract is ' + revLabel(nextRev(job)) + '. The signed one is kept, marked superseded.', go:'Sign ' + revLabel(nextRev(job))})) return;
     return signContract(job);
   }
   if(d.signpdf !== undefined){
@@ -4779,6 +4887,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.27 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.28 · 18 Nov 2026</div>
 </body>
 </html>

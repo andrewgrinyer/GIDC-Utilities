@@ -1,6 +1,6 @@
 -- remote-sign.sql: the record of contracts sent to a customer to sign on
 -- their own device, and the private store for every signed contract PDF.
--- Measurement app 2.26, 18 November 2026.
+-- Measurement app 2.26, 18 November 2026. 2.28 adds the superseded columns.
 --
 -- SAFE TO RUN TWICE, and in any order with the other files. It only adds:
 -- nothing that exists is changed or dropped.
@@ -42,6 +42,12 @@ create table if not exists public.sign_requests (
 );
 
 create index if not exists sign_requests_job on public.sign_requests (job_id, sent_at desc);
+
+-- 2.28: a signed contract replaced by a later revision is kept and marked
+-- superseded; the stamped copy sits beside the original in the store
+alter table public.sign_requests add column if not exists superseded_at       timestamptz;
+alter table public.sign_requests add column if not exists superseded_by_rev   integer;
+alter table public.sign_requests add column if not exists superseded_pdf_path text;
 
 alter table public.sign_requests enable row level security;
 -- no policies, on purpose: see the top of this file

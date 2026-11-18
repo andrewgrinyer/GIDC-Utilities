@@ -18,6 +18,15 @@
 //           Returns the stamp the page prints on the contract.
 //   finish  customer: the page sends the finished PDF; it is stored,
 //           written onto the job, and emailed to both.
+//   pdf        associate (2.28): a short lived download link for any stored
+//              contract of the job, by its store path or its request id.
+//   supersede  associate (2.28): stores the copy of an earlier contract
+//              stamped SUPERSEDED (the page stamps it) beside the original,
+//              which is never changed, and records it on the request.
+//
+// 2.28 revisions: a job signed before and signed again is the next revision
+// (Rev 001, Rev 002...). On finish the contract it replaces moves to
+// job.contracts, marked superseded, with where its PDF is stored.
 //
 // Deploy: Supabase dashboard, Edge Functions, Deploy a new function, Via
 // Editor, named exactly remote-sign. Paste this in and deploy. Then open the
@@ -90,6 +99,18 @@ const newSecret = () => {
 };
 const b64ToBytes = (s: string) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 
+/* 2.28: the revision a contract signed now would be, from the job as sent
+   (the same rule as nextRev in the app): none signed yet 0, then 1, 2... */
+type Signed = { at?: string; rev?: number; request?: string; path?: string; name?: string;
+                where?: string; ip?: string; fp?: string };
+type Contract = Signed & { supersededAt?: string; supersededBy?: number };
+const nextRev = (j: { signed?: Signed; contracts?: Contract[] } | null) => {
+  const r = (j?.contracts ?? []).map((c) => Number(c?.rev ?? 0) || 0);
+  if (j?.signed?.at) r.push(Number(j.signed.rev ?? 0) || 0);
+  return r.length ? Math.max(...r) + 1 : 0;
+};
+const revLabel = (r: number) => "Rev " + String(r).padStart(3, "0");
+
 /* where the customer's request came from: Supabase puts the caller first in
    x-forwarded-for; cf-connecting-ip when Cloudflare is in front */
 const ipOf = (req: Request) =>
@@ -153,7 +174,7 @@ Deno.serve(async (req) => {
     };
 
     /* ---------------- the associate's actions ---------------- */
-    if (["send", "status", "cancel"].includes(action)) {
+    if (["send", "status", "cancel", "pdf", "supersede"].includes(action)) {
       const auth = req.headers.get("Authorization") ?? "";
       if (!auth) return json({ error: "Not signed in" }, 401);
       const asCaller = { apikey: anon, Authorization: auth };
@@ -189,6 +210,45 @@ Deno.serve(async (req) => {
         }
         return json({ ok: true, request: publicStamp(latest), pdfUrl });
       }
+      /* 2.28: a stored contract of this job only: remote/<job>/x.pdf or in-person/<job>/x.pdf */
+      const storedPath = async (): Promise<string> => {
+        const p = String(body.path ?? "");
+        const parts = p.split("/");
+        if (parts.length === 3 && ["remote", "in-person"].includes(parts[0]) &&
+            (parts[1] === jobId || parts[1] === encodeURIComponent(jobId)) &&
+            /^[^/]+\.pdf$/.test(parts[2]) && !p.includes("..")) return p;
+        const reqId = String(body.request ?? "");
+        if (!/^[0-9a-f-]{36}$/i.test(reqId)) return "";
+        const r = await rest("the request's PDF", `sign_requests?select=pdf_path&id=eq.${reqId}&job_id=eq.${encodeURIComponent(jobId)}`);
+        return String(((r.ok ? await r.json() : []) as { pdf_path: string | null }[])[0]?.pdf_path ?? "");
+      };
+      if (action === "pdf") {
+        const p = await storedPath();
+        if (!p) return json({ error: "There is no stored copy of that contract" }, 404);
+        const r = await call("download link", `${url}/storage/v1/object/sign/${BUCKET}/${p}`, {
+          method: "POST", headers: { ...admin, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 600 }) });
+        const j = r.ok ? await r.json().catch(() => ({})) : {};
+        if (!j.signedURL) return json({ error: "That PDF is not in the store" }, 404);
+        return json({ ok: true, path: p, url: `${url}/storage/v1${j.signedURL}` });
+      }
+      if (action === "supersede") {
+        const p = await storedPath();
+        if (!p || /-SUPERSEDED\.pdf$/.test(p)) return json({ error: "Which stored contract?" }, 400);
+        const pdf = String(body.pdf ?? "").replace(/\s+/g, "");
+        if (!pdf || !/^[A-Za-z0-9+/]+=*$/.test(pdf) || pdf.length * 0.75 > MAX_PDF_BYTES)
+          return json({ error: "The PDF did not come through" }, 400);
+        const bytes = b64ToBytes(pdf);
+        if (new TextDecoder().decode(bytes.slice(0, 4)) !== "%PDF") return json({ error: "That is not a PDF" }, 400);
+        const to = p.replace(/\.pdf$/, "-SUPERSEDED.pdf");      // the original stays as it was signed
+        const up = await call("store the superseded copy", `${url}/storage/v1/object/${BUCKET}/${to}`, {
+          method: "POST", headers: { ...admin, "Content-Type": "application/pdf", "x-upsert": "true" }, body: bytes as BodyInit });
+        if (!up.ok) return json({ error: "The superseded copy could not be stored: " + (await up.text()).slice(0, 160) }, 502);
+        // on the request too, when it was signed by link (columns from sql/remote-sign.sql, 2.28)
+        await rest("mark the request superseded", `sign_requests?pdf_path=eq.${encodeURIComponent(p)}`, {
+          method: "PATCH", body: JSON.stringify({ superseded_at: String(body.supersededAt ?? "") || new Date().toISOString(),
+            superseded_by_rev: Number(body.rev ?? 0) || null, superseded_pdf_path: to }) }).catch(() => null);
+        return json({ ok: true, path: to });
+      }
       if (action === "cancel") {
         if (!latest || latest.status !== "sent") return json({ error: "There is no unsigned link to stop" }, 409);
         return json({ ok: true, request: publicStamp(await patch(latest.id, { status: "cancelled" })) });
@@ -196,8 +256,9 @@ Deno.serve(async (req) => {
 
       // send
       if (latest && ["signed", "done"].includes(latest.status) && !body.again)
-        return json({ error: "This job was already signed remotely on " + day(latest.signed_at) +
-          ". Send again to replace it." , already: true }, 409);
+        return json({ error: "This job was signed on " + day(latest.signed_at) + ". Sending it again makes " +
+          revLabel(nextRev(job as { signed?: Signed; contracts?: Contract[] })) + "; the signed one is kept, marked superseded.",
+          already: true }, 409);
       const to = String(job.email ?? "").trim();
       if (!EMAIL.test(to)) return json({ error: "The customer email on this job does not look right" }, 400);
       if (latest && latest.status === "sent") await patch(latest.id, { status: "cancelled" });
@@ -292,15 +353,33 @@ Deno.serve(async (req) => {
     if (!up.ok) return json({ error: "The signed contract could not be stored: " + (await up.text()).slice(0, 160) }, 502);
     let row = await patch(r.id, { pdf_path: path, pdf_sha256: await sha256(bytes) });
 
+    // 2.28: the revision, worked out from the order as sent, as the page did
+    const rev = nextRev(r.job as { signed?: Signed; contracts?: Contract[] });
+    let replaced: Signed | null = null;
+
     // the signatures onto the job itself, so the associate's app shows it signed
     try {
       const jr = await rest("read the job", `jobs?select=data&id=eq.${encodeURIComponent(r.job_id)}`);
       const jd = ((jr.ok ? await jr.json() : []) as { data: Record<string, unknown> }[])[0];
       if (jd) {
         const s = (r.signed ?? {}) as Record<string, unknown>;
-        const data = { ...jd.data,
+        // the contract signed before is kept, marked superseded by this one
+        const old = (jd.data.signed ?? null) as Signed | null;
+        let contracts = (jd.data.contracts ?? []) as Contract[];
+        if (old?.at && old.request !== r.id) {
+          let oldPath = old.path ?? "";
+          if (!oldPath && old.request) {
+            const q = await rest("the old request's PDF", `sign_requests?select=pdf_path&id=eq.${encodeURIComponent(old.request)}`);
+            oldPath = String(((q.ok ? await q.json() : []) as { pdf_path: string | null }[])[0]?.pdf_path ?? "");
+          }
+          replaced = old;
+          contracts = contracts.concat([{ rev: old.rev ?? 0, at: old.at, name: old.name ?? "", where: old.where ?? "in person",
+            ip: old.ip ?? "", request: old.request ?? "", path: oldPath, fp: old.fp ?? "",
+            supersededAt: r.signed_at ?? new Date().toISOString(), supersededBy: rev }]);
+        }
+        const data = { ...jd.data, contracts,
           signed: { ...s, at: r.signed_at, name: r.signer_name, where: "remote", fp: r.fp ?? s.fp,
-                    ip: r.signer_ip, agent: r.signer_agent, request: r.id },
+                    ip: r.signer_ip, agent: r.signer_agent, request: r.id, rev, path },
           remoteSign: { ...publicStamp(row), status: "done" } };
         await rest("write it onto the job", `jobs?id=eq.${encodeURIComponent(r.job_id)}`, {
           method: "PATCH", body: JSON.stringify({ data, updated: new Date().toISOString() }) });
@@ -313,17 +392,20 @@ Deno.serve(async (req) => {
     try {
       await sendMail({
         to, ...(r.sent_by_email ? { reply_to: r.sent_by_email } : {}),
-        subject: `Your Grinyer contract, signed ${day(r.signed_at)}`,
+        subject: `Your Grinyer contract${rev ? " " + revLabel(rev) : ""}, signed ${day(r.signed_at)}`,
         html: `<div style="font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#2A2A2A">` +
           `<div style="border-top:4px solid #B5121B;padding:20px 4px 6px">` +
           `<p style="font-size:15px;margin:0 0 14px">Hello ${esc(r.customer_name || "")},</p>` +
           `<p style="font-size:15px;line-height:1.5;margin:0 0 14px">Thank you. Your signed Grinyer contract is attached. ` +
-          `Signed electronically by ${esc(r.signer_name)} on ${esc(day(r.signed_at))}.</p>` +
+          `Signed electronically by ${esc(r.signer_name)} on ${esc(day(r.signed_at))}.` +
+          (rev ? ` This is ${revLabel(rev)}${replaced?.at ? `, and replaces the contract signed ${esc(day(replaced.at))}, which is now superseded` : ""}.` : "") +
+          `</p>` +
           `<p style="font-size:15px;line-height:1.5;margin:0 0 14px">If anything on it is not right, reply to this email or ` +
           `call 877 566 4052 within 24 hours, before we order your materials.</p></div>` +
           `<p style="color:#6B6B6B;font-size:12px;border-top:1px solid #C8C8C8;padding-top:10px;margin:18px 0 0">` +
           `Grinyer Interior Doors &amp; Closets, 1177 Franklin Blvd, Cambridge, ON</p></div>`,
-        text: `Thank you. Your signed Grinyer contract is attached. Signed electronically by ${r.signer_name} on ${day(r.signed_at)}.`,
+        text: `Thank you. Your signed Grinyer contract is attached. Signed electronically by ${r.signer_name} on ${day(r.signed_at)}.` +
+          (rev ? ` This is ${revLabel(rev)}${replaced?.at ? `, and replaces the contract signed ${day(replaced.at)}, which is now superseded` : ""}.` : ""),
         attachments: [{ filename: path.split("/").pop(), content: pdf }],
       });
       emailed = to;

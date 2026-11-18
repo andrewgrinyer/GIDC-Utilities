@@ -86,12 +86,18 @@ const fileName = (v: unknown) => {
 type Job = {
   customer?: string; email?: string; address?: string; city?: string;
   salesRep?: string;
-  signed?: { at?: string; name?: string };
+  signed?: { at?: string; name?: string; rev?: number };
+  contracts?: { at?: string; supersededBy?: number }[];
 };
+const revLabel = (r: number) => "Rev " + String(r).padStart(3, "0");
 
 function emailFor(j: Job, repName: string) {
   const who = String(j.customer ?? "").trim() || "Customer";
-  const subject = `Your Grinyer contract, signed ${when(j.signed?.at)}`;
+  // 2.28: a revision says so, and which contract it replaces
+  const rev = Number(j.signed?.rev ?? 0) || 0;
+  const old = rev ? (j.contracts ?? []).filter((c) => c.supersededBy === rev).pop() : undefined;
+  const revLine = rev ? `This is ${revLabel(rev)}${old?.at ? `, and replaces the contract signed ${when(old.at)}, which is now superseded` : ""}.` : "";
+  const subject = `Your Grinyer contract${rev ? " " + revLabel(rev) : ""}, signed ${when(j.signed?.at)}`;
   const html =
     `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,` +
     `Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#2A2A2A">` +
@@ -103,7 +109,7 @@ function emailFor(j: Job, repName: string) {
         `door selections and any guides for your doors.</p>` +
         `<p style="font-size:15px;line-height:1.5;margin:0 0 14px">Signed by ` +
         `${esc(j.signed?.name || who)} on ${esc(when(j.signed?.at))}` +
-        `${repName ? ` with ${esc(repName)}` : ""}.</p>` +
+        `${repName ? ` with ${esc(repName)}` : ""}.${revLine ? " " + esc(revLine) : ""}</p>` +
         `<p style="font-size:15px;line-height:1.5;margin:0 0 14px">If anything ` +
         `on it is not right, reply to this email or call us at 877 566 4052 ` +
         `within 24 hours, before we order your materials.</p>` +
@@ -117,7 +123,7 @@ function emailFor(j: Job, repName: string) {
     "Thank you for choosing Grinyer Interior Doors & Closets. Your signed " +
     "contract is attached as a PDF.", "",
     `Signed by ${j.signed?.name || who} on ${when(j.signed?.at)}` +
-      (repName ? ` with ${repName}` : "") + ".", "",
+      (repName ? ` with ${repName}` : "") + "." + (revLine ? " " + revLine : ""), "",
     "If anything on it is not right, reply to this email or call us at " +
     "877 566 4052 within 24 hours, before we order your materials.", "",
     "Grinyer Interior Doors & Closets, 1177 Franklin Blvd, Cambridge, ON",
@@ -212,17 +218,19 @@ Deno.serve(async (req) => {
     // 2.26: keep a copy in the private signed-contracts store too, when the
     // store exists (sql/remote-sign.sql). A failure here never fails the send.
     const service = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "";
+    let stored = "";
     if (service) {
       const at = String(job.signed?.at ?? new Date().toISOString()).slice(0, 19).replace(/[:T]/g, "-");
       const path = `in-person/${encodeURIComponent(id)}/${at}-${fileName(body.filename).replace(/\s+/g, "-")}`;
-      await call("store a copy", `${url}/storage/v1/object/signed-contracts/${path}`, {
+      const up = await call("store a copy", `${url}/storage/v1/object/signed-contracts/${path}`, {
         method: "POST", body: Uint8Array.from(atob(pdf), (c) => c.charCodeAt(0)) as BodyInit,
         headers: { apikey: service, Authorization: `Bearer ${service}`, "Content-Type": "application/pdf", "x-upsert": "true" },
       }).catch(() => null);
+      if (up?.ok) stored = path;     // 2.28: the app keeps it, to find this copy if it is superseded
     }
 
     console.log(`done in ${Date.now() - t0}ms`);
-    return json({ ok: true, to });
+    return json({ ok: true, to, stored });
   } catch (e) {
     console.log("fell over: " + ((e as Error)?.message ?? e));
     return json({ error: (e as Error)?.message ?? "Something went wrong" }, 500);
