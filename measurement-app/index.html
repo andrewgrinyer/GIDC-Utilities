@@ -748,8 +748,8 @@ const DOOR_PHOTOS = {
   "Awamori":"docs/doors/gdl-awamori.jpg",
   "Soba":"docs/doors/gdl-soba.jpg"
 };
-/* 2.16: room photos (GDL sets, Aberdeen) are landscape and print on a wider card */
-const WIDE_PHOTO = p => /\/(gdl-|aberdeen)/.test(p);
+/* 2.16: room photos (GDL sets) are landscape and print on a wider card */
+const WIDE_PHOTO = p => /\/gdl-/.test(p);
 function doorPicks(job){
   const by = new Map();
   (job.openings || []).forEach(op => op.options.filter(o => o.include && o.v.doorStyle).forEach(o => {
@@ -3613,6 +3613,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.18 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.19 · 18 Nov 2026</div>
 </body>
 </html>
