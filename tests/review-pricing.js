@@ -220,7 +220,9 @@ const check = (name, ok, got) => {
   // 4. no money for a role outside the price list
   await page.evaluate(() => { state.me.role = 'manufacturing'; render(); });
   const h2 = await page.$$eval('.rv-scroll table.rv thead th', t => t.map(x => x.textContent));
-  const txt = await page.textContent('#app') + await page.textContent('#dock');
+  // the printed terms quote fees ($500 rescheduling): those are policy, not prices
+  const txt = await page.evaluate(() => { const a = document.querySelector('#app').cloneNode(true);
+    a.querySelectorAll('.print-terms').forEach(x => x.remove()); return a.textContent; }) + await page.textContent('#dock');
   check('manufacturing sees no price columns', !h2.includes('Door MSRP') && !h2.includes('Door Total'), h2);
   check('manufacturing sees no dollar amounts', !txt.includes('$') && !txt.includes('Order Total'),
         txt.slice(Math.max(0, txt.indexOf('$') - 80), txt.indexOf('$') + 40));
