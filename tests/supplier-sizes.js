@@ -140,7 +140,7 @@ const check = (name, ok, got) => {
         list.includes('solid core') && list.includes('1 line is not checked'), list);
   const dock = await page.textContent('#dock');
   check('review: the dock counts the special orders', dock.includes('2 special order'), dock);
-  const tint = await page.$$eval('.rv-scroll tbody tr', t => t.map(x => x.classList.contains('rv-stop')));
+  const tint = await page.$$eval('.rv-scroll tbody tr.rv-l1', t => t.map(x => x.classList.contains('rv-stop')));
   check('review: special order rows are tinted', tint.join() === 'false,true,true,false', tint);
   await page.screenshot({path: process.env.SHOT || '/dev/null', fullPage:true}).catch(() => {});
 

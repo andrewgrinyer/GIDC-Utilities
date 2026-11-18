@@ -141,7 +141,7 @@ const dbl = async (page, t) => {
   });
   check('tablet: door on the left, size on the right', lay.right > lay.left + 300 && lay.wTop < lay.typeTop + 50, lay);
   check('tablet: page uses the screen width', lay.wrap > 1000, lay.wrap);
-  check('tablet: bigger chips', lay.chip >= 56, lay.chip);
+  check('tablet: chips stay a good finger size (2.8 made them 46 to fit one screen)', lay.chip >= 46, lay.chip);
   if(process.env.SHOT){
     await tab.click('[data-dtype="Bifold"]'); await tab.waitForTimeout(500);
     await tab.click('[data-chip="productType"][data-val="1.375 Hollow"]');

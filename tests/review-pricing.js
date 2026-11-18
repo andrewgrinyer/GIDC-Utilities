@@ -89,7 +89,7 @@ const check = (name, ok, got) => {
   await page.click('[data-review]');
   await page.waitForSelector('table.rv tbody tr', {timeout:15000});
   await page.waitForFunction(() => state.reviewReady, null, {timeout:15000});
-  const rows = await page.$$eval('.rv-scroll table.rv tbody tr', t => t.length);
+  const rows = await page.$$eval('.rv-scroll table.rv tbody tr.rv-l1', t => t.length);
   check('review shows one row per door line', rows === 5, rows);
   const heads = await page.$$eval('.rv-scroll table.rv thead th', t => t.map(x => x.textContent));
   check('review has the contract columns, prices included',
@@ -145,7 +145,7 @@ const check = (name, ok, got) => {
   await page.waitForTimeout(200);
   const bw = await page.evaluate(() => state.job.openings[1].width);
   check('bifold over 72 refused on the review', String(bw) === '30', bw);
-  const glass = await page.$$eval('tr.rv-glass', t => t.length);
+  const glass = await page.$$eval('tr.rv-l1.rv-glass', t => t.length);
   check('narrow glass line is marked', glass === 1, glass);          // the pantry, glass at 22
   const glassMarked = await page.evaluate(() => narrowGlass(state.job.openings[4]));
   check('pantry lite door at 22 counts as narrow glass', glassMarked, glassMarked);

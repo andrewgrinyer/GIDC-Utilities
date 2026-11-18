@@ -84,6 +84,12 @@ header{
   overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .card-head .t span{font-size:13px;color:var(--muted)}
 .card-body{padding:0 14px 14px;border-top:1px solid var(--rule-soft)}
+/* 2.8: an opening wears its colour: a band down the left, a tinted head and
+   a filled number, the same colour as its lines on the review */
+.card.door{border-left:6px solid var(--door);overflow:hidden}
+.card.door .card-head{background:var(--door-soft)}
+.card.door .card-head .n{background:var(--door);border-color:var(--door);color:#fff}
+.card.door.is-open{border-color:var(--door);border-left-width:6px}
 
 /* ---- fields ---- */
 .field{padding:12px 0;border-bottom:1px solid var(--rule-soft)}
@@ -175,8 +181,24 @@ table.rv input[type=number]{width:70px}
 .rv-fixed{display:inline-block;padding:5px 8px;font-weight:600}
 .rv-note{display:block;font-size:11px;color:var(--brass)}
 .rv-err{color:var(--brass);font-weight:600}
-tr.rv-stop td{background:var(--brass-soft)}
-tr.rv-glass td{background:#FFF6E0}
+/* 2.8: two lines per door, each door in its own colour; the second line
+   sits under the first with no rule between them, a heavy rule between doors */
+table.rv-two td{white-space:normal}
+table.rv-two select{width:100%;min-width:0;max-width:100%}
+table.rv-two input[type=number]{width:100%;min-width:52px;max-width:76px}
+table.rv-two tr.rv-h2 th{background:#3A3A42;font-weight:500;font-size:11px;padding:4px 6px}
+table.rv-two th.num{text-align:right}
+table.rv-two tr.rv-l1 td{border-top:2px solid #9A968C}
+table.rv-two tr.rv-l2 td{border-top:1px dashed var(--rule-soft);padding-bottom:7px}
+table.rv-two tbody tr:first-child td{border-top:0}
+table.rv-two tbody td{background:var(--door-soft, var(--card))}
+table.rv-two td.rv-n{position:static;font-size:17px;color:#fff;background:var(--door, var(--ink));
+  border-right:1px solid var(--rule-soft)}
+table.rv-two th{position:sticky;top:0}
+table.rv-two tr.rv-h2 th{top:30px}
+table.rv tr.rv-stop td{background:var(--brass-soft)}
+table.rv tr.rv-glass td{background:#FFF6E0}
+table.rv-two tr.rv-stop td.rv-n, table.rv-two tr.rv-glass td.rv-n{background:var(--door, var(--ink))}
 .rv-size b{display:block;font-size:12px}
 .rv-size span{font-size:11px;color:var(--muted)}
 td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--brass)} td.rv-none b{color:var(--skip)}
@@ -255,11 +277,49 @@ body.padding{overflow:hidden}
   .op-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 28px;align-items:start}
   .op-left, .op-right{display:block}
   .op-right{position:sticky;top:110px}
-  .chip{min-height:56px;font-size:17px;padding:0 18px}
-  .chips.num{grid-template-columns:repeat(auto-fill,minmax(78px,1fr));gap:10px}
-  .chips{gap:10px}
-  .padbox{min-height:56px;font-size:17px}
+  .chip{min-height:50px;font-size:17px;padding:0 16px}
+  .chips.num{grid-template-columns:repeat(auto-fill,minmax(70px,1fr));gap:8px}
+  .chips{gap:8px}
+  .padbox{min-height:50px;font-size:17px}
   .field label{font-size:14px}
+  /* 2.8: one opening fits one screen. Tighter fields, the how to hints
+     folded away (the chips explain themselves after the first day), the
+     height ranges on one row, Other width and height beside their label. */
+  .op-grid .field{padding:8px 0}
+  .op-grid .field label{margin-bottom:5px}
+  .op-grid .hint.lh{display:none}
+  .op-grid .hint{margin:4px 0 0;font-size:12px}
+  .op-grid .chips.ranges{display:grid;grid-template-columns:repeat(4,1fr);margin-top:8px}
+  .op-grid .other{display:grid;grid-template-columns:auto 1fr;align-items:center;gap:10px;margin-top:8px}
+  .op-grid .other label{margin:0}
+  .op-right{top:76px}
+  /* the logo and the job bar share one row, so the header takes less height */
+  header{display:flex;align-items:center;gap:18px;padding-top:calc(env(safe-area-inset-top) + 8px);padding-bottom:8px}
+  header > .bar:first-child{margin:0;padding-bottom:0!important;flex:none}
+  header > #bar{flex:1;margin:0;max-width:none}
+  .card.door{scroll-margin-top:76px}
+  .chip{min-height:46px}
+  .padbox{min-height:46px}
+  .chips.num{grid-template-columns:repeat(7,1fr)}
+  .op-grid{grid-template-columns:1.3fr 1fr;gap:0 22px}
+  .op-grid .chips:not(.num) .chip{padding:0 13px;font-size:16px}
+  .op-grid .chips.ranges .chip{padding:0 4px;white-space:nowrap}
+  .op-left{display:grid!important;grid-template-columns:1fr auto;gap:0 18px;align-content:start}
+  .op-left > .o-loc{grid-column:1} .op-left > .o-qty{grid-column:2}
+  .op-left > .o-type, .op-left > .o-prod{grid-column:1 / -1}
+  .o-qty .chips.num{grid-template-columns:repeat(4,64px)}
+  .o-qty input{width:110px}
+  .card.door.is-open .card-head{padding:10px 14px}
+  .card.door.is-open .opt-in{padding:8px 12px}
+  /* the Edit sections side by side, three across, instead of one long column */
+  .opt-edit{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;align-items:start}
+  .opt-edit .s-jamb, .opt-edit .s-hardware{grid-column:span 2}
+  .opt-edit .s-jamb .sect-body, .opt-edit .s-hardware .sect-body{display:grid;grid-template-columns:1fr 1fr;gap:0 12px}
+  .opt-edit .s-build .chip{min-height:40px;font-size:14px;padding:0 10px}
+  .opt-edit > :not(.sect){grid-column:1 / -1}
+  .opt-edit .sect{margin:0}
+  .opt-edit .sect-head{padding:8px 12px}
+  .sect-body .field{border-bottom:0;padding:6px 0}
 }
 .chip .badge{margin-left:8px;font-size:11px;text-transform:uppercase;letter-spacing:.06em;
   color:var(--brass-line);font-weight:700}
@@ -1674,6 +1734,18 @@ const REVIEW_COLS = [
   {c:'U', label:'Handle Cost', money:true},
   {c:'V', k:'install',    label:'Install',       list:'install'},
 ];
+/* 2.8: every opening has its own colour, by its number, the same on the
+   door entry screen and on the review, so a door is easy to find in both.
+   No red in the list: red is kept for special order. */
+const DOOR_COLOURS = [['#2F6DB5','#E9F1FB'], ['#2E8B57','#E7F5ED'], ['#D9822B','#FCF1E4'],
+  ['#7B4FB0','#F2ECF9'], ['#1A9AA0','#E4F5F6'], ['#B8417F','#FAEAF2'], ['#7E8526','#F3F5E0'],
+  ['#8B5A3C','#F5EDE7']];
+const doorColour = op => DOOR_COLOURS[((Number(op.number) || 1) - 1) % DOOR_COLOURS.length];
+const doorVars = op => ' style="--door:' + doorColour(op)[0] + ';--door-soft:' + doorColour(op)[1] + '"';
+/* 2.8: which columns go on each of a door's two lines on the review.
+   Money sits at the right end of both, so it lines up down the page. */
+const REVIEW_LINE1 = ['location','qty','productType','doorType','doorStyle','size','height','width','R','S','T'];
+const REVIEW_LINE2 = ['jamb','routerStop','reRail','reStile','handleType','handleStyle','hwColour','paintColour','install','U'];
 /* the four boxes under the doors, rows 44 to 57 */
 const REVIEW_BOXES = [
   {title:'Installation', rows:[46,47,48,50,51,52], cols:[
@@ -1759,25 +1831,41 @@ function renderReview(){
     h += '<p class="warn stop">The contract holds ' + PAGE_ROWS.length + ' lines and this job has ' +
          lines.length + '. Only the first ' + PAGE_ROWS.length + ' are shown and priced.</p>';
 
-  // the doors, one row per contract line
-  h += '<div class="rv-scroll"><table class="rv"><thead><tr><th>#</th>' +
-       cols.map(c => '<th' + (c.money ? ' class="num"' : '') + '>' + c.label + '</th>').join('') +
-       '</tr></thead><tbody>';
+  // the doors: each contract line on two table rows so nothing scrolls
+  // sideways (2.8). Doors alternate shading so the pair reads as one door.
+  const L1 = REVIEW_LINE1.map(k => cols.find(c => (c.k || c.c) === k)).filter(Boolean);
+  const L2 = REVIEW_LINE2.map(k => cols.find(c => (c.k || c.c) === k)).filter(Boolean);
+  const span = Math.max(L1.length, L2.length);
+  // the shorter line's last field before the money takes up the extra width
+  const spans = L => { const out = L.map(() => 1); if(!L.length) return out;
+    let at = L.length - 1; while(at > 0 && L[at].money) at--; out[at] += span - L.length; return out; };
+  const S1 = spans(L1), S2 = spans(L2);
+  const cs = n => n > 1 ? ' colspan="' + n + '"' : '';
+  const short = {height:'Height', width:'Width', productType:'Product', routerStop:'Router Stop'};
+  const head = (L, S, cls) => '<tr class="' + cls + '">' + L.map((c, k) => '<th' + cs(S[k]) +
+    (c.money ? ' class="num"' : '') + ' title="' + c.label + '">' + (short[c.k] || c.label) + '</th>').join('') + '</tr>';
+  h += '<div class="rv-scroll"><table class="rv rv-two"><thead>' +
+       head(L1, S1, 'rv-h1').replace('<tr class="rv-h1">', '<tr class="rv-h1"><th rowspan="2">#</th>') +
+       head(L2, S2, 'rv-h2') + '</thead><tbody>';
   lines.slice(0, PAGE_ROWS.length).forEach((ln, i) => {
     const row = PAGE_ROWS[i], {op, o} = ln;
-    const sz = sizeCheck(op, o, cv('R' + row)).status;
-    const flags = (bifoldTooWide(op) || sz === 'so' ? ' rv-stop' : '') + (narrowGlass(op) ? ' rv-glass' : '');
-    h += '<tr class="' + flags + '"><td class="rv-n">' + op.number + '</td>' + cols.map(c => {
-      if(c.k === 'size'){ const z = sizeCheck(op, o, cv('R' + row));
-        return '<td class="rv-size rv-' + z.status + '" title="' + esc(z.why.join('. ')) + '"><b>' +
-          SIZE_WORD[z.status] + '</b>' + (z.stock ? '<span>' + esc(z.stock) + '</span>' : '') + '</td>'; }
+    const z = sizeCheck(op, o, cv('R' + row));
+    const flags = (i % 2 ? ' rv-alt' : '') + (bifoldTooWide(op) || z.status === 'so' ? ' rv-stop' : '') +
+                  (narrowGlass(op) ? ' rv-glass' : '');
+    const cell = (c, n) => {
+      if(c.k === 'size')
+        return '<td' + cs(n) + ' class="rv-size rv-' + z.status + '" title="' + esc(z.why.join('. ')) + '"><b>' +
+          SIZE_WORD[z.status] + '</b>' + (z.stock ? '<span>' + esc(z.stock) + '</span>' : '') + '</td>';
       if(c.money){ const v = cv(c.c + row);
-        return '<td class="num' + (isErr(v) || v === 'S/O' ? ' rv-err' : '') + '">' + money(v) + '</td>'; }
-      return '<td>' + reviewEditor(c, op, o) + '</td>';
-    }).join('') + '</tr>';
+        return '<td' + cs(n) + ' class="num' + (isErr(v) || v === 'S/O' ? ' rv-err' : '') + '">' + money(v) + '</td>'; }
+      return '<td' + cs(n) + '>' + reviewEditor(c, op, o) + '</td>';
+    };
+    h += '<tr class="rv-l1' + flags + '"' + doorVars(op) + '><td class="rv-n" rowspan="2">' + op.number + '</td>' +
+           L1.map((c, k) => cell(c, S1[k])).join('') + '</tr>' +
+         '<tr class="rv-l2' + flags + '"' + doorVars(op) + '>' + L2.map((c, k) => cell(c, S2[k])).join('') + '</tr>';
   });
   if(!lines.length)
-    h += '<tr><td colspan="' + (cols.length + 1) + '" class="rv-empty">No doors ticked to quote yet.</td></tr>';
+    h += '<tr><td colspan="' + (span + 1) + '" class="rv-empty">No doors ticked to quote yet.</td></tr>';
   h += '</tbody></table></div>';
   const notes = [];
   // the supplier size check, one line per door that is not plain stock
@@ -2080,7 +2168,7 @@ function qtyField(op){
    of those is an option, which is one line on the contract. */
 function typeChips(op){
   let h = '<div class="field"><label>Door type</label>' +
-          '<p class="hint">Tap the door to quote. Tap it again to clear it. ' +
+          '<p class="hint lh">Tap the door to quote. Tap it again to clear it. ' +
           'Double tap marks the door that is there now.</p><div class="chips">';
   LISTS.doorType.forEach(t => {
     const isNow = op.existingType === t;
@@ -2151,9 +2239,9 @@ function sizeChips(op, f, items, custom){
   h += '</div>';
   if(f === 'height'){
     const r = rangeFor(val);
-    h += '<p class="hint" style="margin-top:12px">Opening measures in between? ' +
+    h += '<p class="hint lh" style="margin-top:12px">Opening measures in between? ' +
          'Pick the range. The order form gets the next size up and re-rail is ticked.</p>' +
-         '<div class="chips">';
+         '<div class="chips ranges">';
     HEIGHT_RANGES.forEach(x => {
       h += '<button type="button" class="chip' + (x.label === String(val) ? ' on' : '') +
            '" data-osize="height" data-val="' + esc(x.label) + '" data-op="' + op.id + '">' +
@@ -2474,7 +2562,7 @@ function renderJob(){
     applyQtyRule(op);              // older jobs, imports and a changed tick
     const isOpen = state.openOpening === op.id;
     const inc = op.options.filter(o => o.include).length;
-    h += '<div class="card" id="op-' + op.id + '">';
+    h += '<div class="card door' + (isOpen ? ' is-open' : '') + '" id="op-' + op.id + '"' + doorVars(op) + '>';
     h += '<div class="card-head" data-toggle="' + op.id + '">' +
          '<div class="n">' + op.number + '</div>' +
          '<div class="t"><b>' + esc(op.location || 'No location set') + '</b>' +
@@ -2550,10 +2638,10 @@ function renderJob(){
             '">Edit</button>') +
           '</div></div>';
         if(state.editOption === o.id && !inHome(job)){
-          h += '<div style="padding:0 12px 12px">';
+          h += '<div class="opt-edit" style="padding:0 12px 12px">';
           SECTIONS.forEach(s => {
             const skipped = !s.always && o.skipped[s.id];
-            h += '<div class="sect' + (skipped ? ' skipped' : '') + '">' +
+            h += '<div class="sect s-' + s.id + (skipped ? ' skipped' : '') + '">' +
                  '<div class="sect-head"><b>' + s.name + '</b>' +
                  (s.always ? '' :
                    '<button class="btn btn-sm btn-ghost" data-skip="' + s.id + '" data-o="' + o.id +
@@ -3127,6 +3215,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.7 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.8 · 18 Nov 2026</div>
 </body>
 </html>
