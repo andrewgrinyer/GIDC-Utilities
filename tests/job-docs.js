@@ -127,12 +127,16 @@ const check = (name, ok, got) => {
   try{ info = execFileSync('pdfinfo', ['-f', '1', '-l', '20', pf]).toString(); }catch(e){}
   const psizes = [...info.matchAll(/Page\s+\d+ size:\s+([\d.]+) x ([\d.]+)/g)].map(m => [+m[1], +m[2]]);
   check('the order prints on letter sideways (11 x 8.5)', !info || (psizes[0][0] === 792 && psizes[0][1] === 612), psizes);
-  check('then the door selections page, also sideways, before the forms',
-        !info || (psizes.filter(([w]) => w === 792).length >= 2 && psizes[psizes.length - 4][0] === 792), psizes);
-  check('then one upright letter page per form, three here',
+  check('then the terms on one upright page, then the door selections sideways, then the forms',
+        !info || (psizes[psizes.length - 5][0] === 612 && psizes[psizes.length - 4][0] === 792), psizes);
+  check('then one upright letter page per form, three here, plus the terms page',
         !info || (psizes.slice(-3).every(([w, h]) => w === 612 && h === 792) &&
-                  psizes.filter(([w]) => w === 612).length === 3), psizes);
+                  psizes.filter(([w]) => w === 612).length === 4), psizes);
   const ptext = info ? execFileSync('pdftotext', [pf, '-']).toString() : 'Docs Test';
+  const termsText = info ? execFileSync('pdftotext', ['-f', String(psizes.length - 4), '-l', String(psizes.length - 4), pf, '-']).toString() : '';
+  check('the terms page has all nine items and no One Day Doors wording', !info ||
+        (termsText.includes('Install Instructions') && termsText.includes('CUSTOMER INSTALLED JAMBS') &&
+         /CYLINER\s+OF\s+THE\s+HINGES/.test(termsText) && !/one\s+day/i.test(ptext) && !ptext.includes('IDCC')), termsText.slice(-300));
   check('the door page names the doors and says where they go', !info || (ptext.includes('Your door selections') &&
         ptext.includes('1 Lite Rain') && ptext.includes('Logan') && ptext.includes('Photo to come')), ptext.slice(0, 600));
   check('the printed forms carry the customer', (ptext.match(/Customer: Docs Test/g) || []).length === 2, ptext.slice(-400));
