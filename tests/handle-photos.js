@@ -44,7 +44,7 @@ const pdftext = file => { try{ return require('child_process').execFileSync('pdf
   const all = await page.evaluate(() => {
     const out = [];
     LISTS.handleStyle.filter(s => s !== 'N/A').forEach(s => LISTS.hwColour.filter(c => c !== 'N/A').forEach(c => {
-      const e = HANDLE_PHOTOS[s]; out.push([s, c, e && e.f[c] ? e.f[c][0] : null]); }));
+      const e = HANDLE_PHOTOS[s]; out.push([s, c, e && e.f[c] ? e.f[c][0] : null]); if(e && e.f[c] && e.f[c][1]) out.push([s, c + ' rose', e.f[c][1]]); }));
     return out;
   });
   const gaps = all.filter(([s, c, f]) => !f || !fs.existsSync(path.join(DIR, f + '.jpg')));
@@ -73,12 +73,18 @@ const pdftext = file => { try{ return require('child_process').execFileSync('pdf
   const hp = await page.evaluate(() => handlePicks(state.job));
   check('handles grouped by style and finish, bifold knob and customer supplied left off', hp.length === 3 &&
     hp[0].title === 'Latitude lever' && hp[0].where.length === 2 && hp[1].title === 'Hobson knob' && hp[1].line === 'Schlage Custom', hp);
-  check('a finish Schlage does not make says what the photo shows', /^Not made in Matte Black, photo shows /.test(hp[2].note), hp[2]);
+  check('a finish Schlage does not make says what the photo shows', /^Not made in Matte Black, photos show /.test(hp[2].note), hp[2]);
   await page.click('[data-review]'); await page.waitForFunction(() => state.reviewReady, null, {timeout:30000});
   await page.emulateMedia({media:'print'});
   await page.evaluate(async () => Promise.all([...document.images].map(i => i.complete ? 0 : new Promise(r => { i.onload = i.onerror = r; }))));
   const shown = await page.evaluate(() => [...document.querySelectorAll('.print-doors .ph-card img')].map(i => [i.getAttribute('src'), i.naturalWidth]));
   check('the door page shows the 3 handle photos', shown.length === 3 && shown.every(s => s[1] > 0), shown);
+  const doorText = await page.evaluate(() => document.querySelector('.print-doors').textContent);
+  check('no room or opening names on the door page', !/Foyer|Bath\b|Pantry|Closet\b|Office|\bDen\b/.test(doorText), doorText.slice(0, 300));
+  const pair = await page.evaluate(() => { const j = JSON.parse(JSON.stringify(state.job));
+    j.openings[0].options[0].v.handleStyle = 'C - Northbrook Century'; return handlePicks(j)[0]; });
+  check('a pair Schlage has no photo of shows the handle and the rose side by side', !!pair.rosePhoto &&
+    /nbk622/.test(pair.photo) && /622-cen/.test(pair.rosePhoto), pair);
   check('the page title names the handles', await page.evaluate(() => document.querySelector('.print-doors h2').textContent) === 'Your door and handle selections');
 
   // 8 door styles and 5 handles still fit one sheet
