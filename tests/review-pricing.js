@@ -164,6 +164,19 @@ const check = (name, ok, got) => {
     state.job.openings[0].options[0].v.doorType = 'Single Swing'; applyQtyRule(state.job.openings[0]);
     calcJob(state.job); render(); });
 
+  // 2.6: Andrew's 10 lite and 15 lite glass prices (Pricing MSRP rows 20 and 21)
+  const litePrice = (style, w, h) => page.evaluate(([style, w, h]) => {
+    const op = state.job.openings[0], v = op.options[0].v;
+    Object.assign(v, {doorStyle:style, doorType:'Single Swing', productType:'1.375 Glass'});
+    op.width = w; op.height = h; applyQtyRule(op); calcJob(state.job); render();
+    return cv('R9'); }, [style, w, h]);
+  const lites = [await litePrice('15 Lite Clear', 32, 80), await litePrice('10 Lite Clear', 28, 80),
+                 await litePrice('15 Lite Clear', 32, 84), await litePrice('10 Lite Clear', 28, 84)];
+  check('15 lite 6/8 is $255, 10 lite 6/8 $225, 15 lite 7/0 $708, 10 lite 7/0 not priced',
+        lites[0] === 255 && lites[1] === 225 && lites[2] === 708 && lites[3] === 'S/O', lites);
+  await page.evaluate(() => { const op = state.job.openings[0], v = op.options[0].v;
+    Object.assign(v, {doorStyle:'Columbia', productType:'1.375 Hollow'}); calcJob(state.job); render(); });
+
   // 4. no money for a role outside the price list
   await page.evaluate(() => { state.me.role = 'manufacturing'; render(); });
   const h2 = await page.$$eval('.rv-scroll table.rv thead th', t => t.map(x => x.textContent));

@@ -68,7 +68,7 @@ const CASES = [
   ['10 lite at 7\'0"', 'Single Swing', '1.375 Glass', '10 Lite Clear', 28, 84, 1, 'ok'],
   ['15 lite 32', 'Single Swing', '1.375 Glass', '15 Lite Clear', 32, 80, 1, 'ok'],
   ['15 lite 28: 10 lite is usual', 'Single Swing', '1.375 Glass', '15 Lite Clear', 28, 80, 1, 'check', '10 lite is the usual'],
-  ['15 lite at 7\'0"', 'Single Swing', '1.375 Glass', '15 Lite Clear', 32, 84, 1, 'so', 'not stocked at 7\'0"'],
+  ['15 lite at 7\'0"', 'Single Swing', '1.375 Glass', '15 Lite Clear', 32, 84, 1, 'check', 'confirm with Trimlite'],
   ['15 lite pair 64: leaves 32', 'Double Swing AST', '1.375 Glass', '15 Lite Clear', 64, 80, 2, 'ok'],
   ['10 lite pair 48', 'Double Swing Dummy', '1.375 Glass', '10 Lite Clear', 48, 80, 2, 'ok'],
   ['bypass 60 in 2: leaves 30', 'Bypass', '1.375 Hollow', 'Columbia', 60, 80, 2, 'ok'],
