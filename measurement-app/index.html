@@ -214,6 +214,15 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .rv-sizes ul{margin:0;padding-left:18px}
 .rv-sizes li{margin:4px 0;font-size:14px}
 .rv-sizes li.rv-so b{color:var(--brass)} .rv-sizes li.rv-check b{color:#8A5A00}
+.docs-box{background:var(--card);border:1px solid var(--rule);border-left:6px solid #1F1F24;border-radius:12px;
+  padding:10px 14px;margin:14px 0}
+.docs-box h3{margin:0 0 4px;font-size:15px}
+.docs-box ul{list-style:none;margin:6px 0 0;padding:0}
+.docs-box li{display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:6px 0;border-top:1px solid var(--rule-soft)}
+.docs-box li:first-child{border-top:0}
+.docs-box li span{font-size:13px;color:var(--muted)}
+.docs-box a{color:var(--ink);text-decoration:none;font-weight:600}
+@media print{.docs-box{display:none}}
 .rv-empty{text-align:center;color:var(--muted);padding:18px!important}
 .rv-boxes{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;margin:14px 0}
 .rv-box{background:var(--card);border:1px solid var(--rule);border-radius:12px;overflow-x:auto}
@@ -501,6 +510,33 @@ function isDouble(op){
  * same rule as the plain ones. */
 const BIFOLD_TYPES = ['Bifold', 'GDL BiFold', 'Premium Bifold'];
 const BYPASS_TYPES = ['Bypass', 'GDL ByPass'];
+/* 2.11, Andrew 18 Nov: customer documents that go with an order when it has
+   that kind of door. They live beside the app in docs/ and are kept offline
+   by the service worker. A document comes with the order when any line being
+   quoted (a ticked option) needs it. */
+const JOB_DOCS = [
+  {id:'handles', title:'Handle Hardware Selection', file:'docs/handle-hardware-selection.pdf',
+   why:'customer supplied handles', needs:o => o.v.handleType === 'Customer Supplied' && !o.skipped.hardware},
+  {id:'bypass', title:'Bypass Door Overlap Guide', file:'docs/bypass-door-overlap-guide.pdf',
+   why:'a bypass door', needs:o => BYPASS_TYPES.indexOf(o.v.doorType) >= 0},
+  {id:'bifold', title:'Bifold Door Fit Guide', file:'docs/bifold-door-fit-guide.pdf',
+   why:'a bifold door', needs:o => BIFOLD_TYPES.indexOf(o.v.doorType) >= 0},
+];
+function jobDocs(job){
+  const opts = [];
+  (job.openings || []).forEach(op => op.options.filter(o => o.include).forEach(o => opts.push({op, o})));
+  return JOB_DOCS.map(d => ({...d, openings: opts.filter(x => d.needs(x.o)).map(x => x.op.number)}))
+                 .filter(d => d.openings.length);
+}
+function docsBox(job){
+  const docs = jobDocs(job);
+  if(!docs.length) return '';
+  return '<div class="docs-box"><h3>Documents for this order</h3>' +
+    '<p class="hint">These go to the customer with the order and save with the workbook.</p><ul>' +
+    docs.map(d => '<li><a class="btn btn-sm" href="' + d.file + '" target="_blank" rel="noopener" data-doc="' + d.id + '">' +
+      esc(d.title) + '</a><span>' + esc('For ' + d.why + ': opening' + (d.openings.length > 1 ? 's ' : ' ') +
+      [...new Set(d.openings)].join(', ')) + '</span></li>').join('') + '</ul></div>';
+}
 const BIFOLD_MAX = 72, BIFOLD_ONE = 36;
 /* The door being quoted decides: the ticked option, else the first one with
    a type, else what is installed today. */
@@ -1235,6 +1271,22 @@ function templateBytes(){
   return u8;
 }
 
+/* the customer documents this order needs, saved right after its workbook */
+async function saveJobDocs(job, name){
+  for(const d of jobDocs(job)){
+    try{
+      const res = await fetch(d.file);
+      if(!res.ok) throw new Error(res.status);
+      const blob = await res.blob();
+      await new Promise(ok => setTimeout(ok, 450));     // browsers drop downloads fired together
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(new Blob([blob], {type:'application/pdf'}));
+      a.download = name + '-' + d.title.replace(/\s+/g, '-') + '.pdf';
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+    }catch(e){ toast('Could not save ' + d.title + '. Open it from Documents for this order.'); }
+  }
+}
 async function download(job){
   const lines = job.openings.reduce((a,op) => a + op.options.filter(o => o.include).length, 0);
   if(lines > PAGE_ROWS.length){
@@ -1257,13 +1309,15 @@ async function download(job){
     a.download = name + '.xlsx';
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    await saveJobDocs(job, name);
     /* The contract has left the building, so the job is no longer just being
        worked on. A job somebody has already closed stays closed. */
     if(statusOf(job) === 'active'){
       job.status = 'downloaded';
       try{ await saveJob(job); }catch(e){}
     }
-    toast('Workbook downloaded');
+    const nd = jobDocs(job).length;
+    toast('Workbook downloaded' + (nd ? ' with ' + nd + ' document' + (nd > 1 ? 's' : '') : ''));
   }catch(e){
     toast('Export failed: ' + (e.message || e));
   }
@@ -1915,6 +1969,8 @@ function renderReview(){
                'or the supplier size check says that size is special order. ' +
                'The workbook cannot add up the order until it has one, so the totals show #VALUE! there too.');
   h += [...new Set(notes)].map(n => '<p class="warn">' + esc(n) + '</p>').join('');
+
+  h += docsBox(job);
 
   // the boxes underneath, as on the sheet
   h += '<div class="rv-boxes">';
@@ -2727,6 +2783,7 @@ function renderJob(){
     });
   }
 
+  h += docsBox(job);
   h += '<div class="card"><div class="card-head" data-toggle="materials">' +
        '<div class="n">+</div><div class="t"><b>Special materials and rework</b>' +
        '<span>' + (job.materials || []).filter(m => m.desc).length +
@@ -3237,6 +3294,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.10 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.11 · 18 Nov 2026</div>
 </body>
 </html>
