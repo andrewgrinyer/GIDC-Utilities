@@ -93,7 +93,7 @@ const dbl = async (page, t) => {
   // ---- the number pad ----
   await fresh(page, true);
   await tap(page, 'Single Swing');
-  await page.click('[data-padof="width"]');
+  await page.click('[data-padof="width"]'); await page.click('#pad [data-pk="manual"]');
   check('tapping Other width opens the pad', !!(await page.$('#pad .pad-keys')), 'no pad');
   const box = await page.$eval('#pad .pad-card', e => { const r = e.getBoundingClientRect(); return [r.width, r.height]; });
   check('the pad fills most of the phone screen', box[0] > 350 && box[1] > 700, box);
@@ -103,18 +103,18 @@ const dbl = async (page, t) => {
   s = await op(page);
   check('Done stores 32.5', s.width === '32.5' && !(await page.$('#pad')), s);
   check('the box shows 32 1/2"', (await page.textContent('[data-padof="width"]')).includes('32 1/2"'), await page.textContent('[data-padof="width"]'));
-  await page.click('[data-padof="width"]');
+  await page.click('[data-padof="width"]'); await page.click('#pad [data-pk="manual"]');
   await page.click('#pad [data-pk="9"]'); await page.click('#pad [data-pk="cancel"]'); await page.waitForTimeout(100);
   s = await op(page);
   check('Cancel leaves the width alone', s.width === '32.5', s);
-  await page.click('[data-padof="height"]');
+  await page.click('[data-padof="height"]'); await page.click('#pad [data-pk="manual"]');
   await page.keyboard.type('82'); await page.keyboard.press('Enter'); await page.waitForTimeout(150);
   s = await op(page);
   check('keyboard works on the pad too', s.height === '82', s);
   await page.click('[data-osize="height"][data-val="81-83"]'); await page.waitForTimeout(150);
   s = await op(page);
   check('a range still sets re-rail', s.reRail === 'YES', s);
-  await page.click('[data-padof="height"]');
+  await page.click('[data-padof="height"]'); await page.click('#pad [data-pk="manual"]');
   for(const k of ['8', '0']) await page.click('#pad [data-pk="' + k + '"]');
   await page.click('#pad [data-pk="done"]'); await page.waitForTimeout(150);
   s = await op(page);
@@ -151,7 +151,7 @@ const dbl = async (page, t) => {
     await tab.screenshot({path: process.env.SHOT});
     await fresh(tab, true);
   }
-  await tab.click('[data-padof="width"]');
+  await tab.click('[data-padof="width"]'); await tab.click('#pad [data-pk="manual"]');
   const tb = await tab.$eval('#pad .pad-card', e => { const r = e.getBoundingClientRect(); return [r.width, r.height]; });
   check('tablet: pad is tall and centred', tb[1] > 700 && tb[0] >= 500, tb);
   if(process.env.PADSHOT){

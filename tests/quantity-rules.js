@@ -48,7 +48,7 @@ const check = (name, ok, got) => {
   const tapWidth = w => page.click('[data-osize="width"][data-val="' + w + '"]');
   // 2.3: sizes are typed on the number pad
   const padType = async (f, digits) => {
-    await page.click('[data-padof="' + f + '"]');
+    await page.click('[data-padof="' + f + '"]'); await page.click('#pad [data-pk="manual"]');
     if(Array.isArray(digits)) await page.click('#pad [data-pk="C"]');
     for(const k of Array.isArray(digits) ? digits : String(digits)) await page.click('#pad [data-pk="' + k + '"]');
     await page.click('#pad [data-pk="done"]');

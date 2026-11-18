@@ -154,7 +154,7 @@ const CASES = [
     head:(document.querySelector('.door-sz-h') || {}).textContent, w:state.job.openings[0].width, q:state.job.openings[0].qty}));
   check('a 60 1/4 x 81 double shows 2 doors, each 30 x 80', df.head === '2 doors, each' && df.labels.join() === '30",80"' &&
         df.w === 30 && df.q === 2, df);
-  await page.click('.door-sz [data-padof="doorW"]');
+  await page.click('.door-sz [data-padof="doorW"]'); await page.click('#pad [data-pk="manual"]');
   const padStart = await page.evaluate(() => padValue());
   check('the door width pad starts at the worked out 30', padStart === '30', padStart);
   for(const k of ['C', '2', '8']) await page.click('#pad [data-pk="' + k + '"]');

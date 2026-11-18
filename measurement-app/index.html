@@ -405,6 +405,24 @@ body.padding{overflow:hidden}
 .pad-keys button:active, .pad-fr button:active{background:var(--brass-soft)}
 .pad-go{display:grid;grid-template-columns:1fr 2fr;gap:8px}
 .pad-go .btn{justify-content:center;min-height:56px;font-size:18px}
+/* 2.36: the size picker */
+.pick-card .pad-go{grid-template-columns:1fr 1fr}
+.pick-card.pk-wide .pad-go{grid-template-columns:1fr 1fr 1fr}
+.pk-lab{font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);font-weight:600}
+.pk-show{font-size:40px;font-weight:700;text-align:right;padding:2px 10px;border-radius:12px;background:#FAFAFC}
+.pk-show i{font-style:normal;font-size:20px;color:var(--skip);font-weight:500}
+.pk-whole{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;overflow:auto;flex:1;min-height:0;align-content:start}
+.pk-wide .pk-whole{grid-template-columns:repeat(11,1fr);flex:none}
+.pk-whole button,.pk-fr button{min-height:46px;border:1px solid var(--rule);border-radius:10px;background:#FAFAFC;
+  font:inherit;font-size:19px;font-weight:600;color:var(--ink);cursor:pointer}
+.pk-fr{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;flex:1;grid-auto-rows:1fr;min-height:0}
+.pk-wide .pk-fr{grid-template-columns:repeat(8,1fr);flex:none;grid-auto-rows:auto}
+.pk-fr button{font-size:24px}.pk-wide .pk-fr button{font-size:20px;min-height:58px}
+.pk-fr small{font-size:13px;font-weight:500;color:var(--muted);margin-left:4px}
+.pk-whole button.on,.pk-fr button.on{background:var(--brass);border-color:var(--brass);color:#fff}
+.pk-fr button.on small{color:#fff}
+.pk-whole button:active,.pk-fr button:active{background:var(--brass-soft)}
+.pk-back{justify-content:center;min-height:50px}
 
 /* an opening's fields: one column on a phone, in this order */
 .op-grid{display:flex;flex-direction:column}
@@ -3400,12 +3418,43 @@ function openPad(op, f){
   const ok = !isNaN(n) && !rangeFor(cur);
   const w = ok ? Math.floor(n) : 0, e = ok ? Math.round((n - w) * 8) : 0;
   pad = {opId: op.id, f, whole: ok && (w || e) ? String(w + (e === 8 ? 1 : 0)) : '',
-         eighths: e === 8 ? 0 : e, fresh: true};
+         eighths: e === 8 ? 0 : e, fresh: true, mode:'pick', step:'whole'};
   drawPad();
 }
 function padValue(){
   const w = parseInt(pad.whole || '0', 10), v = w + pad.eighths / 8;
   return (pad.whole === '' && !pad.eighths) ? '' : String(v);
+}
+/* 2.36, Andrew 18 Nov: sizes are picked, not typed. A tablet shows the
+   whole inches and the eighths together; a phone shows the whole inches,
+   then the eighths (with Back). Manual entry at the bottom opens the number
+   pad. Widths list 12 to 72, heights 60 to 108. */
+const PICK_FR = ['0','1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
+const pickRange = f => /^(height|openH|doorH)$/.test(f) ? [60, 108] : [12, 72];
+const pickWide = () => Math.min(window.innerWidth, window.innerHeight) >= 600;
+function drawPick(el, op){
+  const [lo, hi] = pickRange(pad.f), wide = pickWide(), whole = pad.whole === '' ? null : +pad.whole;
+  const title = ({width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height',
+    doorW:'Each door width', doorH:'Each door height'}[pad.f] || 'Size');
+  const nums = []; for(let n = lo; n <= hi; n++) nums.push(n);
+  const wholeGrid = '<div class="pk-whole">' + nums.map(n => '<button type="button" data-pk="w' + n + '"' +
+    (n === whole ? ' class="on"' : '') + '>' + n + '</button>').join('') + '</div>';
+  const frGrid = '<div class="pk-fr">' + PICK_FR.map((x, i) => '<button type="button" data-pk="pf' + i + '"' +
+    (wide && whole !== null && i === pad.eighths ? ' class="on"' : '') + '>' +
+    (wide ? x + (i ? '' : '<small>exact</small>') : whole + (i ? ' ' + x : '') + '"') + '</button>').join('') + '</div>';
+  const show = whole === null ? '<i>pick the inches</i>' : esc(sizeText(whole + pad.eighths / 8)) + '"';
+  let body;
+  if(wide) body = '<div class="pk-show">' + show + '</div>' + '<div class="pk-lab">Inches</div>' + wholeGrid +
+    '<div class="pk-lab">Eighths</div>' + frGrid;
+  else if(pad.step === 'whole' || whole === null) body = '<div class="pk-lab">Inches</div>' + wholeGrid;
+  else body = '<div class="pk-show">' + show + '</div><div class="pk-lab">Eighths</div>' + frGrid +
+    '<button type="button" class="btn pk-back" data-pk="pback">\u2190 Back to inches</button>';
+  el.innerHTML = '<div class="pad-card pick-card' + (wide ? ' pk-wide' : '') + '" role="dialog" aria-label="Pick a size">' +
+    '<div class="pad-head"><b>' + title + '</b><span>Opening ' + (op ? op.number + (op.location ? ' \u00b7 ' + esc(op.location) : '') : '') +
+    '</span></div>' + body +
+    '<div class="pad-go"><button type="button" class="btn" data-pk="cancel">Cancel</button>' +
+    (wide ? '<button type="button" class="btn btn-primary" data-pk="done"' + (whole === null ? ' disabled' : '') + '>Done</button>' : '') +
+    '<button type="button" class="btn pk-manual" data-pk="manual">Manual entry</button></div></div>';
 }
 function drawPad(){
   let el = document.getElementById('pad');
@@ -3414,6 +3463,7 @@ function drawPad(){
     el.addEventListener('click', padClick); document.body.appendChild(el); }
   document.body.classList.add('padding');
   const op = state.job.openings.find(o => o.id === pad.opId);
+  if(pad.mode === 'pick') return drawPick(el, op);
   const v = padValue();
   const fr = ['1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
   el.innerHTML = '<div class="pad-card" role="dialog" aria-label="Type a size">' +
@@ -3432,6 +3482,13 @@ function drawPad(){
 async function padKey(k){
   if(!pad) return;
   if(k === 'cancel'){ pad = null; return drawPad(); }
+  if(pad.mode === 'pick' && k !== 'done'){
+    if(k === 'manual'){ pad.mode = 'num'; pad.fresh = true; return drawPad(); }
+    if(k === 'pback'){ pad.step = 'whole'; return drawPad(); }
+    if(k[0] === 'w'){ pad.whole = k.slice(1); pad.step = 'fr'; if(!pickWide()) pad.eighths = 0; return drawPad(); }
+    if(k.slice(0, 2) === 'pf'){ if(pad.whole === '') return; pad.eighths = +k.slice(2); return padKey('done'); }
+    return;
+  }
   if(k === 'done'){
     const job = state.job, op = job && job.openings.find(o => o.id === pad.opId);
     const f = pad.f, v = padValue();
@@ -3458,6 +3515,7 @@ function padClick(e){
 }
 document.addEventListener('keydown', e => {
   if(!pad) return;
+  if(pad.mode === 'pick'){ if(e.key === 'Escape'){ padKey('cancel'); e.preventDefault(); } return; }
   if(/^[0-9]$/.test(e.key)) padKey(e.key);
   else if(e.key === 'Backspace') padKey('back');
   else if(e.key === 'Enter') padKey('done');
@@ -5357,6 +5415,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.35 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.36 · 18 Nov 2026</div>
 </body>
 </html>
