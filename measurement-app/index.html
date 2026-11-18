@@ -1756,7 +1756,7 @@ function sizeCheck(op, o, msrp){
   if(!(w > 0) || !(hNeed > 0)){ res.status = 'none'; res.why.push('Width and height needed first'); return res; }
 
   // core and thickness
-  if(L.solidOnly && o.v.productType === '1.375 Hollow') so(L.name + ' comes solid core only');
+  if(L.solidOnly && o.v.productType === '1.375 Hollow') so(L.name + ' comes solid core only, so it has no hollow core price. Set Product to 1.375 Solid to price it');
   if(L.thinOnly && o.v.productType === '1.75 Thick') so(L.name + ' comes 1 3/8" thick only');
   if(L.thickCheck && o.v.productType === '1.75 Thick') ck(L.thickCheck);
 
@@ -3532,6 +3532,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.14 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.15 · 18 Nov 2026</div>
 </body>
 </html>
