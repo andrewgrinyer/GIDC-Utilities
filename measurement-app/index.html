@@ -242,8 +242,42 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   table.rv select, table.rv input{appearance:none;-webkit-appearance:none;border:0;padding:0;
     min-height:0;background:none;font-size:9px;max-width:none;width:auto}
   .rv-box, .rv-head{break-inside:avoid}
-  @page{size:landscape;margin:10mm}
+  /* 2.12: the order prints on letter paper held sideways (11 x 8.5), with
+     the door colours, every door kept whole on one page, and the forms the
+     order needs after it, each on its own upright letter page */
+  @page{size:11in 8.5in;margin:0.35in}
+  html, body{background:#fff!important}
+  body{-webkit-print-color-adjust:exact;print-color-adjust:exact;font-size:11px}
+  table.rv.rv-two, table.rv-two select, table.rv-two input{font-size:10.5px}
+  #app{padding:0!important}
+  .rv-head{padding:6px 10px;gap:4px 14px;margin:0 0 6px}
+  .rv-head span, .rv-doc label{font-size:8px}
+  .rv-head b{font-size:10px}
+  .rv-doc select{font-size:11px;min-height:0;padding:0;border:0;appearance:none;-webkit-appearance:none;background:none}
+  table.rv-two{table-layout:auto;width:100%}
+  table.rv-two td{padding:2px 3px;vertical-align:top}
+  table.rv-two td.rv-n{font-size:12px;width:16px;vertical-align:middle}
+  table.rv-two .rv-cap{font-size:7.5px;margin:0}
+  table.rv-two .rv-fixed{padding:0}
+  table.rv-two .rv-size b, table.rv-two .rv-size span{font-size:8px}
+  table.rv-two .rv-note{font-size:7px}
+  table.rv-two tbody tr{break-inside:avoid}
+  table.rv-two tr.rv-l1{break-after:avoid}
+  .warn, .rv-sizes{font-size:9px;padding:4px 8px;margin:6px 0;break-inside:avoid}
+  .rv-sizes li{font-size:9px;margin:1px 0}
+  .rv-sizes h3{font-size:10px;margin:0 0 2px}
+  .rv-boxes{grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0;break-inside:avoid}
+  .rv-box{overflow:visible}
+  .rv-box h3{font-size:9px;padding:3px 6px}
+  .rv-box table.rv{font-size:8px}
+  .rv-box table.rv td, .rv-box table.rv th{padding:1px 4px}
+  .print-forms{display:block!important}
+  .print-form{break-before:page;page:form;display:flex;justify-content:center;align-items:flex-start}
+  .print-form svg{display:block;height:7.7in;width:auto}
+  @supports (page: form){ .print-form svg{height:10.4in} }
+  @page form{size:8.5in 11in;margin:0.3in}
 }
+.print-forms{display:none}
 .warn.stop{background:var(--brass-soft);border-color:var(--brass-line);color:var(--brass)}
 .chip.now{background:var(--brass-soft);border-color:var(--brass-line);color:var(--ink)}
 .chip.on.now{background:var(--brass);border-color:var(--brass);color:#fff}
@@ -516,12 +550,55 @@ const BYPASS_TYPES = ['Bypass', 'GDL ByPass'];
    quoted (a ticked option) needs it. */
 const JOB_DOCS = [
   {id:'handles', title:'Handle Hardware Selection', file:'docs/handle-hardware-selection.pdf',
+   png:'docs/handle-hardware-selection.png', stamp:'fields',
    why:'customer supplied handles', needs:o => o.v.handleType === 'Customer Supplied' && !o.skipped.hardware},
   {id:'bypass', title:'Bypass Door Overlap Guide', file:'docs/bypass-door-overlap-guide.pdf',
+   png:'docs/bypass-door-overlap-guide.png', stamp:'corner',
    why:'a bypass door', needs:o => BYPASS_TYPES.indexOf(o.v.doorType) >= 0},
   {id:'bifold', title:'Bifold Door Fit Guide', file:'docs/bifold-door-fit-guide.pdf',
+   png:'docs/bifold-door-fit-guide.png', stamp:'corner',
    why:'a bifold door', needs:o => BIFOLD_TYPES.indexOf(o.v.doorType) >= 0},
 ];
+/* 2.12: the customer goes onto each form. Positions are in PDF points on a
+   letter page (612 x 792), measured down from the top. The handle form has
+   Customer name and Job address lines; the two guides have no such line, so
+   the name and address go in the empty top right corner beside the title. */
+const docAddress = job => [job.address, job.city].map(x => String(x || '').trim()).filter(Boolean).join(', ');
+function docStamps(d, job){
+  const name = String(job.customer || '').trim(), addr = docAddress(job);
+  if(d.stamp === 'fields') return [
+    {text:name, x:44, y:534, size:11}, {text:addr, x:318, y:534, size:11}];
+  return [{text:name ? 'Customer: ' + name : '', x:569, y:108, size:11, right:true, bold:true},
+          {text:addr, x:569, y:123, size:10, right:true}];
+}
+/* the form as one printed page: the page picture with the customer on it */
+function docPage(d, job){
+  return '<div class="print-form"><svg viewBox="0 0 612 792" xmlns="http://www.w3.org/2000/svg">' +
+    '<image href="' + d.png + '" x="0" y="0" width="612" height="792"/>' +
+    docStamps(d, job).filter(t => t.text).map(t => '<text x="' + t.x + '" y="' + t.y + '" font-size="' + t.size +
+      '" font-family="Helvetica, Arial, sans-serif" fill="#1F1F24"' + (t.bold ? ' font-weight="700"' : '') +
+      (t.right ? ' text-anchor="end"' : '') + '>' + esc(t.text) + '</text>').join('') + '</svg></div>';
+}
+/* the saved PDF with the customer written on it (pdf-lib, loaded on first use) */
+const PDFLIB_SRC = 'pdf-lib-1.17.1.min.js';
+async function stampedDoc(d, job){
+  const bytes = await (await fetch(d.file)).arrayBuffer();
+  const stamps = docStamps(d, job).filter(t => t.text);
+  if(!stamps.length) return new Uint8Array(bytes);
+  if(!window.PDFLib) await loadScript(PDFLIB_SRC).catch(() => { throw new Error('the form writer did not load'); });
+  const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
+  const pdf = await PDFDocument.load(bytes);
+  const reg = await pdf.embedFont(StandardFonts.Helvetica), bold = await pdf.embedFont(StandardFonts.HelveticaBold);
+  const page = pdf.getPages()[0], H = page.getHeight();
+  // the standard fonts only know Western characters; anything else is left out rather than failing
+  const safe = t => String(t).normalize('NFC').replace(/[^\x20-\x7E\u00A0-\u00FF]/g, '');
+  stamps.forEach(t => {
+    const font = t.bold ? bold : reg, text = safe(t.text);
+    const w = font.widthOfTextAtSize(text, t.size);
+    page.drawText(text, {x: t.right ? t.x - w : t.x, y: H - t.y, size: t.size, font, color: rgb(0.12, 0.12, 0.14)});
+  });
+  return await pdf.save();
+}
 function jobDocs(job){
   const opts = [];
   (job.openings || []).forEach(op => op.options.filter(o => o.include).forEach(o => opts.push({op, o})));
@@ -1275,9 +1352,7 @@ function templateBytes(){
 async function saveJobDocs(job, name){
   for(const d of jobDocs(job)){
     try{
-      const res = await fetch(d.file);
-      if(!res.ok) throw new Error(res.status);
-      const blob = await res.blob();
+      const blob = await stampedDoc(d, job);
       await new Promise(ok => setTimeout(ok, 450));     // browsers drop downloads fired together
       const a = document.createElement('a');
       a.href = URL.createObjectURL(new Blob([blob], {type:'application/pdf'}));
@@ -1971,6 +2046,7 @@ function renderReview(){
   h += [...new Set(notes)].map(n => '<p class="warn">' + esc(n) + '</p>').join('');
 
   h += docsBox(job);
+  const formsToPrint = jobDocs(job);
 
   // the boxes underneath, as on the sheet
   h += '<div class="rv-boxes">';
@@ -1991,6 +2067,9 @@ function renderReview(){
   });
   h += '</div>';
   if(prices && plain(cv('Q59'))) h += '<p class="hint">' + esc(plain(cv('Q59'))) + '</p>';
+  // 2.12: the forms this order needs print after it, one page each, with the
+  // customer written on them. Print only: the screen lists them above.
+  if(formsToPrint.length) h += '<div class="print-forms">' + formsToPrint.map(d => docPage(d, job)).join('') + '</div>';
   $('#app').innerHTML = h;
 
   const miss = missing(job);
@@ -2825,7 +2904,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
-  'comboval','sure','jfclear'];
+  'comboval','sure','jfclear','doc'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 async function persist(){ await saveJob(state.job); }
@@ -2850,7 +2929,24 @@ document.addEventListener('click', async e => {
   if(d.review !== undefined) return openReview();
   if(d.padof){ const o = job && job.openings.find(x => x.id === d.op); if(o) openPad(o, d.padof); return; }
   if(d.revback !== undefined){ state.view = 'job'; return render(); }
-  if(d.revprint !== undefined) return window.print();
+  if(d.revprint !== undefined){
+    // the form pages are pictures: wait until they are in before printing
+    await Promise.all(jobDocs(job).map(f => new Promise(ok => {
+      const im = new Image(); im.onload = im.onerror = ok; im.src = f.png; })));
+    return window.print();
+  }
+  /* a form opened from Documents for this order: with the customer on it */
+  if(d.doc){
+    const f = JOB_DOCS.find(x => x.id === d.doc); if(!f) return;
+    e.preventDefault();
+    const w = window.open('', '_blank');      // opened now, while the tap still counts
+    try{
+      const url = URL.createObjectURL(new Blob([await stampedDoc(f, job)], {type:'application/pdf'}));
+      if(w) w.location.href = url; else location.href = url;
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    }catch(err){ if(w) w.location.href = f.file; toast('Opened without the customer name: ' + (err.message || err)); }
+    return;
+  }
 
   /* A pick from the search list. Put it in the box and let the normal change
      handler store it, so there is one place that writes the field. */
@@ -3294,6 +3390,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.11 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.12 · 18 Nov 2026</div>
 </body>
 </html>

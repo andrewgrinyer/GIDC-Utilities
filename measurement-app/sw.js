@@ -6,11 +6,13 @@
    file cached whatever came back, so a single 403 from the edge could be kept
    and handed out afterwards, which is exactly what happened on 23 Sep 2026.
    A response already in the cache from that version is ignored and refetched. */
-const CACHE = 'gidc-5.3';   // 2.11, customer documents with the order
+const CACHE = 'gidc-5.4';   // 2.12, forms carry the customer and print with the order
 const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.png', './icon-512.png',
                './apple-touch-icon.png', './manifest.webmanifest',
                './docs/handle-hardware-selection.pdf', './docs/bypass-door-overlap-guide.pdf',
-               './docs/bifold-door-fit-guide.pdf'];
+               './docs/bifold-door-fit-guide.pdf', './docs/handle-hardware-selection.png',
+               './docs/bypass-door-overlap-guide.png', './docs/bifold-door-fit-guide.png',
+               './pdf-lib-1.17.1.min.js'];
 
 const keepable = res => res && res.ok && res.status === 200 && res.type !== 'opaque';
 

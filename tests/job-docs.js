@@ -1,4 +1,5 @@
-// Measurement app 2.11: customer documents come with the order.
+// Measurement app 2.11 and 2.12: customer documents come with the order,
+// with the customer written on them, and print after the order.
 //
 //   node tests/job-docs.js
 //   (or PLAYWRIGHT=/path/to/playwright node tests/job-docs.js)
@@ -19,7 +20,8 @@ const server = http.createServer((q, r) => {
   let body = fs.readFileSync(f);
   if(p === '/index.html') body = body.toString('utf8')
     .replace("supabaseUrl: 'https://baakegbtuygtldksmant.supabase.co'", "supabaseUrl: ''");
-  r.setHeader('Content-Type', p.endsWith('.js') ? 'text/javascript' : 'text/html');
+  r.setHeader('Content-Type', p.endsWith('.js') ? 'text/javascript' : p.endsWith('.png') ? 'image/png' :
+    p.endsWith('.pdf') ? 'application/pdf' : 'text/html');
   r.end(body);
 });
 
@@ -89,6 +91,36 @@ const check = (name, ok, got) => {
   check('Download workbook saves the workbook and each document',
         got.length === 4 && got[0].endsWith('.xlsx') && got.slice(1).every(n => n.endsWith('.pdf')) &&
         got.some(n => n.includes('Bypass-Door-Overlap-Guide')), got);
+
+  // 2.12: the customer is written on each saved form
+  await page.evaluate(() => { state.job.address = '12 Main St'; state.job.city = 'Cambridge'; });
+  const stamped = await page.evaluate(async () => Promise.all(jobDocs(state.job).map(async d =>
+    Array.from(await stampedDoc(d, state.job)))));
+  const os = require('os'), { execFileSync } = require('child_process');
+  const texts = stamped.map((b, i) => { const f = path.join(os.tmpdir(), 'jobdoc-' + i + '.pdf');
+    fs.writeFileSync(f, Buffer.from(b));
+    try{ return execFileSync('pdftotext', [f, '-']).toString(); }catch(e){ return 'NO PDFTOTEXT'; } });
+  check('each saved form carries the customer name and address',
+        texts.every(t => t === 'NO PDFTOTEXT' || (t.includes('Docs Test') && t.includes('12 Main St, Cambridge'))),
+        texts.map(t => t.slice(0, 80)));
+
+  // 2.12: printing the review gives the order on letter sideways, then each form upright
+  await page.evaluate(() => render());
+  await page.waitForFunction(() => [...document.querySelectorAll('.print-form image')].length === 3);
+  await page.evaluate(() => Promise.all(JOB_DOCS.map(f => new Promise(ok => {
+    const im = new Image(); im.onload = im.onerror = ok; im.src = f.png; }))));
+  const pdf = await page.pdf({preferCSSPageSize:true, printBackground:true});
+  const pf = path.join(os.tmpdir(), 'review-print.pdf'); fs.writeFileSync(pf, pdf);
+  if(process.env.PRINT_OUT) fs.writeFileSync(process.env.PRINT_OUT, pdf);
+  let info = '';
+  try{ info = execFileSync('pdfinfo', ['-f', '1', '-l', '20', pf]).toString(); }catch(e){}
+  const psizes = [...info.matchAll(/Page\s+\d+ size:\s+([\d.]+) x ([\d.]+)/g)].map(m => [+m[1], +m[2]]);
+  check('the order prints on letter sideways (11 x 8.5)', !info || (psizes[0][0] === 792 && psizes[0][1] === 612), psizes);
+  check('then one upright letter page per form, three here',
+        !info || (psizes.slice(-3).every(([w, h]) => w === 612 && h === 792) &&
+                  psizes.filter(([w]) => w === 612).length === 3), psizes);
+  const ptext = info ? execFileSync('pdftotext', [pf, '-']).toString() : 'Docs Test';
+  check('the printed forms carry the customer', (ptext.match(/Customer: Docs Test/g) || []).length === 2, ptext.slice(-400));
 
   check('no page errors', errors.length === 0, errors);
   await browser.close(); server.close();
