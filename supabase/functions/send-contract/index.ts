@@ -92,6 +92,30 @@ type Job = {
 };
 const revLabel = (r: number) => "Rev " + String(r).padStart(3, "0");
 
+/* 2.35: the email that carries a Summary Estimate */
+function quoteEmailFor(j: Job, repName: string, total: string, valid: string) {
+  const who = String(j.customer ?? "").trim() || "Customer";
+  const subject = `Your Grinyer estimate${total ? ", " + total : ""}`;
+  const lines = [
+    `Thank you for having Grinyer Interior Doors & Closets in to measure. Your estimate is attached as a PDF.`,
+    `${total ? `The total is ${total}, HST included. ` : ""}${valid ? `It is valid until ${valid}.` : ""}`.trim(),
+    `To go ahead, reply to this email or call us at 877 566 4052${repName ? `, or speak with ${repName}` : ""}.`,
+  ].filter(Boolean);
+  const html =
+    `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,` +
+    `Helvetica,Arial,sans-serif;max-width:600px;margin:0 auto;color:#2A2A2A">` +
+      `<div style="border-top:4px solid #B5121B;padding:20px 4px 6px">` +
+        `<p style="font-size:15px;margin:0 0 14px">Hello ${esc(who)},</p>` +
+        lines.map((l) => `<p style="font-size:15px;line-height:1.5;margin:0 0 14px">${esc(l)}</p>`).join("") +
+      `</div>` +
+      `<p style="color:#6B6B6B;font-size:12px;border-top:1px solid #C8C8C8;` +
+      `padding-top:10px;margin:18px 0 0">Grinyer Interior Doors &amp; Closets, ` +
+      `1177 Franklin Blvd, Cambridge, ON. info@grinyer.ca, 877 566 4052</p>` +
+    `</div>`;
+  const text = [`Hello ${who},`, "", ...lines.flatMap((l) => [l, ""]),
+    "Grinyer Interior Doors & Closets, 1177 Franklin Blvd, Cambridge, ON"].join("\n");
+  return { subject, html, text };
+}
 function emailFor(j: Job, repName: string) {
   const who = String(j.customer ?? "").trim() || "Customer";
   // 2.28: a revision says so, and which contract it replaces
@@ -157,7 +181,7 @@ Deno.serve(async (req) => {
     if (!auth) return json({ error: "Not signed in" }, 401);
     const asCaller = { apikey: anon, Authorization: auth };
 
-    let body: { id?: string; filename?: string; pdf?: string };
+    let body: { id?: string; filename?: string; pdf?: string; kind?: string; total?: string; valid?: string };
     try { body = await req.json(); } catch { return json({ error: "Bad request" }, 400); }
     const id = String(body.id ?? "").trim();
     const pdf = String(body.pdf ?? "").replace(/\s+/g, "");
@@ -188,7 +212,9 @@ Deno.serve(async (req) => {
     if (!got.ok || !rows.length)
       return json({ error: "That job is not saved online yet, or is not yours to send" }, 404);
     const job = (rows[0].data ?? {}) as Job;
-    if (!job.signed?.at)
+    // 2.35: an estimate (Summary Estimate) goes out before anything is signed
+    const quote = body.kind === "quote";
+    if (!quote && !job.signed?.at)
       return json({ error: "The online copy of this job is not signed yet. Use Email it on the review screen in a moment." }, 409);
 
     const customer = String(job.email ?? "").trim();
@@ -202,7 +228,9 @@ Deno.serve(async (req) => {
     const from = Deno.env.get("CONTRACT_EMAIL_FROM")
       ?? Deno.env.get("ORDER_EMAIL_FROM")
       ?? "onboarding@resend.dev";
-    const mail = emailFor(job, String(prof.name ?? job.salesRep ?? "").trim());
+    const mail = quote
+      ? quoteEmailFor(job, String(prof.name ?? job.salesRep ?? "").trim(), String(body.total ?? ""), String(body.valid ?? ""))
+      : emailFor(job, String(prof.name ?? job.salesRep ?? "").trim());
     console.log(`sending "${mail.subject}" for job ${id} to ${to.length} addresses`);
 
     const sent = await call("resend", "https://api.resend.com/emails", {
@@ -218,9 +246,11 @@ Deno.serve(async (req) => {
     if (!sent.ok) {
       const said = await sent.text().catch(() => "");
       console.log("resend refused it: " + said.slice(0, 400));
-      return json({ error: "The contract is signed and saved but the email would not send. " +
+      return json({ error: quote ? "The estimate would not send. It is saved on this device; send it yourself."
+        : "The contract is signed and saved but the email would not send. " +
         "Use Email it on the review screen, or send the saved PDF yourself." }, 502);
     }
+    if (quote) { console.log(`estimate sent in ${Date.now() - t0}ms`); return json({ ok: true, to }); }
 
     // 2.26: keep a copy in the private signed-contracts store too, when the
     // store exists (sql/remote-sign.sql). A failure here never fails the send.

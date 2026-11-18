@@ -1394,6 +1394,57 @@ async function contractPdf(job, opts){
   const who = [job.customer, docAddress(job), job.date].filter(Boolean).join('  -  ');
   const prices = canSeePrices();
 
+  /* 2.35, Andrew 18 Nov: the Summary Estimate, one page in the same style:
+     category totals from the workbook's Order Total box, no line prices. */
+  if(opts.quote){
+    const PW = 612, PH = 792, pg = pdf.addPage([PW, PH]);
+    const Q = quoteFigures(job);
+    let y = head(pg, PW, PH, 'Estimate', [job.customer, job.date].filter(Boolean).join('  -  '));
+    pg.drawRectangle({x:28, y:y - 58, width:PW - 56, height:58, color:PANEL});
+    const H2 = [['Prepared for', job.customer], ['Address', docAddress(job)], ['Phone', job.phone],
+      ['Estimate date', Q.dateText], ['Valid until', Q.validText], ['Email', job.email],
+      ['Sales rep', job.salesRep], ['Lead time', job.leadTime], ['Estimate #', Q.no]];
+    H2.forEach(([k, v], i) => { const cx = 36 + (i % 3) * 186, cy = y - 13 - Math.floor(i / 3) * 16;
+      text(pg, k.toUpperCase(), cx, cy, {size:5.8, color:GREY});
+      text(pg, fitText(v || '', i ? F : FB, 8.5, 120), cx + 58, cy, {size:8.5, font:i ? F : FB, color:i ? INK : RED}); });
+    y -= 78;
+    kicker(pg, 'Your estimate', 28, y); y -= 6;
+    pg.drawRectangle({x:28, y:y - 14, width:PW - 56, height:14, color:CHAR});
+    text(pg, 'DESCRIPTION', 34, y - 10, {size:6.5, font:FB, color:WHITE});
+    text(pg, 'AMOUNT', PW - 34, y - 10, {size:6.5, font:FB, color:WHITE, right:true});
+    y -= 14;
+    Q.cats.forEach((c, k) => {
+      const h = c.desc ? 30 : 20;
+      if(k % 2) pg.drawRectangle({x:28, y:y - h, width:PW - 56, height:h, color:rgb(0.969, 0.969, 0.969)});
+      text(pg, c.label, 34, y - 13, {size:10, font:FB});
+      if(c.desc) text(pg, c.desc, 34, y - 24, {size:7.5, color:GREY});
+      text(pg, money(c.amount), PW - 34, y - 13, {size:10, right:true});
+      pg.drawLine({start:{x:28, y:y - h}, end:{x:PW - 28, y:y - h}, thickness:0.4, color:RULE});
+      y -= h;
+    });
+    y -= 10;
+    const sx = PW - 28 - 230;
+    Q.sums.forEach(r => {
+      if(r.grand){ y -= 4; pg.drawLine({start:{x:sx, y:y}, end:{x:PW - 28, y:y}, thickness:1.2, color:RED}); y -= 4; }
+      text(pg, r.label, sx + 6, y - 11, {size:r.grand ? 11 : 9, font:r.grand ? FB : F, color:r.grand ? RED : r.soft ? GREY : INK});
+      text(pg, money(r.amount), PW - 34, y - 11, {size:r.grand ? 11 : 9, font:r.grand ? FB : F, color:r.grand ? RED : r.soft ? GREY : INK, right:true});
+      y -= r.grand ? 20 : 15;
+    });
+    y -= 14;
+    kicker(pg, 'Terms', 28, y); y -= 4;
+    const terms = ['Payment: a ' + Q.depPct + ' deposit (' + money(Q.dep) + ') confirms the order; the balance of ' +
+        money(Q.bal) + ' is due at installation.',
+      'This estimate is valid until ' + Q.validText + '. Prices are the totals for each category above; HST is included in the total.',
+      'Doors are measured digitally before ordering. Special order items are made for the order and cannot be returned or refunded.'];
+    terms.forEach(t => { const words = safe(t).split(' '); let line = '';
+      words.forEach(w => { const tryL = line ? line + ' ' + w : w;
+        if(F.widthOfTextAtSize(tryL, 8.5) > PW - 64){ text(pg, line, 34, y - 11, {size:8.5}); y -= 12; line = w; } else line = tryL; });
+      if(line){ text(pg, line, 34, y - 11, {size:8.5}); y -= 12; } y -= 3; });
+    sigLines(pg, 'quote', 28, 70);
+    foot(pg, PW);
+    return pdf.save();
+  }
+
   /* 1. the order */
   const LW = 792, LH = 612;
   const lines = reviewLines(job).slice(0, PAGE_ROWS.length);
@@ -1863,6 +1914,70 @@ async function stampSuperseded(job){
       await persist().catch(() => {}); render();
     }catch(err){ console.log('superseded stamp: ' + (err.message || err)); }
   }
+}
+/* 2.35: the Summary Estimate's figures, from the workbook's Order Total box
+   (labels in Q, amounts in U), named as the tools site's Summary Estimate
+   names them */
+const QUOTE_CATS = [
+  {label:'Doors', key:'Door Cost'},
+  {label:'Factory Finishing', key:'Factory Finishing', desc:'Oven cured primer and paint'},
+  {label:'Hardware', key:'Hardware'},
+  {label:'Installation', key:'Installation', desc:'Digital measurement, robotic cutting, and white glove installation'},
+  {label:'Closet / Organizer', key:'Organizer'},
+  {label:'Materials & Adjustments', key:'Materials and Rework'}];
+const QUOTE_VALID_DAYS = 30;
+function quoteFigures(job){
+  calcJob(job);
+  const box = {};
+  for(let r = 44; r <= 58; r++){ const l = cv('Q' + r); if(typeof l === 'string' && l.trim()) box[l.trim()] = cv('U' + r); }
+  const n = v => typeof v === 'number' ? Math.round(v * 100) / 100 : 0;
+  const find = re => { const k = Object.keys(box).find(x => re.test(x)); return k ? {k, v:n(box[k])} : {k:'', v:0}; };
+  const cats = QUOTE_CATS.map(c => ({label:c.label, desc:c.desc || '', amount:n(box[c.key])})).filter(c => c.amount !== 0);
+  const sub = find(/^sub ?total/i), tax = find(/tax/i), fee = find(/credit card/i), grand = find(/grand total/i),
+        dep = find(/deposit/i), bal = find(/balance/i);
+  const at = new Date(), valid = new Date(at.getTime() + QUOTE_VALID_DAYS * 864e5);
+  const day = d => d.toLocaleDateString('en-CA', {year:'numeric', month:'long', day:'numeric'});
+  const sums = [{label:'Subtotal', amount:sub.v}, {label:'HST (ON) 13%', amount:tax.v}]
+    .concat(fee.v ? [{label:'Credit card fee', amount:fee.v}] : [])
+    .concat([{label:'Total', amount:grand.v, grand:true},
+             {label:(dep.k.match(/\d+%/) || ['50%'])[0] + ' deposit', amount:dep.v, soft:true},
+             {label:'Balance at installation', amount:bal.v, soft:true}]);
+  const no = job.quoteNo || ('E' + String(job.id || '').replace(/[^a-z0-9]/gi, '').slice(-6).toUpperCase());
+  return {cats, sums, grand:grand.v, dep:dep.v, bal:bal.v, depPct:(dep.k.match(/\d+%/) || ['50%'])[0], no,
+          dateText:day(at), validText:day(valid), at:at.toISOString()};
+}
+const quoteName = job => ((job.customer || 'Customer') + ' estimate ' + new Date().toISOString().slice(0, 10))
+  .replace(/[^\w\- ]+/g, '').trim() + '.pdf';
+async function sendQuote(job){
+  if(!reviewLines(job).length) return toast('There are no doors on this order');
+  if(!String(job.customer || '').trim()) return toast('Put the customer name on the job first');
+  if(prices0(job)) return toast('Every door needs a price before an estimate. Type the Door MSRP on the S/O lines.');
+  const to = String(job.email || '').trim(), canMail = SB && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to);
+  const Q = quoteFigures(job);
+  if(!await sure({title:canMail ? 'Email the estimate?' : 'Save the estimate?',
+      what:'Total ' + money(Q.grand) + (canMail ? ', to ' + to + '.' : '.'),
+      why:'Category totals only, no line prices. ' + (canMail ? 'A copy is saved on this device too.'
+        : 'There is no customer email on the job (or no connection), so it is saved on this device only.'),
+      go:canMail ? 'Email it' : 'Save it'})) return;
+  let bytes;
+  try{ toast('Making the estimate...'); bytes = await contractPdf(job, {quote:true, blank:true}); }
+  catch(err){ return toast('The estimate could not be made: ' + (err.message || err)); }
+  saveBytes(bytes, quoteName(job), 'application/pdf');
+  const rec = {at:Q.at, total:Q.grand, no:Q.no};
+  if(canMail){
+    try{ await persist(); }catch(e){ return; }
+    try{
+      const r = await sb('/functions/v1/send-contract', {method:'POST', headers:sbHeaders(true),
+        body:JSON.stringify({id:job.id, kind:'quote', filename:quoteName(job), pdf:toB64(bytes),
+          total:money(Q.grand), valid:Q.validText})});
+      const j = await r.json().catch(() => ({}));
+      if(!r.ok) throw new Error(j.error || ('The email did not send (' + r.status + ')'));
+      rec.to = j.to || [to];
+      toast('Estimate emailed to ' + to);
+    }catch(err){ toast((err.message || err) + '. The PDF is saved on this device.'); }
+  }
+  job.quotes = (job.quotes || []).concat([rec]);
+  render(); persistBg();
 }
 const contractName = job => ((job.customer || 'Customer') + ' signed contract ' +
   (job.signed && job.signed.rev ? revLabel(job.signed.rev) + ' ' : '') +
@@ -3742,6 +3857,7 @@ function renderReview(){
     (prices ? '<button class="btn btn-sign" data-sign="1"' + (lines.length ? '' : ' disabled') + '>' +
       (signedOk(job) ? 'Signed' : 'Sign') + '</button>' : '') +
     (prices && SB ? '<button class="btn" data-sendsign="1"' + (lines.length ? '' : ' disabled') + '>Send to sign</button>' : '') +
+    (prices ? '<button class="btn" data-quote="1"' + (lines.length ? '' : ' disabled') + '>Send estimate</button>' : '') +
     '<button class="btn btn-primary" data-xml="1"' + (lines.length ? '' : ' disabled') + '>Download workbook</button>';
 }
 
@@ -4627,7 +4743,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','sign','signpdf','signmail',
-  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto'];
+  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 /* 2.30, Andrew 18 Nov: "the door type buttons stick and won't let us click
@@ -4680,6 +4796,7 @@ document.addEventListener('click', async e => {
      opening with the job's defaults, and its line is filled in right here. */
   /* 2.26: remote signing */
   if(d.sendsign !== undefined) return sendToSign(job);
+  if(d.quote !== undefined) return sendQuote(job);
   if(d.rscheck !== undefined) return remoteCheck(job);
   if(d.rsstop !== undefined){
     if(!await sure({title:'Stop the signing link?', what:'The link sent to ' + ((job.remoteSign || {}).sentTo || 'the customer') + ' stops working.',
@@ -5240,6 +5357,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.34 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.35 · 18 Nov 2026</div>
 </body>
 </html>
