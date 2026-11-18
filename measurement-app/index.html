@@ -545,6 +545,23 @@ body.signing{overflow:hidden}
 .sp-hint{position:absolute;left:8%;bottom:9%;font-size:12px;color:#6B6B6B}
 .sp-date{font-size:13px;margin:8px 0 0;color:var(--muted)}
 .sp-btns{display:flex;gap:10px;justify-content:flex-end;margin-top:14px;flex-wrap:wrap}
+/* 2.27: the page being signed, above the pad */
+.sp-card.sp-withdoc{width:min(1000px,100%)}
+.sp-docwrap{position:relative;margin:0 0 12px}
+.sp-doc{height:min(46vh,520px);overflow:auto;background:#5A5A60;border-radius:10px;padding:10px;-webkit-overflow-scrolling:touch}
+.sp-pages{display:flex;flex-direction:column;gap:10px;width:100%}
+.sp-doc.big .sp-pages{width:220%}
+.sp-page{position:relative;background:#fff;box-shadow:0 2px 10px rgba(0,0,0,.35);width:100%}
+.sp-page img{display:block;width:100%;height:100%}
+.sp-spot{position:absolute;border-radius:3px}
+.sp-spot svg{position:absolute;inset:0;width:100%;height:100%}
+.sp-spot.on{background:rgba(255,214,0,.38);outline:2px solid #B5121B;outline-offset:1px;animation:spPulse 1.6s ease-in-out infinite}
+@keyframes spPulse{50%{outline-color:rgba(181,18,27,.25)}}
+.sp-wait{color:#fff;font-size:14px;text-align:center;padding:40px 0}
+.sp-zoom{position:absolute;right:16px;bottom:12px;z-index:2;box-shadow:0 2px 8px rgba(0,0,0,.3)}
+.sp-withdoc .sp-text{max-height:18vh}
+.sp-withdoc .sp-pad{width:min(100%, 78vh, 640px);margin:0 auto}
+.sp-withdoc.sp-ini .sp-pad{width:min(100%, 52vh, 360px)}
 .btn-sign{background:#2A2A2A;color:#fff;border-color:#2A2A2A}
 .rv-signed{background:#EEF6EE;border:1px solid #9CC79C;border-radius:10px;padding:8px 12px;font-size:13px;margin:0 0 10px}
 .rv-signed .btn{margin-left:6px}
@@ -963,6 +980,21 @@ function handleInfo(style){
   if(!m) return null;
   return {line:m[1] === 'C' ? 'Schlage Custom' : 'Schlage', name:m[2] === 'Lattitude' ? 'Latitude' : m[2], rose:m[3]};
 }
+/* 2.27, Andrew 18 Nov: where Schlage has no photo of the handle on the
+   chosen rose, the rose is shown on its own beside the handle. Schlage shows
+   each rose on its own only in Satin Nickel (its levers and knobs pages,
+   category-page/<Rose>.png); the other finishes are that same photo with its
+   colours matched to Schlage's own photos of handles in that finish
+   (rose-<rose>-<finish code>.jpg). Standard is the Plymouth rose, or the
+   Georgian rose on a Georgian knob, as on Schlage's own photos. */
+const FINISH_CODE = {'Chrome':'625', 'Satin Brass':'608', 'Matte Black':'622', 'Satin Nickel':'619',
+                     'Bright Brass':'605', 'Aged Bronze':'716'};
+const ROSES = ['Camelot', 'Century', 'Collins', 'Upland', 'Alden', 'Kinsler', 'Rosewood', 'Plymouth', 'Georgian'];
+function rosePhotoOf(h, colour){
+  const r = h.rose === 'Standard' ? (h.name === 'Georgian' ? 'Georgian' : 'Plymouth') : h.rose;
+  const f = FINISH_CODE[colour] || '619';
+  return ROSES.includes(r) ? 'rose-' + r.toLowerCase() + '-' + f + '.jpg' : '';
+}
 function handlePicks(job){
   const by = new Map();
   (job.openings || []).forEach(op => op.options.filter(o => o.include).forEach(o => {
@@ -970,10 +1002,10 @@ function handlePicks(job){
     if(!ph || HANDLE_TYPES_OFF.includes(v.handleType || '')) return;
     const k = v.handleStyle + '|' + v.hwColour;
     if(!by.has(k)){ const h = handleInfo(v.handleStyle);
-      by.set(k, {style:v.handleStyle, colour:v.hwColour, photo:ph[0] + '.jpg', rosePhoto:ph[1] ? ph[1] + '.jpg' : '',
+      by.set(k, {style:v.handleStyle, colour:v.hwColour, photo:ph[0] + '.jpg', rosePhoto:ph[1] ? rosePhotoOf(h, ph[2] || v.hwColour) : '',
         title:h.name + ' ' + e.k, rose:h.rose === 'Standard' ? 'Standard rose' : h.rose + ' rose', line:h.line,
         note:ph[2] ? 'Not made in ' + v.hwColour + ', photos show ' + ph[2]
-           : ph[1] ? 'Schlage shows no photo of this pair' : '',
+           : ph[1] ? 'Handle shown on another rose' : '',
         where:[]}); }
     by.get(k).where.push((op.location || 'Opening ' + op.number) + ' (' + v.handleType + ')');
   }));
@@ -1068,11 +1100,51 @@ function signFields(job){
   return f;
 }
 
+/* 2.27, Andrew 18 Nov: the page being signed, on screen while signing.
+ *
+ * The contract is drawn unsigned with contractPdf (the same PDF that is saved
+ * and emailed once signed), and each page is turned into a picture with
+ * pdf.js (loaded only when signing starts). Each step shows the pages it
+ * covers, scrolled to its place, which is marked; what is drawn on the pad
+ * shows on the page as it is drawn, and the signatures and initials already
+ * made show in their places. If any of this fails (no connection to load
+ * pdf.js, say) signing carries on as before, without the page. */
+const PDFJS_SRC = 'pdfjs-3.11.174.min.js', PDFJS_WORKER = 'pdfjs-worker-3.11.174.min.js';
+function signPreview(job){
+  const spots = {}, pics = {};
+  let doc = null;
+  const ready = (async () => {
+    const bytes = await contractPdf(job, {blank:true, spots});
+    if(!window.pdfjsLib) await loadScript(PDFJS_SRC);
+    const lib = window.pdfjsLib;
+    lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+    doc = await lib.getDocument({data:bytes}).promise;
+  })();
+  const page = n => pics[n] || (pics[n] = ready.then(async () => {
+    const pg = await doc.getPage(n + 1);
+    const v1 = pg.getViewport({scale:1}), sc = Math.min(2.6, 1700 / Math.max(v1.width, v1.height));
+    const vp = pg.getViewport({scale:sc});
+    const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+    const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+    await pg.render({canvasContext:x, viewport:vp}).promise;
+    return c.toDataURL('image/jpeg', 0.86);
+  }));
+  return {
+    ready, spots,
+    // the pictures for one field: [{n, src, W, H}]
+    async pages(id){ await ready; const s = spots[id]; if(!s) return [];
+      return Promise.all(s.pages.map(async n => ({n, src:await page(n), W:s.W, H:s.H}))); },
+    warm(){ ready.then(() => { for(let n = 0; n < doc.numPages; n++) page(n); }).catch(() => {}); }
+  };
+}
+const spotBox = s => 'left:' + (s.x / s.W * 100) + '%;top:' + ((s.H - s.y - s.h) / s.H * 100) + '%;width:' +
+  (s.w / s.W * 100) + '%;height:' + (s.h / s.H * 100) + '%';
+
 /* the pad: one field at a time, full screen, Clear, Back, and Next */
 function openSignPad(job, done){
   const fields = signFields(job);
   const marks = {};
-  let at = -1;
+  let at = -1, pv = null, big = false;
   const box = document.createElement('div');
   box.className = 'signpad';
   document.body.appendChild(box);
@@ -1087,7 +1159,7 @@ function openSignPad(job, done){
       fields.filter(f => f.kind === 'initial').length + ' terms to initial, the terms, ' +
       (fields.some(f => f.id === 'doors') ? 'your door selections, ' : '') +
       (fields.some(f => f.id.indexOf('form-') === 0) ? 'and the guides that go with your order. ' : '') +
-      'Use your finger, a pen, or the trackpad.</p>' +
+      'Use your finger, a pen, or the trackpad. Each page shows on the screen as you sign it.</p>' +
       '<label>Name of the person signing<input id="sp-name" type="text" autocomplete="name" value="' + esc(job.customer || '') + '"></label>' +
       '<div class="sp-btns"><button class="btn" data-sp="cancel">Cancel</button>' +
       '<button class="btn btn-primary" data-sp="start">Start</button></div></div>';
@@ -1098,14 +1170,45 @@ function openSignPad(job, done){
     strokes.forEach(s => { ctx.beginPath(); s.forEach((p, i) => i ? ctx.lineTo(p[0] * scale, p[1] * scale)
                                                                  : ctx.moveTo(p[0] * scale, p[1] * scale));
       if(s.length === 1) ctx.lineTo(s[0][0] * scale + 0.1, s[0][1] * scale); ctx.stroke(); });
+    // 2.27: the same strokes on the page above, in its place
+    const live = box.querySelector('.sp-spot.on path'); if(live) live.setAttribute('d', pathOf(strokes));
+  }
+  /* 2.27: the page or pages this step signs, scrolled to the place */
+  const markIn = (m, live) => '<svg viewBox="0 0 ' + m.w + ' ' + m.h + '" preserveAspectRatio="xMidYMid meet">' +
+    '<path d="' + (live ? '' : m.d) + '" fill="none" stroke="#14213D" stroke-width="' + (m.sw || 3) +
+    '" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+  async function showDoc(){
+    const f = fields[at], el = box.querySelector('.sp-doc'); if(!el || !pv) return;
+    let pages;
+    try{ pages = await pv.pages(f.id); }catch(e){ el.remove(); return; }
+    if(fields[at] !== f || !box.contains(el)) return;      // moved on meanwhile
+    if(!pages.length){ el.remove(); return; }
+    const ini = f.kind === 'initial';
+    el.innerHTML = '<div class="sp-pages">' + pages.map(pg => '<div class="sp-page" style="aspect-ratio:' + pg.W + '/' + pg.H + '">' +
+      '<img src="' + pg.src + '" alt="Page ' + (pg.n + 1) + ' of the contract">' +
+      fields.filter(g => pv.spots[g.id] && pv.spots[g.id].p === pg.n).map(g => {
+        const on = g === f, m = marks[g.id];
+        if(!on && !m) return '';
+        return '<div class="sp-spot' + (on ? ' on' : ' done') + '" style="' + spotBox(pv.spots[g.id]) + '">' +
+          (on ? markIn({w:ini ? 300 : 600, h:ini ? 150 : 200, sw:3}, true) : markIn(m)) + '</div>'; }).join('') +
+      '</div>').join('') + '</div>';
+    el.classList.toggle('big', big);
+    draw();
+    const s = el.querySelector('.sp-spot.on');
+    if(s) requestAnimationFrame(() => {
+      const r = s.getBoundingClientRect(), b = el.getBoundingClientRect();
+      el.scrollTop += (r.top - b.top) - (b.height - r.height) / 2;
+      el.scrollLeft += (r.left - b.left) - (b.width - r.width) / 2; });
   }
   function field(){
     const f = fields[at], ini = f.kind === 'initial';
     const W = ini ? 300 : 600, H = ini ? 150 : 200;
     strokes = (marks[f.id] && marks[f.id].strokes) || [];
-    box.innerHTML = '<div class="sp-card' + (ini ? ' sp-ini' : '') + '">' +
+    box.innerHTML = '<div class="sp-card' + (ini ? ' sp-ini' : '') + (pv ? ' sp-withdoc' : '') + '">' +
       '<div class="sp-step">' + (at + 1) + ' of ' + fields.length + '</div>' +
       '<h2>' + esc(f.title) + '</h2>' +
+      (pv ? '<div class="sp-docwrap"><div class="sp-doc"><div class="sp-wait">Getting the page ready…</div></div>' +
+        '<button class="btn btn-sm sp-zoom" data-sp="zoom">' + (big ? 'Smaller' : 'Larger') + '</button></div>' : '') +
       (f.html ? '<div class="sp-text">' + f.html + '</div>' : f.note ? '<p>' + esc(f.note) + '</p>' : '') +
       '<div class="sp-pad"><canvas width="' + W + '" height="' + H + '"></canvas>' +
       '<div class="sp-line"><span>X</span></div><div class="sp-hint">' + (ini ? 'Initials here' : 'Sign here') + '</div></div>' +
@@ -1127,6 +1230,7 @@ function openSignPad(job, done){
     const end = () => { cur = null; };
     cvs.addEventListener('pointerup', end); cvs.addEventListener('pointercancel', end);
     box.querySelector('.sp-pad').addEventListener('touchmove', e => e.preventDefault(), {passive:false});
+    showDoc();
   }
   const inked = () => strokes.reduce((n, s) => n + s.length, 0) >= 6;
   // the strokes as one SVG path, rounded to keep it small
@@ -1136,10 +1240,14 @@ function openSignPad(job, done){
     const b = e.target.closest('[data-sp]'); if(!b) return;
     const k = b.dataset.sp;
     if(k === 'cancel'){ close(); return done(null); }
+    if(k === 'zoom'){ big = !big; b.textContent = big ? 'Smaller' : 'Larger'; return showDoc(); }
     if(k === 'start'){
       const name = box.querySelector('#sp-name').value.trim();
       if(!name) return toast('Type the name of the person signing');
-      box.dataset.name = name; at = 0; return field(); }
+      box.dataset.name = name; at = 0;
+      try{ pv = signPreview(job); pv.ready.catch(() => { pv = null; const d = box.querySelector('.sp-docwrap'); if(d) d.remove(); });
+           pv.warm(); }catch(e){ pv = null; }
+      return field(); }
     if(k === 'clear'){ strokes = []; return draw(); }
     if(k === 'back'){ if(at <= 0){ at = -1; return intro(); } at--; return field(); }
     if(k === 'next'){
@@ -1164,7 +1272,13 @@ function openSignPad(job, done){
  * not depend on any one browser's print engine: the order (letter sideways,
  * as many pages as the doors need, the signature on every page), the terms
  * with the initials, the door selections and the forms, each signed. */
-async function contractPdf(job){
+/* 2.27: opts.blank draws it unsigned, for the copy shown while signing, and
+   opts.spots is filled with where each signature or initial goes: the page
+   (from 0), the box in PDF points (x, y from the bottom, w, h), the page
+   size, and the pages that field covers (the order can run over several). */
+async function contractPdf(job, opts){
+  opts = opts || {};
+  const spots = opts.spots || {}, blank = !!opts.blank;
   if(!window.PDFLib) await loadScript(PDFLIB_SRC).catch(() => { throw new Error('the PDF writer did not load'); });
   const { PDFDocument, StandardFonts, rgb } = window.PDFLib;
   const pdf = await PDFDocument.create();
@@ -1190,9 +1304,14 @@ async function contractPdf(job){
   const mark = (pg, m, x, y, w, h) => { if(!m) return;
     const s = Math.min(w / m.w, h / m.h), ox = x + (w - m.w * s) / 2;
     pg.drawSvgPath(m.d, {x:ox, y:y + h - (h - m.h * s) / 2, scale:s, borderColor:PEN, borderWidth:(m.sw || 3), borderLineCap:1}); };
-  const signed = id => markOf(job, id);
+  const signed = id => blank ? null : markOf(job, id);
+  const spot = (pg, id, x, y, w, h, from) => { const p = pdf.getPageCount() - 1;
+    spots[id] = {p, x, y, w, h, W:pg.getWidth(), H:pg.getHeight(),
+                 pages:Array.from({length:p - (from == null ? p : from) + 1}, (_, k) => (from == null ? p : from) + k)}; };
+  let orderFrom = null;
   const sigLines = (pg, id, x, y) => {      // y is the baseline of the lines
     const m = signed(id);
+    spot(pg, id, x + 184, y - 4, 262, 40, id === 'contract' ? orderFrom : null);
     text(pg, 'Date:', x, y + 2, {size:9});
     pg.drawLine({start:{x:x + 28, y}, end:{x:x + 150, y}, thickness:0.8, color:INK});
     if(m) text(pg, signDay(m.at), x + 32, y + 3, {size:9});
@@ -1235,6 +1354,7 @@ async function contractPdf(job){
   let li = 0, pageNo = 0;
   do {
     const pg = pdf.addPage([LW, LH]); pageNo++;
+    if(orderFrom == null) orderFrom = pdf.getPageCount() - 1;
     let y = head(pg, LW, LH, (job.docType || 'Order').replace(/ - .*/, ''), who);
     if(pageNo === 1){
       pg.drawRectangle({x:28, y:y - 50, width:LW - 56, height:50, color:PANEL});
@@ -1324,7 +1444,8 @@ async function contractPdf(job){
         if(drawIt) text(pg, (i + 1) + '.', X0, y - sz, {size:sz, font:TFB});
         let x = X0 + 14;
         if(ini){ if(drawIt){ pg.drawLine({start:{x, y:y - sz - 1}, end:{x:x + 26, y:y - sz - 1}, thickness:0.6, color:INK});
-                   mark(pg, signed('ini-' + (i + 1)), x, y - sz - 1, 26, sz * 1.6); }
+                   mark(pg, signed('ini-' + (i + 1)), x, y - sz - 1, 26, sz * 1.6);
+                   spot(pg, 'ini-' + (i + 1), x - 3, y - sz - 3, 32, sz * 1.6 + 4); }
                  x += 30; }
         let sp = false;
         ws.forEach(t => {
@@ -1399,13 +1520,14 @@ async function contractPdf(job){
     const src = await PDFDocument.load(await stampedDoc(d, job));
     const [pg] = await pdf.copyPages(src, [0]); pdf.addPage(pg);
     const m = signed('form-' + d.id), H = pg.getHeight();
+    if(d.sign) spot(pg, 'form-' + d.id, d.sign.x - 4, H - d.sign.y - 3, 308, 22);
     if(m && d.sign){ mark(pg, m, d.sign.x, H - d.sign.y + 1, 300, 17);
       text(pg, signDay(m.at), d.sign.dx, H - d.sign.y + 5, {size:9});
       if(remoteLine(job.signed)) text(pg, remoteLine(job.signed), pg.getWidth() / 2, 6, {size:6, color:GREY, center:true}); }
   }
 
   /* 5. 2.26: signed remotely, the record of how, when and from where */
-  if(signedOk(job) && job.signed.where === 'remote'){
+  if(!blank && signedOk(job) && job.signed.where === 'remote'){
     const W = 612, H = 792, pg = pdf.addPage([W, H]), s = job.signed;
     let y = head(pg, W, H, 'Electronic signing record', who);
     const marks = Object.keys(s.marks || {});
@@ -4657,6 +4779,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.26.2 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.27 · 18 Nov 2026</div>
 </body>
 </html>

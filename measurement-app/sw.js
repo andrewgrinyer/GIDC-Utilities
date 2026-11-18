@@ -6,13 +6,13 @@
    file cached whatever came back, so a single 403 from the edge could be kept
    and handed out afterwards, which is exactly what happened on 23 Sep 2026.
    A response already in the cache from that version is ignored and refetched. */
-const CACHE = 'gidc-7.1';   // 2.26.2, handle and rose photos, no room labels
+const CACHE = 'gidc-7.2';   // 2.27, the page on screen while signing, roses on their own
 const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.png', './icon-512.png',
                './apple-touch-icon.png', './manifest.webmanifest',
                './handle-hardware-selection.pdf', './bypass-door-overlap-guide.pdf',
                './bifold-door-fit-guide.pdf', './handle-hardware-selection.png',
                './bypass-door-overlap-guide.png', './bifold-door-fit-guide.png',
-               './pdf-lib-1.17.1.min.js',
+               './pdf-lib-1.17.1.min.js', './pdfjs-3.11.174.min.js', './pdfjs-worker-3.11.174.min.js',
                './1-lite-clear.jpg',
                './1-lite-double-sided-mirror.jpg',
                './1-lite-laundry.jpg',

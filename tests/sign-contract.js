@@ -121,14 +121,34 @@ const check = (name, ok, got) => {
   const head0 = await page.locator('.signpad').innerText();
   await page.click('[data-sp="next"]'); await page.waitForTimeout(100);
   check('an empty field cannot be skipped', await page.locator('.signpad').innerText() === head0);
+  const seen = {};
   for(let k = 0; k < fields.length; k++){
     const c = await page.$('.signpad canvas'); if(!c) break;
+    // 2.27: the page being signed shows above the pad, its place marked
+    const id = fields[k], look = k === 0 || id === 'ini-2' || id === 'ini-3' || id === 'contract' || id === 'doors' || id.startsWith('form-');
+    if(look){
+      await page.waitForSelector('.sp-spot.on', {timeout:20000}).catch(() => {});
+      seen[id] = await page.evaluate(() => { const s = document.querySelector('.sp-spot.on'), d = document.querySelector('.sp-doc');
+        if(!s) return null; const r = s.getBoundingClientRect(), b = d.getBoundingClientRect();
+        return {pages:document.querySelectorAll('.sp-page img').length, inView:r.top >= b.top - 2 && r.bottom <= b.bottom + 2,
+                done:document.querySelectorAll('.sp-spot.done').length}; });
+    }
     const b = await c.boundingBox();
     await page.mouse.move(b.x + b.width * .2, b.y + b.height * .6); await page.mouse.down();
     for(let i = 1; i <= 12; i++) await page.mouse.move(b.x + b.width * (.2 + i * .05), b.y + b.height * (.6 - .25 * Math.sin(i / 2)));
     await page.mouse.up();
+    if(look){
+      seen[id].live = await page.evaluate(() => (document.querySelector('.sp-spot.on path') || {getAttribute(){return ''}}).getAttribute('d').length);
+      if(process.env.SHOT) await page.screenshot({path:process.env.SHOT.replace('.png', '-' + id + '.png')});
+    }
     await page.click('[data-sp="next"]'); await page.waitForTimeout(60);
   }
+  const lookIds = Object.keys(seen);
+  check('each step shows its page with the place marked and in view',
+    lookIds.length >= 4 && lookIds.every(i => seen[i] && seen[i].pages >= 1 && seen[i].inView), seen);
+  check('what is drawn on the pad shows on the page', lookIds.every(i => seen[i] && seen[i].live > 20), seen);
+  check('the second initial shows the first one already in its place', seen['ini-3'] && seen['ini-3'].done >= 1, seen);
+  check('the contract step shows every order page', seen.contract && seen.contract.pages >= 1, seen);
   await page.waitForTimeout(2500);
   const s = await page.evaluate(() => ({ok:signedOk(state.job), n:Object.keys(state.job.signed.marks).length,
     name:state.job.signed.name, banner:!!document.querySelector('.rv-signed')}));

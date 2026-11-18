@@ -83,8 +83,16 @@ const pdftext = file => { try{ return require('child_process').execFileSync('pdf
   check('no room or opening names on the door page', !/Foyer|Bath\b|Pantry|Closet\b|Office|\bDen\b/.test(doorText), doorText.slice(0, 300));
   const pair = await page.evaluate(() => { const j = JSON.parse(JSON.stringify(state.job));
     j.openings[0].options[0].v.handleStyle = 'C - Northbrook Century'; return handlePicks(j)[0]; });
-  check('a pair Schlage has no photo of shows the handle and the rose side by side', !!pair.rosePhoto &&
-    /nbk622/.test(pair.photo) && /622-cen/.test(pair.rosePhoto), pair);
+  check('a pair Schlage has no photo of shows the handle and the rose on its own side by side', !!pair.rosePhoto &&
+    /nbk622/.test(pair.photo) && pair.rosePhoto === 'rose-century-622.jpg', pair);
+  // 2.27: every rose on its own exists in every finish, and every pair with no photo gets one
+  const roseGaps = await page.evaluate(() => { const out = [];
+    Object.keys(HANDLE_PHOTOS).forEach(st => Object.keys(HANDLE_PHOTOS[st].f).forEach(c => {
+      const ph = HANDLE_PHOTOS[st].f[c]; if(!ph[1]) return;
+      const r = rosePhotoOf(handleInfo(st), ph[2] || c); out.push([st, c, r]); })); return out; });
+  const missingRose = roseGaps.filter(([s, c, r]) => !r || !fs.existsSync(path.join(DIR, r)));
+  check('every pair with no Schlage photo has its rose on its own (' + roseGaps.length + ' pairs)',
+    roseGaps.length > 400 && missingRose.length === 0, missingRose.slice(0, 5));
   check('the page title names the handles', await page.evaluate(() => document.querySelector('.print-doors h2').textContent) === 'Your door and handle selections');
 
   // 8 door styles and 5 handles still fit one sheet
