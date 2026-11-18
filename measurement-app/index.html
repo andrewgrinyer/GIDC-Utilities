@@ -1373,9 +1373,8 @@ const SUPPLIER_LINES = {
              solidOnly:true, thinOnly:true, grid:{over:30, say:'15 lite is the usual grid at 2\'8" and wider'}},
   lite15:   {name:'Trimlite glass, 15 lite', glass:true, heights:{80:[28,30,32,34,36], 84:[28,30,32,34,36]},
              solidOnly:true, thinOnly:true, grid:{under:32, say:'10 lite is the usual grid at 2\'6" and narrower'},
-             /* Andrew 18 Nov priced 7'0" 15 lite at $708, but his supplier
-                reference says it is not stocked: flag it to confirm */
-             check:{84:'15 lite at 7\'0" is priced but the supplier reference says not stocked, confirm with Trimlite'}},
+             /* Andrew 18 Nov: 7'0" 15 lite is special order, at $708 */
+             noTall:'15 lite at 7\'0" is special order ($708 on the price list)'},
 };
 /* Styles by line, from Andrew's reference of 17 Nov (second version).
    "Deman" in the app is Lynden's Denman. Flat Slab is a slab, so flush. */
@@ -3128,6 +3127,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.6 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.7 · 18 Nov 2026</div>
 </body>
 </html>
