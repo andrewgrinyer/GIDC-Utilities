@@ -46,7 +46,7 @@ const server = http.createServer(async (q, r) => {
   const page = await browser.newPage({viewport:{width:820, height:1180}, hasTouch:true});
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(origin + '/'); await page.waitForTimeout(400);
+  await page.goto(origin + '/'); await page.evaluate(() => { const nj = newJob; window.newJob = () => { const j = nj(); delete j.sizing; j.openings.forEach(o => { delete o.openW; delete o.openH; }); return j; }; }); /* 2.31: these jobs are entered the old way */ await page.waitForTimeout(400);
   await page.evaluate(() => {
     state.me = {name:'Sam Rep', role:'sales'};
     state.job = newJob(); state.job.customer = 'Slow';

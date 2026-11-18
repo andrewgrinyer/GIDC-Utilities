@@ -39,7 +39,12 @@ const CASES = [
   ['Masonite 7\'0" other style', 'Single Swing', '1.375 Hollow', 'Cheyenne', 30, 84, 1, 'so', 'not offered at 7\'0"'],
   ['Masonite 8\'0" hollow', 'Single Swing', '1.375 Hollow', 'Winslow', 30, 96, 1, 'so', 'solid core'],
   ['Masonite 8\'0" solid', 'Single Swing', '1.375 Solid', 'Winslow', 30, 96, 1, 'check', 'select styles'],
-  ['Masonite bifold 48', 'Bifold', '1.375 Hollow', 'Cheyenne', 48, 80, 2, 'so'],
+  ['Masonite bifold 48 (Andrew 18 Nov: 24 to 72)', 'Bifold', '1.375 Hollow', 'Cheyenne', 48, 80, 2, 'ok'],
+  ['Masonite bifold 40: next unit is 48', 'Bifold', '1.375 Hollow', 'Cheyenne', 40, 80, 2, 'ok'],
+  ['Flush bifold 80 wide', 'Bifold', '1.375 Hollow', 'Flush', 80, 80, 2, 'so'],
+  ['Bypass 120 on 4 panels', 'Bypass', '1.375 Hollow', 'Kingston', 120, 80, 4, 'ok'],
+  ['Bypass 96 on 2 panels: each 48', 'Bypass', '1.375 Hollow', 'Kingston', 96, 80, 2, 'so', 'Use 3 panels'],
+  ['Bypass 150: over 144', 'Bypass', '1.375 Hollow', 'Kingston', 150, 80, 4, 'so', 'up to 144'],
   ['Masonite 1 3/4"', 'Single Swing', '1.75 Thick', 'Berkley', 30, 80, 1, 'check', '1 3/4'],
   ['Flush 46 wide', 'Single Swing', '1.375 Hollow', 'Flush', 46, 80, 1, 'ok'],
   ['Flush 50 wide', 'Single Swing', '1.375 Hollow', 'Flush', 50, 80, 1, 'so', '4\'0"'],
@@ -47,14 +52,15 @@ const CASES = [
   ['Fineline 30 x 96', 'Single Swing', '1.375 Hollow', 'Ballard', 30, 96, 1, 'ok'],
   ['Fineline 50 wide', 'Single Swing', '1.375 Hollow', 'Granville', 50, 80, 1, 'so', '4\'0"'],
   ['Fineline Ballard bifold: not made', 'Bifold', '1.375 Hollow', 'Ballard', 30, 80, 1, 'so', 'does not come as a bifold'],
-  ['Fineline Robson bifold 48', 'Bifold', '1.375 Hollow', 'Robson', 48, 80, 2, 'check', 'Fineline bifold sizes'],
+  ['Fineline Robson bifold 48', 'Bifold', '1.375 Hollow', 'Robson', 48, 80, 2, 'ok'],
   ['Flat Slab is flush', 'Single Swing', '1.375 Hollow', 'Flat Slab', 46, 96, 1, 'ok'],
   ['VanAir follows its host', 'Single Swing', '1.375 Hollow', 'Van Air Ventilated', 30, 80, 1, 'check', 'built into'],
   ['Arch Top 30 x 80', 'Single Swing', '1.375 Hollow', '2 Panel Arch Top', 30, 80, 1, 'ok'],
   ['Arch Top at 7\'0"', 'Single Swing', '1.375 Hollow', '2 Panel Arch Top', 30, 84, 1, 'so', 'not stocked at 7\'0"'],
   ['Louver 1 3/4"', 'Single Swing', '1.75 Thick', 'Plantation Louver', 30, 80, 1, 'so', '1 3/8'],
-  ['4 lite 30: supplier to confirm', 'Single Swing', '1.375 Glass', '4 Lite Clear', 30, 80, 1, 'check', 'still to be confirmed'],
-  ['4 lite 20: glass not cut down', 'Single Swing', '1.375 Glass', '4 Lite Privacy', 20, 80, 1, 'so', 'not cut down'],
+  ['4 lite 30: Trimlite', 'Single Swing', '1.375 Glass', '4 Lite Clear', 30, 80, 1, 'ok'],
+  ['4 lite hollow: Trimlite is solid only', 'Single Swing', '1.375 Hollow', '4 Lite Clear', 30, 80, 1, 'so', 'solid core only'],
+  ['4 lite 16: glass not cut down', 'Single Swing', '1.375 Glass', '4 Lite Privacy', 16, 80, 1, 'so', 'not cut down'],
   ['Jeld-Wen 30 x 96', 'Single Swing', '1.375 Hollow', 'Monroe Smooth', 30, 96, 1, 'ok'],
   ['Jeld-Wen 40 wide', 'Single Swing', '1.375 Hollow', 'Camden Textured', 40, 80, 1, 'so', '3\'0"'],
   ['Trimlite shaker solid 30 x 84', 'Single Swing', '1.375 Solid', '2 Panel True Shaker', 30, 84, 1, 'ok'],
@@ -95,7 +101,7 @@ const check = (name, ok, got) => {
   const page = await browser.newPage({viewport:{width:1280, height:900}});
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(url); await page.waitForTimeout(300);
+  await page.goto(url); await page.evaluate(() => { const nj = newJob; window.newJob = () => { const j = nj(); delete j.sizing; j.openings.forEach(o => { delete o.openW; delete o.openH; }); return j; }; }); /* 2.31: these jobs are entered the old way */ await page.waitForTimeout(300);
 
   const got = await page.evaluate(cases => cases.map(([what, type, prod, style, w, h, q]) => {
     const op = newOpening(1); op.width = String(w); op.height = h; op.qty = q;

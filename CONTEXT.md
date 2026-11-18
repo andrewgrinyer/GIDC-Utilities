@@ -203,6 +203,19 @@ astragal. A double swing with a value above zero in the astragal field
 gets a T astragal. Doors with no price in the hollow section of the list
 only come in solid and are not charged for re railing.
 
+**Measurement app door opening sizes (2.31).** A job has `sizing: 2` and
+its openings carry `openW`/`openH` (the actual opening) only if it was
+started on 2.31 or later; `sized(op)` is just "has an openW key". Those
+openings get their door from `openPlan` (dealer portal deductions, reveal
+3/32 and floor gap 1/2 unless `job.reveal`/`job.floorGap`), the blank
+limited to the style's `SUPPLIER_LINES` sizes, and `syncPlans` writes the
+result into `op.width`/`op.height` and re-rail/re-stile (unless set by
+hand). Swing doors put the blank on the workbook (pair total on a double);
+other types put the measured opening width and the blank height. Older
+jobs are untouched. Andrew 18 Nov: 4 lite and 3 Panel Shaker (T-Shape) are
+Trimlite; bifolds 24, 30, 36, 48, 60, 72 for every line; bypass panel at
+most 36, opening at most 144.
+
 **PostgREST quirks.** A PATCH matching zero rows returns 200 with `[]`,
 not an error, which hid two silent failures. An RPC without
 `headers(true)` resolves to a zero argument function and 404s. Run

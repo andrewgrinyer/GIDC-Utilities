@@ -38,7 +38,7 @@ const pdftext = file => { try{ return require('child_process').execFileSync('pdf
   const page = await browser.newPage({viewport:{width:1280, height:900}});
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(url); await page.waitForTimeout(300);
+  await page.goto(url); await page.evaluate(() => { const nj = newJob; window.newJob = () => { const j = nj(); delete j.sizing; j.openings.forEach(o => { delete o.openW; delete o.openH; }); return j; }; }); /* 2.31: these jobs are entered the old way */ await page.waitForTimeout(300);
 
   // every style and finish has a photo on disk
   const all = await page.evaluate(() => {

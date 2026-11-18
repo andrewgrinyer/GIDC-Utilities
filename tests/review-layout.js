@@ -38,7 +38,7 @@ const check = (name, ok, got) => {
   const page = await browser.newPage({viewport:{width:1280, height:900}, deviceScaleFactor:1});
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(url);
+  await page.goto(url); await page.evaluate(() => { const nj = newJob; window.newJob = () => { const j = nj(); delete j.sizing; j.openings.forEach(o => { delete o.openW; delete o.openH; }); return j; }; }); /* 2.31: these jobs are entered the old way */
   await page.waitForTimeout(300);
 
   // a job a rep could really have measured
@@ -91,7 +91,7 @@ const check = (name, ok, got) => {
   }
 
   // a special order door stays red on both of its lines
-  await page.evaluate(() => { const v = state.job.openings[1].options[0].v; v.doorStyle = 'Riverside';
+  await page.evaluate(() => { const v = state.job.openings[1].options[0].v; v.doorStyle = '1 Panel True Shaker';
     v.productType = '1.75 Thick'; calcJob(state.job); render(); });
   await page.waitForTimeout(200);
   const red = await page.$$eval('table.rv-two tbody tr', t => t.slice(0, 4).map(x =>

@@ -70,7 +70,7 @@ const server = http.createServer(async (q, r) => {
   // 1. the associate sends it
   const rep = await browser.newPage({viewport:{width:1280, height:900}});
   rep.on('pageerror', e => errors.push('rep: ' + e.message));
-  await rep.goto(origin + '/'); await rep.waitForTimeout(400);
+  await rep.goto(origin + '/'); await rep.evaluate(() => { const nj = newJob; window.newJob = () => { const j = nj(); delete j.sizing; j.openings.forEach(o => { delete o.openW; delete o.openH; }); return j; }; }); /* 2.31: these jobs are entered the old way */ await rep.waitForTimeout(400);
   await rep.evaluate(() => {
     state.me = {name:'Sam Rep', role:'sales'};
     const j = newJob(); Object.assign(j, {customer:'Jane Sample', address:'12 Main St', city:'Cambridge', phone:'519 555 1234',

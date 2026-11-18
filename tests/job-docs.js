@@ -39,7 +39,7 @@ const check = (name, ok, got) => {
   const page = await browser.newPage({viewport:{width:1280, height:900}, acceptDownloads:true});
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
-  await page.goto(url);
+  await page.goto(url); await page.evaluate(() => { const nj = newJob; window.newJob = () => { const j = nj(); delete j.sizing; j.openings.forEach(o => { delete o.openW; delete o.openH; }); return j; }; }); /* 2.31: these jobs are entered the old way */
   await page.waitForTimeout(300);
 
   const setJob = (lines) => page.evaluate(lines => {

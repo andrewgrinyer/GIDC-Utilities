@@ -367,6 +367,9 @@ table.pw > tbody > tr > td, table.pw > tfoot > tr > td{padding:0;border:0;vertic
 .chip, .padbox{touch-action:manipulation}
 .padbox{width:100%;min-height:48px;border:1px dashed var(--rule);border-radius:9px;background:var(--card);
   font:inherit;font-size:15px;color:var(--muted);text-align:left;padding:0 12px;cursor:pointer}
+.open-sz{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.plan{margin:6px 0;padding:8px 10px;border-radius:9px;background:#EEF6EE;border:1px solid #9CC79C;font-size:13px}
+.plan.plan-so{background:#FDECEC;border-color:#E0A0A0;color:#8A1010}
 .padbox.set{border-style:solid;border-color:var(--brass);color:var(--ink);font-weight:600}
 
 /* the number pad: nearly the whole screen */
@@ -1387,7 +1390,7 @@ async function contractPdf(job, opts){
   const scaleW = (LW - 56) / COLS.reduce((a, c) => a + c[1], 0);
   const cell = (ln, i) => { const {op, o} = ln, row = PAGE_ROWS[i], v = o.v;
     const base = [op.number, op.location, op.qty, v.doorType, styleName(v.doorStyle || ''), v.productType,
-      op.height, op.width, v.jamb, v.handleType, v.handleStyle, v.hwColour, v.paintColour, v.install];
+      lineSize(op, ln.o).height, lineSize(op, ln.o).width, v.jamb, v.handleType, v.handleStyle, v.hwColour, v.paintColour, v.install];
     return base.concat(prices ? [money(cv('R' + row)), money(cv('T' + row)), money(cv('U' + row))] : []).map(x => x == null ? '' : String(x)); };
   let li = 0, pageNo = 0;
   do {
@@ -1754,7 +1757,7 @@ function renderRemote(){
         '<th' + (i >= 9 ? ' class="num"' : '') + '>' + c + '</th>').join('') + '</tr></thead><tbody>' +
       lines.map((l, i) => { const v = l.o.v, row = PAGE_ROWS[i];
         return '<tr><td>' + esc(l.op.number) + '</td><td>' + esc(l.op.location || '') + '</td><td>' + esc(l.op.qty || 1) + '</td><td>' +
-          esc(v.doorType || '') + '</td><td>' + esc(styleName(v.doorStyle || '')) + '</td><td>' + esc((l.op.width || '') + ' x ' + (l.op.height || '')) +
+          esc(v.doorType || '') + '</td><td>' + esc(styleName(v.doorStyle || '')) + '</td><td>' + esc((lineSize(l.op, l.o).width || '') + ' x ' + (lineSize(l.op, l.o).height || '')) +
           '</td><td>' + esc([v.handleType, v.handleStyle].filter(x => x && x !== 'N/A').join(', ')) + '</td><td>' + esc(v.hwColour || '') +
           '</td><td>' + esc(v.paintColour || '') + '</td><td class="num">' + esc(money(cv('T' + row))) + '</td><td class="num">' +
           esc(money(cv('U' + row))) + '</td></tr>'; }).join('') + '</tbody></table></div>';
@@ -1916,7 +1919,7 @@ function quoteType(op){
   return (on && on.v.doorType) || (any && any.v.doorType) || op.existingType || '';
 }
 const isBifold = op => BIFOLD_TYPES.indexOf(quoteType(op)) >= 0;
-const widthNum = op => { const w = parseFloat(op.width); return isNaN(w) ? 0 : w; };
+const widthNum = op => { const w = parseFloat(sized(op) ? op.openW : op.width); return isNaN(w) ? 0 : w; };
 /* {fixed, why} when the type settles it, {choices, why} when the rep picks
    from a short list, null when it is typed in freely. */
 function qtyRule(op){
@@ -1944,17 +1947,163 @@ function applyQtyRule(op){
 /* A size typed in (the box or the pad). Refuses a bifold over the limit;
    a height that is not a range lets go of a re-rail the range had set. */
 function setOpeningSize(op, f, val){
-  if(f === 'width' && isBifold(op) && parseFloat(val) > BIFOLD_MAX){
+  if((f === 'width' || f === 'openW') && isBifold(op) && parseFloat(val) > BIFOLD_MAX){
     toast('A bifold wider than ' + BIFOLD_MAX + '" is not available');
     return false;
   }
   op[f] = val;
-  if(f === 'width') applyQtyRule(op);
+  if(f === 'width' || f === 'openW') applyQtyRule(op);
   if(f === 'height' && !needsReRail(op)) op.options.forEach(o => {
     if(o.v.reRail === 'YES' && !o.reRailByHand) o.v.reRail = '';
   });
   return true;
 }
+/* DOOR OPENING SIZES (2.31, Andrew 18 Nov)
+ *
+ * A job started on this version is measured by its door opening: the
+ * actual opening, side jamb to side jamb and floor to the underside of the
+ * head jamb (op.openW, op.openH). The door is then worked out from it with
+ * the dealer portal's own rules, re-rail and re-stile are set to match, and
+ * the blank is only ever a size the supplier makes for that style (the
+ * SUPPLIER_LINES table of 17 Nov). Jobs from before keep their width and
+ * height exactly as they were entered (their openings have no openW).
+ *
+ *   swing      the door is cut to the opening less a reveal each side and at
+ *              the top and less the floor gap; a pair also leaves a reveal
+ *              where the doors meet and shares the rest. The workbook gets
+ *              the blank (the pair's total width for a double).
+ *   others     the portal's deductions: bifold height less 1 1/2 (premium
+ *              2 1/2), width less 1/2 on one unit or 3/4 on each of a pair,
+ *              blanks 24, 30, 36 per unit; bypass height less 2 1/2, each
+ *              panel the opening shared by the panels, never re-stiled;
+ *              pivot as a bifold on width, less 2 1/2 on height; pocket and
+ *              barn the opening as it is, shared by the doors. The workbook
+ *              gets the opening width as measured and the blank height.
+ *   re-rail    more than 1" off the bottom of the blank
+ *   re-stile   swing: 0.7" or more off the width (0.4" on a shaker style);
+ *              bifold, pivot, pocket, barn: more than 1" per door
+ *              never on a door that is not hollow core: solid, 1 3/4, stile
+ *              and rail, glass, louver, GDL (the portal's rule of 15 Oct)
+ *
+ * Reveal 3/32" and floor gap 1/2" unless the job says otherwise
+ * (job.reveal, job.floorGap). A re-rail or re-stile set by hand stays. */
+const SIZING = 2;
+const REVEAL = 0.094, FLOOR_GAP = 0.5, CUT_TOL = 0.02;
+const PORTAL_W = [12,14,16,18,20,22,24,26,28,30,32,34,36], PORTAL_BIFOLD_W = [24,30,36];
+const PORTAL_H = [80,84,90,96];
+const SHAKER_NAMES = ['1 panel true shaker','2 panel true shaker','3 panel equal shaker','3 panel shaker (t-shape)',
+  '4 panel true shaker','5 panel true shaker'];
+const STILE_RAIL_RE = /shaker|\blite\b|mirror|louver|ventilated|glissade/i;
+const sized = op => !!op && op.openW !== undefined;
+const r4 = v => Math.round(v * 10000) / 10000;
+const numOr = (v, d) => { const n = parseFloat(v); return isNaN(n) ? d : n; };
+const isStileRailDoor = o => STILE_RAIL_RE.test(o.v.doorStyle || '');
+const hollowCore = o => !/1\.75|thick|solid|stile|rail|glass|gdl/i.test(o.v.productType || '') && !isStileRailDoor(o);
+/* the widths a blank can be, per door, at one height: the portal's list cut
+   down to what the style's supplier makes */
+function blankWidths(L, h, base){
+  if(!L) return base;
+  const at = L.heights[h];
+  if(!at) return [];
+  if(Array.isArray(at)) return base.filter(w => at.indexOf(w) >= 0);
+  return base.filter(w => w <= at.upto + 0.01 && (!at.from || w >= at.from - 0.01));
+}
+function openPlan(op, o){
+  if(!sized(op)) return null;
+  const t = o.v.doorType || quoteType(op), W = parseFloat(op.openW), H = parseFloat(op.openH);
+  if(!t || !(W > 0) || !(H > 0)) return null;
+  const job = state.job || {}, rv = numOr(job.reveal, REVEAL), gap = numOr(job.floorGap, FLOOR_GAP);
+  const q = Math.max(1, Number(op.qty) || 1), style = o.v.doorStyle || '';
+  const key = STYLE_LINE[style], L = key && !isGdlLine(o, t) ? SUPPLIER_LINES[key] : null;
+  const swing = /swing/i.test(t), bifold = BIFOLD_TYPES.indexOf(t) >= 0, bypass = /bypass/i.test(t),
+        pivot = /pivot/i.test(t), dblPivot = t === 'Double Pivot';
+  const P = {type:t, swing, W, H, line:L ? L.name : '', notes:[]};
+  let per, finW, finH, list = PORTAL_W, limit;
+  if(swing){
+    per = DOUBLE_TYPES.indexOf(t) >= 0 ? 2 : 1;
+    finW = (W - 2 * rv - (per - 1) * rv) / per; finH = H - rv - gap;
+    limit = SHAKER_NAMES.indexOf(style.toLowerCase()) >= 0 ? 0.4 : 0.7;
+  } else if(bifold){
+    per = q;                                   // one unit, or a pair of units
+    finW = q <= 1 ? W - 0.5 : W / q - 0.75; finH = H - (t === 'Premium Bifold' ? 2.5 : 1.5);
+    list = PORTAL_BIFOLD_W; limit = 1;
+    // where the supplier lists its bifold units, only those (a pair is twice the unit)
+    if(L) list = list.filter(w => (L.bifold || {80:BIFOLD_UNITS})[80].indexOf(w * per) >= 0);
+  } else if(bypass){
+    per = Math.max(2, q); finW = W / per; finH = H - 2.5; limit = null;
+    if(W > BYPASS_OPEN_MAX + 0.01){ P.per = per; P.so = 'bypass openings go up to ' + BYPASS_OPEN_MAX + '"'; return P; }
+    if(finW > BYPASS_PANEL_MAX + CUT_TOL){
+      P.per = per; P.so = 'each bypass panel would be ' + sizeText(r4(finW)) + '", over the ' + BYPASS_PANEL_MAX + '" most' +
+        (per < 4 ? '. Use ' + Math.ceil(W / BYPASS_PANEL_MAX) + ' panels' : '');
+      return P;
+    }
+  } else if(pivot){
+    per = dblPivot ? 2 : 1; finW = dblPivot ? W / 2 - 0.75 : W - 0.5; finH = H - 2.5; limit = 1;
+  } else {                                     // pocket, barn
+    per = q; finW = W / q; finH = H; limit = 1;
+  }
+  P.per = per; P.finW = r4(finW); P.finH = r4(finH);
+  // the height first: the smallest the supplier makes at or above the door
+  const hs = PORTAL_H.filter(h => (h !== 90 || isStileRailDoor(o)) &&
+    (!L || (bifold ? (L.bifold || {80:BIFOLD_UNITS})[h] : L.heights[h])));
+  const bH = hs.find(h => h >= finH - CUT_TOL);
+  if(bH === undefined){
+    P.so = 'no ' + (L ? L.name : 'stock') + ' door is tall enough: it has to be ' + sizeText(r4(finH)) + '"' +
+      (hs.length ? ' and the tallest is ' + ftin(hs[hs.length - 1]) : '');
+    return P;
+  }
+  const ws = bifold ? list : blankWidths(L, bH, list);
+  const bW = ws.find(w => w >= finW - CUT_TOL);
+  P.blankH = bH;
+  if(bW === undefined){
+    P.so = 'no ' + (L ? L.name : 'stock') + ' door is wide enough at ' + ftin(bH) + ': each door has to be ' + sizeText(r4(finW)) +
+      '"' + (ws.length ? ' and the widest is ' + ftin(ws[ws.length - 1]) : '');
+    return P;
+  }
+  P.blankW = bW;
+  P.offH = r4(bH - finH); P.offW = r4(bW - finW);
+  const hollow = hollowCore(o);
+  P.reRail = hollow && P.offH > 1 + CUT_TOL;
+  P.reStile = hollow && limit != null && (swing ? P.offW >= limit - 1e-6 : P.offW > limit + CUT_TOL);
+  if(!hollow) P.notes.push('not hollow core, so never re-railed or re-stiled');
+  // what goes on the workbook
+  P.exportW = swing ? bW * per : Math.round(W * 8) / 8;
+  P.exportH = bH;
+  return P;
+}
+// the width and height one line takes onto the workbook
+function lineSize(op, o){
+  const P = openPlan(op, o);
+  if(P && P.blankW) return {width:P.exportW, height:P.exportH, plan:P};
+  if(sized(op)) return {width:'', height:'', plan:P};
+  return {width:op.width, height:op.height, plan:P};
+}
+/* keep every option's re-rail and re-stile, and the opening's width and
+   height (which older code reads), in step with the opening */
+function syncPlans(job){
+  ((job && job.openings) || []).forEach(op => {
+    if(!sized(op)) return;
+    op.options.forEach(o => {
+      const P = openPlan(op, o);
+      if(!P || !P.blankW) return;
+      if(!o.reRailByHand) o.v.reRail = P.reRail ? 'YES' : 'NO';
+      if(!o.reStileByHand) o.v.reStile = P.reStile ? 'YES' : 'NO';
+    });
+    const tgt = op.options.find(o => o.include && o.v.doorType) || op.options.find(o => o.v.doorType) || op.options[0];
+    const z = tgt ? lineSize(op, tgt) : {width:'', height:''};
+    op.width = z.width; op.height = z.height;
+  });
+}
+// one line of words for the card and the review
+function planText(P){
+  if(!P) return '';
+  if(P.so) return 'Special order: ' + P.so + '.';
+  const each = P.per > 1 ? P.per + ' doors, each ' : 'Door ';
+  return each + ftin(P.blankW) + ' x ' + ftin(P.blankH) + ' (' + P.blankW + ' x ' + P.blankH + '), cut to ' +
+    sizeText(P.finW) + ' x ' + sizeText(P.finH) + '. Re-rail ' + (P.reRail ? 'yes' : 'no') + ', re-stile ' +
+    (P.reStile ? 'yes' : 'no') + (P.notes.length ? ' (' + P.notes.join('; ') + ')' : '') + '.';
+}
+
 /* 32.5 shows as 32 1/2: tapes read in eighths */
 function sizeText(v){
   const n = parseFloat(v);
@@ -1970,7 +2119,10 @@ const isGlass = o => o.v.productType === '1.375 Glass' || /\blite\b/i.test(o.v.d
 const narrowGlass = op => { const w = widthNum(op);
   return w > 0 && w < 24 && op.options.some(o => o.include && isGlass(o)); };
 const BIFOLD_WIDTHS = WIDTHS.concat(WIDTHS_DOUBLE.filter(w => w > BIFOLD_ONE));
-const widthsFor = op => isDouble(op) ? WIDTHS_DOUBLE : (isBifold(op) ? BIFOLD_WIDTHS : WIDTHS);
+// bypass openings run up to 144 (Andrew 18 Nov), so the ladder goes past 36
+const BYPASS_WIDTHS = [36,42,48,54,60,66,72,84,96,108,120,132,144];
+const widthsFor = op => isDouble(op) ? WIDTHS_DOUBLE : isBifold(op) ? BIFOLD_WIDTHS
+  : BYPASS_TYPES.indexOf(quoteType(op)) >= 0 ? BYPASS_WIDTHS : WIDTHS;
 
 /* Door type and opening size belong to the OPENING, not to an option: the hole
    in the wall is one size, and the door in it today is one door. Each door type
@@ -2364,15 +2516,18 @@ function newOption(defaults){
   if(defaults) DEFAULT_FIELDS.forEach(f => { if(defaults[f.k]) o.v[f.k] = defaults[f.k]; });
   return o;
 }
-function newOpening(n, defaults){
+function newOpening(n, defaults, job){
   // always carries at least one option, so style, colour and hardware are there
   // from the start rather than appearing only once a second door type is ticked
-  return {id:uid(), number:n, location:'', qty:1, existingType:'',
+  const op = {id:uid(), number:n, location:'', qty:1, existingType:'',
           height:'', width:'', options:[newOption(defaults)]};
+  // 2.31: a job started on this version is measured by its door opening
+  if(job && job.sizing === SIZING){ op.openW = ''; op.openH = ''; }
+  return op;
 }
 function newJob(){
   const j = {id:uid(), owner:(state.me && state.me.name) || '', created:Date.now(),
-             updated:Date.now(), defaults:{}, openings:[newOpening(1)],
+             updated:Date.now(), defaults:{}, sizing:SIZING, openings:[newOpening(1, null, {sizing:SIZING})],
              // "Special Materials and Rework", rows 55 to 57 of the contract:
              // three free-text lines with their own price and quantity
              materials:[{desc:'',price:'',qty:''},{desc:'',price:'',qty:''},
@@ -2406,6 +2561,9 @@ function missing(job){
     }
     if(bifoldTooWide(op))
       out.push('Opening ' + op.number + ': bifold over ' + BIFOLD_MAX + '" is not available');
+    // 2.31: a job measured by its door opening needs both
+    if(sized(op) && on.length && (!op.openW || !op.openH))
+      out.push('Opening ' + op.number + ': door opening ' + (!op.openW ? 'width' : 'height'));
     const r = qtyRule(op);
     if(r && r.choices && r.choices.indexOf(Number(op.qty)) < 0)
       out.push('Opening ' + op.number + ': pick the quantity (' + r.choices.join(', ') + ')');
@@ -2552,6 +2710,7 @@ function clearCell(xml, ref){
    Each entry is [cell, value]: a number, a piece of text, '' to empty the
    cell, or null to leave the template's own content alone. */
 function sheetInputs(job){
+  if(state.view !== 'remote') syncPlans(job);
   const out = [];
   Object.keys(HEADMAP).forEach(k => out.push([HEADMAP[k], job[k] ? String(job[k]) : null]));
 
@@ -2577,9 +2736,10 @@ function sheetInputs(job){
     out.push(['B' + row, String(op.location || '')]);
     out.push(['C' + row, Number(op.qty || 1)]);
     // height and width live on the opening now
+    const ls = lineSize(op, o);              // 2.31: worked out from the door opening
     ['height','width'].forEach(k => {
       // a range height is written as the next standard size up
-      const v = (k === 'height') ? exportHeight(op[k]) : op[k];
+      const v = (k === 'height') ? exportHeight(ls[k]) : ls[k];
       if(v === '' || v == null) out.push([COLMAP[k] + row, '']);
       else out.push([COLMAP[k] + row, isNaN(v) ? String(v) : Number(v)]);
     });
@@ -2856,25 +3016,28 @@ const W_MAS_SP  = [18,24,28,30,32,34,36];               // Masonite specialty ro
 /* A list is the stock widths. {upto:n} is any width up to n (the door is
    made to size), with {from:m} where the reference gives a smallest. */
 const UPTO48 = {upto:48}, UPTO36 = {upto:36, from:12};
+/* Andrew 18 Nov: bifolds come 24, 30, 36, 48, 60, 72 (a 48 and up is a pair
+   of units). Bypass panels are at most 36 wide on an opening up to 144. */
+const BIFOLD_UNITS = [24,30,36,48,60,72];
+const BYPASS_PANEL_MAX = 36, BYPASS_OPEN_MAX = 144;
 const SUPPLIER_LINES = {
   lynden:   {name:'Lynden molded panel', heights:{80:W_LYNDEN, 84:W_LYNDEN, 96:W_LYN_8},
              check:{96:'8\'0" is model dependent, check with Lynden'},
-             bifold:{80:[24,30,36,48,60,72]}},
+             bifold:{80:BIFOLD_UNITS}},
   flush:    {name:'Lynden flush', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48}},
   fineline: {name:'Lynden Fineline', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48},
              wideCheck:36, wideWhy:'Fineline over 3\'0" is select profiles only, up to 4\'0"',
              bifoldStyles:['Robson','Deman','MontLake'],
-             bifold:{80:[24,30,36,48,60,72]},
-             bifoldWhy:'Fineline bifold sizes are not on the reference; taken as the Lynden molded bifold sizes'},
+             bifold:{80:BIFOLD_UNITS}},
   vanair:   {name:'Lynden VanAir', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48},
              always:'VanAir sizes follow the Lynden style it is built into; check with Lynden'},
   masonite: {name:'Masonite molded panel', heights:{80:W_MASON, 84:W_MASON, 96:W_MASON},
              tall84:['2 Panel Square','2 Panel Roman Smooth','Livingston','Lincoln Park'],
-             bifold:{80:[24,28,30,32,36]}, thickCheck:'1 3/4" is select Masonite styles only'},
+             bifold:{80:BIFOLD_UNITS}, thickCheck:'1 3/4" is select Masonite styles only'},
   archtop:  {name:'Masonite 2 Panel Arch Top', heights:{80:W_MAS_SP}},
   louver:   {name:'Masonite Plantation Louver', heights:{80:W_MAS_SP}, thinOnly:true},
-  lite4:    {name:'Masonite 4 lite', glass:true, heights:{80:[24,26,28,30,32,34,36]}, thinOnly:true,
-             always:'Supplier for 4 lite is still to be confirmed on the price list'},
+  /* Andrew 18 Nov: 4 lite is Trimlite, and so is 3 Panel Shaker (T-Shape) */
+  lite4:    {name:'Trimlite glass, 4 lite',  glass:true, heights:{80:W_TRIM, 84:W_TRIM}, solidOnly:true, thinOnly:true},
   jeldwen:  {name:'Jeld-Wen moulded panel', heights:{80:UPTO36, 84:UPTO36, 96:UPTO36}},
   shaker:   {name:'Trimlite shaker', heights:{80:W_TRIM, 84:W_TRIM, 96:W_TRIM},
              solidOnly:true, thinOnly:true},
@@ -2935,7 +3098,7 @@ function sizeCheck(op, o, msrp){
   const ck = w => { if(res.status === 'ok') res.status = 'check'; res.why.push(w); };
   if(style && isGdlLine(o, type)){
     res.line = 'GDL price list';
-    const w = parseFloat(op.width), hNeed = parseFloat(exportHeight(op.height));
+    const ls = lineSize(op, o), w = parseFloat(ls.width), hNeed = parseFloat(exportHeight(ls.height));
     if(!(w > 0) || !(hNeed > 0)){ res.status = 'none'; res.why.push('Width and height needed first'); return res; }
     if(msrp === undefined){ res.status = 'none'; res.why.push('GDL sizes come from the price list, shown on Review order'); return res; }
     if(typeof msrp === 'number' && msrp > 0){ res.stock = sizeText(w) + '" x ' + sizeText(hNeed) + '"'; return res; }
@@ -2946,7 +3109,9 @@ function sizeCheck(op, o, msrp){
   if(!style || !key){ res.status = 'none';
     res.why.push(style ? style + ' is not on the supplier size list' : 'No door style yet'); return res; }
   const L = SUPPLIER_LINES[key]; res.line = L.name;
-  const w = parseFloat(op.width), hNeed = parseFloat(exportHeight(op.height));
+  // 2.31: a door worked out from its opening is checked as the door it became
+  const ls = lineSize(op, o), w = parseFloat(ls.width), hNeed = parseFloat(exportHeight(ls.height));
+  if(ls.plan && ls.plan.so){ so(ls.plan.so[0].toUpperCase() + ls.plan.so.slice(1)); return res; }
   if(!(w > 0) || !(hNeed > 0)){ res.status = 'none'; res.why.push('Width and height needed first'); return res; }
 
   // core and thickness
@@ -2979,11 +3144,17 @@ function sizeCheck(op, o, msrp){
       return res;
     }
     need = Math.max(0, w - BIFOLD_SLACK);       // 2.29: the unit for the opening
-    if(L.bifold){
-      list = L.bifold[h]; need = Math.max(0, w - BIFOLD_SLACK); what = 'the bifold';
-      if(!list){ so(L.name + ' bifolds are 6\'8" only'); return res; }
-      if(L.bifoldWhy) ck(L.bifoldWhy);
-    } else ck(L.name + ' bifold sizes are not on the reference, check with the supplier');
+    what = 'the bifold';
+    list = (L.bifold || {80:BIFOLD_UNITS})[h];
+    if(!list){ so(L.name + ' bifolds are 6\'8" only'); return res; }
+  }
+  if(BYPASS_TYPES.indexOf(type) >= 0){
+    if(w > BYPASS_OPEN_MAX + 0.01){ so('Bypass openings go up to ' + BYPASS_OPEN_MAX + '"'); return res; }
+    if(need > BYPASS_PANEL_MAX + 0.01){
+      so('Each bypass panel would be ' + sizeText(need) + '", over the ' + BYPASS_PANEL_MAX + '" most' +
+         (leaves < 4 ? '. Use ' + Math.ceil(w / BYPASS_PANEL_MAX) + ' panels' : ''));
+      return res;
+    }
   }
   if(list && list.upto){
     if(need > list.upto + 0.01) so(L.name + ' goes up to ' + ftin(list.upto) + ' wide');
@@ -3041,7 +3212,7 @@ function drawPad(){
   const v = padValue();
   const fr = ['1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
   el.innerHTML = '<div class="pad-card" role="dialog" aria-label="Type a size">' +
-    '<div class="pad-head"><b>' + (pad.f === 'width' ? 'Opening width' : 'Opening height') + '</b>' +
+    '<div class="pad-head"><b>' + ({width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height'}[pad.f] || 'Size') + '</b>' +
     '<span>Opening ' + (op ? op.number + (op.location ? ' · ' + esc(op.location) : '') : '') + '</span></div>' +
     '<div class="pad-show">' + (v === '' ? '<i>0</i>' : esc(sizeText(v))) + '<small>in</small></div>' +
     '<div class="pad-fr">' + fr.map((x, i) =>
@@ -3274,6 +3445,12 @@ function reviewEditor(col, op, o){
       r.choices.map(n => '<option' + (Number(op.qty) === n ? ' selected' : '') + '>' + n +
       '</option>').join('') + '</select>';
     return '<input type="number" min="1" inputmode="numeric" ' + at + ' value="' + esc(op.qty) + '">';
+  }
+  // 2.31: worked out from the door opening, so shown rather than typed
+  if((col.k === 'height' || col.k === 'width') && sized(op)){
+    const ls = lineSize(op, o), f = col.k === 'height' ? 'openH' : 'openW';
+    return '<span class="rv-fixed">' + esc(ls[col.k] === '' ? '' : sizeText(ls[col.k])) + '</span>' +
+      (op[f] ? '<span class="rv-note">opening ' + esc(sizeText(op[f])) + '</span>' : '');
   }
   if(col.k === 'height'){
     const opts = HEIGHTS.map(String).concat(HEIGHT_RANGES.map(x => x.label));
@@ -3526,6 +3703,7 @@ async function reviewChange(t, d){
     else {
       o.v[k] = val;
       if(k === 'reRail') o.reRailByHand = true;
+      if(k === 'reStile') o.reStileByHand = true;
       // a value typed into a section that was skipped brings the section back
       const sec = SECTIONS.find(s => s.fields.some(f => f.k === k));
       if(val && sec && !sec.always && o.skipped[sec.id]) o.skipped[sec.id] = false;
@@ -3816,6 +3994,23 @@ function sizeChips(op, f, items, custom){
   return h;
 }
 
+/* 2.31: the door opening, typed on the pad, and the door worked out from it */
+function openingFields(op){
+  const box = (f, label) => '<div class="field"><label>' + label + '</label>' +
+    '<button type="button" class="padbox' + (op[f] ? ' set' : '') + '" data-padof="' + f + '" data-op="' + op.id + '">' +
+    (op[f] ? esc(sizeText(op[f])) + '"' : 'Tap to type the opening') + '</button></div>';
+  let h = '<div class="open-sz">' + box('openW', 'Door opening width (in)') + box('openH', 'Door opening height (in)') + '</div>' +
+    '<p class="hint">The actual opening: side jamb to side jamb, and floor to the underside of the head jamb. ' +
+    'The door size, re-rail and re-stile are worked out from it.</p>';
+  if(op.openW && op.openH){
+    const opts = op.options.filter(o => o.v.doorType);
+    if(!opts.length) h += '<p class="hint">Pick the door type to work out the door.</p>';
+    opts.forEach(o => { const P = openPlan(op, o); if(!P) return;
+      h += '<p class="plan' + (P.so ? ' plan-so' : '') + '">' + (opts.length > 1 ? '<b>' + esc(o.v.doorType) + ':</b> ' : '') +
+        esc(planText(P)) + '</p>'; });
+  }
+  return h;
+}
 function summarise(o){
   const v = o.v;
   const bits = [v.productType, v.doorType, o.skipped.style ? null : v.doorStyle]
@@ -3830,6 +4025,7 @@ function sizeLine(o){
 
 function render(){
   document.body.classList.remove('reviewing');
+  if(state.job && state.view !== 'remote') syncPlans(state.job);
   if(state.view === 'remote') return renderRemote();
   if(state.view === 'review') return renderReview();
   if(state.view === 'setup')  return renderSetup();
@@ -4175,7 +4371,8 @@ function renderJob(){
         });
       }
       h += '</div></div><div class="op-right">';
-      h += '<div class="o-w">' + sizeChips(op, 'width', widthsFor(op), 'Other width') + '</div>';
+      if(sized(op)) h += '<div class="o-w">' + openingFields(op) + '</div>';
+      else h += '<div class="o-w">' + sizeChips(op, 'width', widthsFor(op), 'Other width') + '</div>';
       h += '<div class="o-warn">';
       if(bifoldTooWide(op))
         h += '<p class="warn stop">A bifold wider than ' + BIFOLD_MAX + '" is not available. ' +
@@ -4183,7 +4380,7 @@ function renderJob(){
       if(narrowGlass(op))
         h += '<p class="warn">Glass door under 24" wide. Check with the office before ordering.</p>';
       h += '</div>';
-      h += '<div class="o-h">' + sizeChips(op, 'height', HEIGHTS, 'Other height') + '</div>';
+      if(!sized(op)) h += '<div class="o-h">' + sizeChips(op, 'height', HEIGHTS, 'Other height') + '</div>';
       h += '</div></div>';
 
 
@@ -4421,7 +4618,7 @@ document.addEventListener('click', async e => {
   if(d.revaddop !== undefined){
     if(reviewLines(job).length >= PAGE_ROWS.length)
       return toast('The contract holds ' + PAGE_ROWS.length + ' lines and they are all used');
-    const o = newOpening(job.openings.length + 1, job.defaults);
+    const o = newOpening(job.openings.length + 1, job.defaults, job);
     job.openings.push(o); state.openOpening = o.id; state.editOption = o.options[0].id;
     calcJob(job); render(); persistBg();
     const row = [...document.querySelectorAll('table.rv-two tbody tr.rv-l1')].pop();
@@ -4693,7 +4890,7 @@ document.addEventListener('click', async e => {
     if(last){ op.options[0] = newOption(job.defaults); }
     else op.options = op.options.filter(x => x.id !== d.rmopt);
     state.editOption = op.options[0].id; render(); return persistBg(); }
-  if(d.addop !== undefined){ const o = newOpening(job.openings.length + 1, job.defaults);
+  if(d.addop !== undefined){ const o = newOpening(job.openings.length + 1, job.defaults, job);
     job.openings.push(o); state.openOpening = o.id; state.editOption = o.options[0].id;
     state.scrollTo = o.id;
     render(); return persistBg(); }
@@ -4800,6 +4997,7 @@ document.addEventListener('change', async e => {
     }
     o.v[d.v] = t.value;
     if(d.v === 'reRail') o.reRailByHand = true;
+    if(d.v === 'reStile') o.reStileByHand = true;
     persistBg();
     if(d.combo) render(); }
 });
@@ -4917,6 +5115,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.30 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.31 · 18 Nov 2026</div>
 </body>
 </html>
