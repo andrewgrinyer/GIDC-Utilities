@@ -75,6 +75,7 @@ edge functions for anything needing an admin key.
 | `account-link` | forgot my password, send me my address link, and confirm, the only thing that sets `email_verified_at`; JWT verification off | service role, `RESEND_API_KEY` |
 | `kpi-import` | the only door numbers come in through | `KPI_IMPORT_KEY` |
 | `send-goback` | emails a go back to the office | `RESEND_API_KEY` |
+| `send-contract` | measurement app 2.23: emails the signed contract PDF to the customer and the signed in sales associate (price roles only, job read as the caller) | `RESEND_API_KEY`, optional `CONTRACT_EMAIL_FROM`, `CONTRACT_EMAIL_BCC` |
 | `send-order-function` | emails a dealer order | `RESEND_API_KEY` |
 
 `kpi-import` writes all rows or none. One bad row rejects the batch with
