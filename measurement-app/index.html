@@ -214,6 +214,13 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .rv-sizes ul{margin:0;padding-left:18px}
 .rv-sizes li{margin:4px 0;font-size:14px}
 .rv-sizes li.rv-so b{color:var(--brass)} .rv-sizes li.rv-check b{color:#8A5A00}
+.rv-box input.rv-boxin{font:inherit;font-size:13px;width:52px;text-align:right;border:1px solid var(--rule);
+  border-radius:6px;padding:4px 5px;min-height:30px;background:#fff}
+.rv-box input.rv-boxtext{width:100%;min-width:80px;text-align:left}
+.rv-box input.rv-boxin:not(.rv-boxtext){width:58px!important;max-width:58px}
+/* the materials box holds typed items now, so it gets the extra width */
+@media (min-width:1100px){ body .rv-boxes{grid-template-columns:1fr 1.5fr 1fr 1fr} }
+.rv-box td:has(> input.rv-boxin){padding-left:2px;padding-right:2px}
 .docs-box{background:var(--card);border:1px solid var(--rule);border-left:6px solid #1F1F24;border-radius:12px;
   padding:10px 14px;margin:14px 0}
 .docs-box h3{margin:0 0 4px;font-size:15px}
@@ -266,7 +273,7 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   .warn, .rv-sizes{font-size:9px;padding:4px 8px;margin:6px 0;break-inside:avoid}
   .rv-sizes li{font-size:9px;margin:1px 0}
   .rv-sizes h3{font-size:10px;margin:0 0 2px}
-  .rv-boxes{grid-template-columns:repeat(4,1fr);gap:6px;margin:6px 0;break-inside:avoid}
+  body .rv-boxes{grid-template-columns:1fr 1.5fr 1fr 1fr;gap:6px;margin:6px 0;break-inside:avoid}
   .rv-box{overflow:visible}
   .rv-box h3{font-size:9px;padding:3px 6px}
   .rv-box table.rv{font-size:8px}
@@ -1314,6 +1321,11 @@ function sheetInputs(job){
     out.push(['J' + row, m.price ? Number(m.price) : null]);
     out.push(['K' + row, m.qty ? Number(m.qty) : null]);
   });
+  /* 2.12, Andrew 18 Nov: the service fee quantity and the disposal quantity
+     can be set by hand on the review. Blank leaves the sheet's own formula. */
+  const fee = k => { const v = (job.fees || {})[k]; return v === '' || v == null || isNaN(v) ? null : Number(v); };
+  out.push(['C47', fee('serviceQty')]);
+  out.push(['K47', fee('disposalQty')]);
   return out;
 }
 /* every cell sheetInputs can touch, for putting the template back */
@@ -1322,6 +1334,7 @@ const INPUT_REFS = (() => {
   PAGE_ROWS.forEach(row => Object.values(COLMAP).forEach(c => r.push(c + row)));
   PAGE_ROWS.forEach(row => r.push('R' + row));      // 2.10: the size check can set S/O
   [55, 56, 57].forEach(row => ['F','J','K'].forEach(c => r.push(c + row)));
+  r.push('C47', 'K47');
   return r;
 })();
 
@@ -1906,6 +1919,25 @@ const REVIEW_BOXES = [
     {c:'Q', label:''}, {c:'U', label:'', money:true}]},
 ];
 
+/* 2.12: the cells of the boxes Andrew wants to set by hand. Quantities left
+   blank follow the sheet (service fee and disposal work themselves out);
+   0 removes the line. Items 1 to 3 are the job's special materials. */
+const BOX_EDITS = {C47:{fee:'serviceQty'}, K47:{fee:'disposalQty'}};
+[0, 1, 2].forEach(i => { BOX_EDITS['F' + (55 + i)] = {mat:i, f:'desc'};
+  BOX_EDITS['J' + (55 + i)] = {mat:i, f:'price'}; BOX_EDITS['K' + (55 + i)] = {mat:i, f:'qty'}; });
+function boxEditor(ed, job, v){
+  if(ed.fee){
+    const set = (job.fees || {})[ed.fee];
+    const auto = typeof v === 'number' ? Math.round(v * 100) / 100 : '';
+    return '<input type="number" inputmode="decimal" step="any" min="0" class="rv-boxin" data-rvfee="' + ed.fee + '" value="' +
+      esc(set === undefined || set === null ? '' : set) + '" placeholder="' + esc(auto) + '" title="Grey is worked out by the sheet. Type to set it; 0 removes it">';
+  }
+  const m = (job.materials || [])[ed.mat] || {};
+  if(ed.f === 'desc') return '<input type="text" class="rv-boxin rv-boxtext" data-rvmat="' + ed.mat + ':desc" value="' +
+    esc(m.desc || '') + '" placeholder="Item ' + (ed.mat + 1) + '">';
+  return '<input type="number" inputmode="decimal" step="any" min="0" class="rv-boxin" data-rvmat="' + ed.mat + ':' + ed.f +
+    '" value="' + esc(m[ed.f] || '') + '">';
+}
 function reviewLines(job){
   const lines = [];
   job.openings.forEach(op => op.options.filter(o => o.include).forEach(o => lines.push({op, o})));
@@ -2058,7 +2090,8 @@ function renderReview(){
       (bc.some(c => c.label) ? '<thead><tr>' + bc.map(c => '<th' + (c.n || c.money ? ' class="num"' : '') +
         '>' + c.label + '</th>').join('') + '</tr></thead>' : '') + '<tbody>' +
       rows.map(r => '<tr' + (b.price && (r === 54) ? ' class="rv-total"' : '') + '>' + bc.map((c, j) => {
-        const v = cv(c.c + r);
+        const v = cv(c.c + r), ed = BOX_EDITS[c.c + r];
+        if(ed) return '<td' + (j ? ' class="num"' : '') + '>' + boxEditor(ed, job, v) + '</td>';
         // "Mag @ $40" is a price too
         if(j === 0) return '<td>' + esc(prices ? plain(v) : plain(v).replace(/\s*@\s*\$[\d.,]+/, '')) + '</td>';
         return '<td class="num">' + (c.money ? (v === 0 || v == null ? '' : esc(money(v)))
@@ -2106,6 +2139,13 @@ async function openReview(){
 async function reviewChange(t, d){
   const job = state.job;
   if(d.rvjob){ job[d.rvjob] = t.value; }
+  else if(d.rvfee){ job.fees = job.fees || {}; job.fees[d.rvfee] = t.value === '' ? '' : Math.max(0, Number(t.value) || 0); }
+  else if(d.rvmat){
+    const [i, f] = d.rvmat.split(':');
+    job.materials = job.materials || [];
+    while(job.materials.length < 3) job.materials.push({desc:'', price:'', qty:''});
+    job.materials[+i][f] = t.value;
+  }
   else {
     const op = job.openings.find(x => x.id === d.op);
     const o = op && op.options.find(x => x.id === d.o);
@@ -3204,7 +3244,7 @@ document.addEventListener('change', async e => {
     return render();
   }
   if(!job) return;
-  if(d.rv || d.rvjob) return reviewChange(t, d);
+  if(d.rv || d.rvjob || d.rvfee || d.rvmat) return reviewChange(t, d);
   if(d.inhome !== undefined){
     job.inHome = t.checked;
     rememberInHome(t.checked);          // so the next job starts the same way

@@ -193,6 +193,30 @@ const check = (name, ok, got) => {
   await page.evaluate(() => { const op = state.job.openings[0], v = op.options[0].v;
     Object.assign(v, {doorStyle:'Columbia', productType:'1.375 Hollow'}); calcJob(state.job); render(); });
 
+  // 2.12: the boxes Andrew sets by hand: service fee and disposal quantities, Items 1 to 3
+  const boxSet = async (sel, val) => { await page.fill(sel, String(val)); await page.press(sel, 'Tab'); await page.waitForTimeout(200); };
+  const autoDisp = await page.evaluate(() => cv('K47'));
+  await boxSet('input[data-rvfee="disposalQty"]', 0);
+  let bx = await page.evaluate(() => [cv('K47'), cv('L47'), state.job.fees.disposalQty]);
+  check('disposal quantity can be removed (0)', bx[0] === 0 && bx[1] === 0 && bx[2] === 0, bx);
+  await boxSet('input[data-rvfee="disposalQty"]', '');
+  bx = await page.evaluate(() => cv('K47'));
+  check('blank puts disposal back to the sheet\'s own count', bx === autoDisp && autoDisp > 0, [bx, autoDisp]);
+  await boxSet('input[data-rvfee="serviceQty"]', 1);
+  bx = await page.evaluate(() => cv('C47'));
+  check('service fee quantity can be set', bx === 1, bx);
+  await boxSet('input[data-rvmat="1:desc"]', 'Shims');
+  await boxSet('input[data-rvmat="1:price"]', 12.5);
+  await boxSet('input[data-rvmat="1:qty"]', 4);
+  bx = await page.evaluate(() => [cv('F56'), cv('L56'), state.job.materials[1]]);
+  check('Item 2 name, price and quantity can be set and total', bx[0] === 'Shims' && bx[1] === 50, bx);
+  const fx = await page.evaluate(() => { const { unzipSync, strFromU8 } = fflate;
+    return fillSheet(strFromU8(unzipSync(templateBytes())['xl/worksheets/sheet3.xml']), state.job); });
+  const c47 = (fx.match(/<c r="C47"[^>]*>[\s\S]*?<\/c>/) || [''])[0], k47 = (fx.match(/<c r="K47"[^>]*>[\s\S]*?<\/c>/) || [''])[0];
+  check('the workbook gets the set service fee and keeps the disposal formula',
+        c47.includes('<v>1</v>') && k47.includes('<f>'), [c47, k47.slice(0, 60)]);
+  await page.evaluate(() => { state.job.fees = {}; state.job.materials[1] = {desc:'', price:'', qty:''}; calcJob(state.job); render(); });
+
   // 4. no money for a role outside the price list
   await page.evaluate(() => { state.me.role = 'manufacturing'; render(); });
   const h2 = await page.$$eval('.rv-scroll table.rv thead th', t => t.map(x => x.textContent));
