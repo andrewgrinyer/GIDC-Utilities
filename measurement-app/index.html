@@ -214,6 +214,10 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .rv-sizes ul{margin:0;padding-left:18px}
 .rv-sizes li{margin:4px 0;font-size:14px}
 .rv-sizes li.rv-so b{color:var(--brass)} .rv-sizes li.rv-check b{color:#8A5A00}
+.door-sz{margin:10px 0 4px;padding:8px 10px;border:1px solid var(--rule);border-radius:10px}
+.door-sz-h{font-weight:600;font-size:14px;margin-bottom:4px}
+.door-sz i.auto,.door-sz i.typed{font-style:normal;font-size:11px;color:var(--muted, #6B6B6B);margin-left:4px}
+.door-sz i.typed{color:var(--brass)}
 .rv-conf{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 2px;font-size:13px}
 .rv-conf .btn{padding:4px 10px;font-size:13px;min-height:0}
 .linkbtn{background:none;border:0;color:var(--brass);text-decoration:underline;cursor:pointer;font:inherit;padding:0 2px}
@@ -2007,7 +2011,7 @@ function setOpeningSize(op, f, val){
  *   swing      the door is cut to the opening less a reveal each side and at
  *              the top and less the floor gap; a pair also leaves a reveal
  *              where the doors meet and shares the rest. The workbook gets
- *              the blank (the pair's total width for a double).
+ *              the blank, each door (2.33: a double is 2 doors at 30, not 60).
  *   others     the portal's deductions: bifold height less 1 1/2 (premium
  *              2 1/2), width less 1/2 on one unit or 3/4 on each of a pair,
  *              blanks 24, 30, 36 per unit; bypass height less 2 1/2, each
@@ -2024,7 +2028,7 @@ function setOpeningSize(op, f, val){
  * Reveal 3/32" and floor gap 1/2" unless the job says otherwise
  * (job.reveal, job.floorGap). A re-rail or re-stile set by hand stays. */
 const SIZING = 2;
-const REVEAL = 0.094, FLOOR_GAP = 0.5, CUT_TOL = 0.02;
+const REVEAL = 0.094, FLOOR_GAP = 0.5, CUT_TOL = 0.02, GAP_EXTRA = 0.75;
 const PORTAL_W = [12,14,16,18,20,22,24,26,28,30,32,34,36], PORTAL_BIFOLD_W = [24,30,36];
 const PORTAL_H = [80,84,90,96];
 const SHAKER_NAMES = ['1 panel true shaker','2 panel true shaker','3 panel equal shaker','3 panel shaker (t-shape)',
@@ -2082,14 +2086,26 @@ function openPlan(op, o){
   // the height first: the smallest the supplier makes at or above the door
   const hs = PORTAL_H.filter(h => (h !== 90 || isStileRailDoor(o)) &&
     (!L || (bifold ? (L.bifold || {80:BIFOLD_UNITS})[h] : L.heights[h])));
-  const bH = hs.find(h => h >= finH - CUT_TOL);
+  /* 2.33, Andrew 18 Nov: the door size is its own pair of fields (each door,
+     op.doorW / op.doorH). Filled from the opening; a size typed there wins. */
+  const tW = parseFloat(op.doorW), tH = parseFloat(op.doorH);
+  P.typedW = tW > 0; P.typedH = tH > 0;
+  /* 2.33, Andrew's example: a 60 1/4 x 81 opening takes two 30 x 80 doors.
+     A stock height that leaves a floor gap of up to 1 1/4" (the terms'
+     range, so up to 3/4" over the 1/2" gap) is used as it is, uncut;
+     otherwise the next height up, cut down. */
+  const under = swing && !P.typedH ? hs.filter(h => h <= finH + CUT_TOL).pop() : undefined;
+  const fits = under !== undefined && finH - under <= GAP_EXTRA + CUT_TOL;
+  if(fits) finH = under;
+  P.finH = r4(finH);
+  const bH = P.typedH ? tH : fits ? under : hs.find(h => h >= finH - CUT_TOL);
   if(bH === undefined){
     P.so = 'no ' + (L ? L.name : 'stock') + ' door is tall enough: it has to be ' + sizeText(r4(finH)) + '"' +
       (hs.length ? ' and the tallest is ' + ftin(hs[hs.length - 1]) : '');
     return P;
   }
   const ws = bifold ? list : blankWidths(L, bH, list);
-  const bW = ws.find(w => w >= finW - CUT_TOL);
+  const bW = P.typedW ? tW : ws.find(w => w >= finW - CUT_TOL);
   P.blankH = bH;
   if(bW === undefined){
     P.so = 'no ' + (L ? L.name : 'stock') + ' door is wide enough at ' + ftin(bH) + ': each door has to be ' + sizeText(r4(finW)) +
@@ -2103,7 +2119,8 @@ function openPlan(op, o){
   P.reStile = hollow && limit != null && (swing ? P.offW >= limit - 1e-6 : P.offW > limit + CUT_TOL);
   if(!hollow) P.notes.push('not hollow core, so never re-railed or re-stiled');
   // what goes on the workbook
-  P.exportW = swing ? bW * per : Math.round(W * 8) / 8;
+  // 2.33: a swing door goes on the workbook as each door (a double is 2 at 30, not 60)
+  P.exportW = swing ? bW : Math.round(W * 8) / 8;
   P.exportH = bH;
   return P;
 }
@@ -2134,7 +2151,7 @@ function syncPlans(job){
 function planText(P){
   if(!P) return '';
   if(P.so) return 'Special order: ' + P.so + '.';
-  const each = P.per > 1 ? P.per + ' doors, each ' : 'Door ';
+  const each = (P.per > 1 ? P.per + ' doors, each ' : 'Door ') + (P.typedW || P.typedH ? '(typed) ' : '');
   return each + ftin(P.blankW) + ' x ' + ftin(P.blankH) + ' (' + P.blankW + ' x ' + P.blankH + '), cut to ' +
     sizeText(P.finW) + ' x ' + sizeText(P.finH) + '. Re-rail ' + (P.reRail ? 'yes' : 'no') + ', re-stile ' +
     (P.reStile ? 'yes' : 'no') + (P.notes.length ? ' (' + P.notes.join('; ') + ')' : '') + '.';
@@ -3172,7 +3189,9 @@ function sizeCheckRaw(op, o, msrp){
   const isBi = BIFOLD_TYPES.indexOf(type) >= 0;
   const leaves = DOUBLE_TYPES.indexOf(type) >= 0 || type === 'Double Pivot' ? 2
                : BYPASS_TYPES.indexOf(type) >= 0 ? Math.max(1, Number(op.qty) || 2) : 1;
-  let list = L.heights[h], need = w / leaves, what = leaves > 1 ? 'each leaf' : 'the door';
+  // 2.33: a door worked out from its opening already carries each door's width
+  let list = L.heights[h], need = ls.plan && ls.plan.swing && ls.plan.blankW ? w : w / leaves,
+      what = leaves > 1 ? 'each leaf' : 'the door';
   if(isBi){
     if(L.bifoldStyles && L.bifoldStyles.indexOf(style) < 0){
       so(style + ' does not come as a bifold (' + L.name + ' bifolds: ' +
@@ -3223,7 +3242,7 @@ const SIZE_WORD = {ok:'Stock', check:'Check', so:'Special order', none:'Not chec
    contract can be signed or sent to sign. Who and when are kept on the
    option (o.sizeOk). Changing the door or its size undoes it. */
 const sizeFp = (op, o) => JSON.stringify([o.v.doorStyle || '', o.v.productType || '', o.v.doorType || '',
-  String(op.width), String(op.height), String(op.openW || ''), String(op.openH || ''), String(op.qty)]);
+  String(op.width), String(op.height), String(op.openW || ''), String(op.openH || ''), String(op.qty), String(op.doorW || ''), String(op.doorH || '')]);
 function sizeCheck(op, o, msrp){
   const res = sizeCheckRaw(op, o, msrp), c = o.sizeOk;
   if(res.status !== 'check') return res;
@@ -3251,8 +3270,12 @@ const specialOrders = job => { if(calc) calcJob(job); return reviewLines(job).sl
  * the typed box did, through setOpeningSize, so every rule still applies. */
 let pad = null;                 // {op, f, whole, eighths}
 function openPad(op, f){
-  const n = parseFloat(op[f]);
-  const ok = !isNaN(n) && !rangeFor(op[f]);
+  // 2.33: a door size not typed yet starts from the one worked out
+  let cur = op[f];
+  if(!cur && (f === 'doorW' || f === 'doorH')){ const P = doorPlan(op);
+    if(P) cur = String(f === 'doorW' ? P.blankW || '' : P.blankH || ''); }
+  const n = parseFloat(cur);
+  const ok = !isNaN(n) && !rangeFor(cur);
   const w = ok ? Math.floor(n) : 0, e = ok ? Math.round((n - w) * 8) : 0;
   pad = {opId: op.id, f, whole: ok && (w || e) ? String(w + (e === 8 ? 1 : 0)) : '',
          eighths: e === 8 ? 0 : e, fresh: true};
@@ -3272,7 +3295,7 @@ function drawPad(){
   const v = padValue();
   const fr = ['1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
   el.innerHTML = '<div class="pad-card" role="dialog" aria-label="Type a size">' +
-    '<div class="pad-head"><b>' + ({width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height'}[pad.f] || 'Size') + '</b>' +
+    '<div class="pad-head"><b>' + ({width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height', doorW:'Each door width', doorH:'Each door height'}[pad.f] || 'Size') + '</b>' +
     '<span>Opening ' + (op ? op.number + (op.location ? ' · ' + esc(op.location) : '') : '') + '</span></div>' +
     '<div class="pad-show">' + (v === '' ? '<i>0</i>' : esc(sizeText(v))) + '<small>in</small></div>' +
     '<div class="pad-fr">' + fr.map((x, i) =>
@@ -4061,6 +4084,11 @@ function sizeChips(op, f, items, custom){
   return h;
 }
 
+// the plan for the door the opening is quoted with (the one the door size fields show)
+function doorPlan(op){
+  const o = op.options.find(x => x.include && x.v.doorType) || op.options.find(x => x.v.doorType);
+  return o ? openPlan(op, o) : null;
+}
 /* 2.31: the door opening, typed on the pad, and the door worked out from it */
 function openingFields(op){
   const box = (f, label) => '<div class="field"><label>' + label + '</label>' +
@@ -4075,6 +4103,19 @@ function openingFields(op){
     opts.forEach(o => { const P = openPlan(op, o); if(!P) return;
       h += '<p class="plan' + (P.so ? ' plan-so' : '') + '">' + (opts.length > 1 ? '<b>' + esc(o.v.doorType) + ':</b> ' : '') +
         esc(planText(P)) + '</p>'; });
+    /* 2.33, Andrew 18 Nov: the second pair of fields, the size of each door
+       that will be ordered. Filled from the opening; tap to change it. */
+    const D = doorPlan(op);
+    if(D && (D.blankW || D.typedW || D.typedH)){
+      const dbox = (f, label, auto) => { const typed = op[f] !== undefined && op[f] !== '', v = typed ? op[f] : auto;
+        return '<div class="field"><label>' + label + (typed ? ' <i class="typed">typed</i>' : ' <i class="auto">worked out</i>') +
+          '</label><button type="button" class="padbox set' + (typed ? ' typed' : '') + '" data-padof="' + f + '" data-op="' + op.id + '">' +
+          (v !== '' && v != null ? esc(sizeText(v)) + '"' : 'Tap to type') + '</button></div>'; };
+      h += '<div class="door-sz"><div class="door-sz-h">' + (D.per > 1 ? D.per + ' doors, each' : 'The door') + '</div>' +
+        '<div class="open-sz">' + dbox('doorW', 'Door width (in)', D.blankW) + dbox('doorH', 'Door height (in)', D.blankH) + '</div>' +
+        (op.doorW || op.doorH ? '<button type="button" class="linkbtn" data-doorauto="' + op.id + '">Use the worked out size</button>' : '') +
+        '</div>';
+    }
   }
   return h;
 }
@@ -4579,7 +4620,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','sign','signpdf','signmail',
-  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok'];
+  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 /* 2.30, Andrew 18 Nov: "the door type buttons stick and won't let us click
@@ -4625,6 +4666,8 @@ document.addEventListener('click', async e => {
   const job = state.job;
   if(d.review !== undefined) return openReview();
   if(d.padof){ const o = job && job.openings.find(x => x.id === d.op); if(o) openPad(o, d.padof); return; }
+  if(d.doorauto){ const o = job && job.openings.find(x => x.id === d.doorauto);
+    if(o){ delete o.doorW; delete o.doorH; render(); persistBg(); } return; }
   if(d.revback !== undefined){ state.view = 'job'; return render(); }
   /* 2.20, Andrew 18 Nov: a door added straight from the review. It is a new
      opening with the job's defaults, and its line is filled in right here. */
@@ -5190,6 +5233,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.32 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.33 · 18 Nov 2026</div>
 </body>
 </html>

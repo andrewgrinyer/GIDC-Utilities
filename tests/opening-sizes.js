@@ -28,16 +28,18 @@ const check = (name, ok, got) => {
 const CASES = [
   ['swing, close fit: no rework', 'Single Swing', '1.375 Hollow', 'Kingston', 30.125, 80.5, 1,
     {blankW:30, blankH:80, reRail:false, reStile:false, exportW:30, exportH:80}],
-  ['swing, wide and tall: up a size, re-rail and re-stile', 'Single Swing', '1.375 Hollow', 'Kingston', 30.25, 81, 1,
+  ['swing 30 1/4 x 81: 6 foot 8 fits uncut (floor gap under 1 1/4), re-stile', 'Single Swing', '1.375 Hollow', 'Kingston', 30.25, 81, 1,
+    {blankW:32, blankH:80, reRail:false, reStile:true, exportW:32, exportH:80}],
+  ['swing, wide and tall: up a size, re-rail and re-stile', 'Single Swing', '1.375 Hollow', 'Kingston', 30.25, 82, 1,
     {blankW:32, blankH:84, reRail:true, reStile:true, exportW:32, exportH:84}],
-  ['swing, solid core: never reworked', 'Single Swing', '1.375 Solid', 'Kingston', 30.25, 81, 1,
+  ['swing, solid core: never reworked', 'Single Swing', '1.375 Solid', 'Kingston', 30.25, 82, 1,
     {blankW:32, blankH:84, reRail:false, reStile:false}],
   ['swing, shaker: Trimlite widths, never reworked', 'Single Swing', '1.375 Solid', '1 Panel True Shaker', 26.75, 80.5, 1,
     {blankW:28, blankH:80, reRail:false, reStile:false}],
   ['swing, Trimlite has no 20: goes up to 24', 'Single Swing', '1.375 Solid', '1 Panel True Shaker', 20.25, 80.5, 1,
     {blankW:24, blankH:80}],
-  ['double swing: two doors, the pair goes on the workbook', 'Double Swing AST', '1.375 Hollow', 'Kingston', 60.25, 80.5, 2,
-    {blankW:30, per:2, exportW:60, exportH:80}],
+  ['double swing 60 1/4 x 81: 2 doors 30 x 80, each door on the workbook', 'Double Swing AST', '1.375 Hollow', 'Kingston', 60.25, 81, 2,
+    {blankW:30, blankH:80, per:2, exportW:30, exportH:80}],
   ['swing too wide for one door: special order', 'Single Swing', '1.375 Hollow', 'Kingston', 40, 80.5, 1,
     {so:'wide enough'}],
   ['swing taller than 8 foot: special order', 'Single Swing', '1.375 Hollow', 'Kingston', 30, 98, 1,
@@ -97,7 +99,7 @@ const CASES = [
   // a re-rail or re-stile set by hand stays; the rest follow the opening
   const hand = await page.evaluate(() => {
     state.job = newJob();
-    const op = state.job.openings[0]; op.openW = '30.25'; op.openH = '81';
+    const op = state.job.openings[0]; op.openW = '30.25'; op.openH = '82';
     Object.assign(op.options[0].v, {doorType:'Single Swing', productType:'1.375 Hollow', doorStyle:'Kingston'});
     syncPlans(state.job);
     const auto = [op.options[0].v.reRail, op.options[0].v.reStile, op.width, op.height];
@@ -135,11 +137,32 @@ const CASES = [
     Object.assign(v, {doorType:'Single Swing', productType:'1.375 Hollow', doorStyle:'Kingston'});
     state.job.openings[0].options[0].include = true; return missing(state.job); });
   check('the opening size is needed before the workbook', miss.some(m => /door opening width/.test(m)), miss);
-  await page.evaluate(() => { const op = state.job.openings[0]; op.openW = '30.25'; op.openH = '81'; render(); });
+  await page.evaluate(() => { const op = state.job.openings[0]; op.openW = '30.25'; op.openH = '82'; render(); });
   const card = await page.evaluate(() => ({plan:(document.querySelector('.plan') || {}).textContent || '',
     w:state.job.openings[0].width, h:state.job.openings[0].height}));
   check('the card shows the door worked out', /2'8" x 7'0"/.test(card.plan) && /Re-rail yes, re-stile yes/.test(card.plan), card);
   check('the opening carries the blank for the workbook', card.w === 32 && card.h === 84, card);
+
+  // 2.33: the door size fields, filled from the opening and typed over
+  await page.evaluate(() => { const op = state.job.openings[0];
+    Object.assign(op, {openW:'60.25', openH:'81'}); op.options[0].v.doorType = 'Double Swing AST'; applyQtyRule(op); render(); });
+  const df = await page.evaluate(() => ({labels:[...document.querySelectorAll('.door-sz .padbox')].map(b => b.textContent),
+    head:(document.querySelector('.door-sz-h') || {}).textContent, w:state.job.openings[0].width, q:state.job.openings[0].qty}));
+  check('a 60 1/4 x 81 double shows 2 doors, each 30 x 80', df.head === '2 doors, each' && df.labels.join() === '30",80"' &&
+        df.w === 30 && df.q === 2, df);
+  await page.click('.door-sz [data-padof="doorW"]');
+  const padStart = await page.evaluate(() => padValue());
+  check('the door width pad starts at the worked out 30', padStart === '30', padStart);
+  for(const k of ['C', '2', '8']) await page.click('#pad [data-pk="' + k + '"]');
+  await page.click('#pad [data-pk="done"]'); await page.waitForTimeout(150);
+  const typed = await page.evaluate(() => { const op = state.job.openings[0], P = openPlan(op, op.options[0]);
+    return {doorW:op.doorW, w:op.width, blankW:P.blankW, reStile:P.reStile, typed:!!document.querySelector('.door-sz i.typed'),
+            reset:!!document.querySelector('[data-doorauto]')}; });
+  check('a typed door width wins and goes on the workbook', typed.doorW === '28' && typed.w === 28 && typed.blankW === 28 &&
+        typed.typed && typed.reset, typed);
+  await page.click('[data-doorauto]'); await page.waitForTimeout(150);
+  const back = await page.evaluate(() => [state.job.openings[0].doorW, state.job.openings[0].width]);
+  check('Use the worked out size goes back to 30', back[0] === undefined && back[1] === 30, back);
 
   check('no page errors', !errors.length, errors);
   await browser.close(); server.close();
