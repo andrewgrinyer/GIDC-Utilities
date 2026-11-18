@@ -1,4 +1,5 @@
-// Measurement app 2.20: a tighter customer box, and Add door on the review.
+// Measurement app 2.20 and 2.21: a tighter customer box, and Add door and
+// Remove door on the review.
 //
 //   node tests/customer-and-add-door.js
 //   (or PLAYWRIGHT=/path/to/playwright node tests/customer-and-add-door.js)
@@ -101,6 +102,32 @@ const check = (name, ok, got) => {
     return [op.location, op.width, String(op.height), op.options[0].v.doorStyle, cv('R' + PAGE_ROWS[1])]; });
   check('the new line fills in and gets a price', filled[0] === 'Den' && filled[1] === '30' && filled[3] === 'Columbia' &&
         typeof filled[4] === 'number' && filled[4] > 0, filled);
+
+  // 2.21: remove a door from the review, after the are you sure
+  const n0 = await page.$$eval('table.rv-two tbody tr.rv-l1', t => t.length);
+  await page.locator('[data-revrm]').first().click();
+  await page.waitForTimeout(150);
+  await page.click('[data-sure="no"]');
+  await page.waitForTimeout(150);
+  check('Cancel keeps the door', await page.$$eval('table.rv-two tbody tr.rv-l1', t => t.length) === n0, null);
+  await page.locator('[data-revrm]').first().click();
+  await page.waitForTimeout(150);
+  await page.click('[data-sure="yes"]');
+  await page.waitForTimeout(250);
+  const rm = await page.evaluate(() => [state.view, state.job.openings.length, state.job.openings.map(o => [o.number, o.location])]);
+  check('Remove takes the door off and renumbers', rm[0] === 'review' && rm[1] === 1 &&
+        JSON.stringify(rm[2]) === JSON.stringify([[1, 'Den']]), rm);
+  check('the review shows one door line', await page.$$eval('table.rv-two tbody tr.rv-l1', t => t.length) === 1, null);
+  // an opening with two options loses only the one
+  await page.evaluate(() => { const op = state.job.openings[0]; const o = newOption(state.job.defaults);
+    o.v.doorType = 'Single Swing'; o.v.doorStyle = 'Logan'; op.options.push(o); calcJob(state.job); render(); });
+  await page.locator('[data-revrm]').nth(1).click(); await page.waitForTimeout(150);
+  await page.click('[data-sure="yes"]'); await page.waitForTimeout(250);
+  const r2 = await page.evaluate(() => [state.job.openings.length, state.job.openings[0].options.map(o => o.v.doorStyle)]);
+  check('a second option goes on its own', r2[0] === 1 && JSON.stringify(r2[1]) === '["Columbia"]', r2);
+  await page.emulateMedia({media:'print'});
+  check('Remove is not printed', await page.$eval('[data-revrm]', el => getComputedStyle(el).display) === 'none', null);
+  await page.emulateMedia({media:'screen'});
 
   check('no page errors', errors.length === 0, errors);
   await browser.close(); server.close();

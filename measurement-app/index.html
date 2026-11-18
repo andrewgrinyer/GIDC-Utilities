@@ -490,7 +490,10 @@ body.padding{overflow:hidden}
   margin-bottom:2px;letter-spacing:-.01em}
 /* 2.20: Add door under the review table */
 .rv-add{margin:8px 0 14px}
-@media print{.rv-add{display:none!important}}
+@media print{.rv-add, .rv-rm{display:none!important}}
+.rv-n{position:relative}
+.rv-rm{display:block;margin:6px auto 0;width:26px;height:26px;border-radius:50%;border:1px solid rgba(0,0,0,.25);
+  background:#fff;color:#B3261E;font-size:16px;line-height:22px;padding:0;cursor:pointer}
 /* 2.20: the customer box as a tight grid, and its folded one line form */
 .jobcard .card-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 10px;position:relative}
 .jobcard .field{padding:5px 0;border-bottom:0;min-width:0}
@@ -2257,7 +2260,10 @@ function renderReview(){
         return '<td' + cs(n) + ' class="num' + (isErr(v) || v === 'S/O' ? ' rv-err' : '') + '">' + cap(c) + money(v) + '</td>'; }
       return '<td' + cs(n) + '>' + cap(c) + reviewEditor(c, op, o) + '</td>';
     };
-    h += '<tr class="rv-l1' + flags + '"' + doorVars(op) + '><td class="rv-n" rowspan="2">' + op.number + '</td>' +
+    // 2.20: the number cell also carries Remove for that door
+    h += '<tr class="rv-l1' + flags + '"' + doorVars(op) + '><td class="rv-n" rowspan="2">' + op.number +
+           '<button class="rv-rm" data-revrm="' + o.id + '" data-op="' + op.id + '" title="Remove this door" aria-label="Remove door ' +
+           op.number + '">\u00d7</button></td>' +
            L1.map((c, k) => cell(c, S1[k])).join('') + '</tr>' +
          '<tr class="rv-l2' + flags + '"' + doorVars(op) + '>' + L2.map((c, k) => cell(c, S2[k])).join('') + '</tr>';
   });
@@ -3176,7 +3182,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
-  'comboval','sure','jfclear','doc','custopen','revaddop'];
+  'comboval','sure','jfclear','doc','custopen','revaddop','revrm'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 async function persist(){ await saveJob(state.job); }
@@ -3212,6 +3218,29 @@ document.addEventListener('click', async e => {
     const row = [...document.querySelectorAll('table.rv-two tbody tr.rv-l1')].pop();
     if(row){ row.scrollIntoView({block:'center'}); const f = row.querySelector('select,input'); if(f) f.focus(); }
     return toast('Door ' + o.number + ' added. Fill in its line.');
+  }
+  /* 2.20, Andrew 18 Nov: remove a door from the review. An opening quoted
+     with one door goes as a whole (the ones after move up a number); an
+     opening with more than one option loses only that option. */
+  if(d.revrm){
+    const op = job.openings.find(x => x.id === d.op), o = op && op.options.find(x => x.id === d.revrm);
+    if(!op || !o) return;
+    const whole = op.options.length === 1;
+    const ok = await sure({
+      title: 'Remove this door?',
+      what: 'Door ' + op.number + (op.location ? ', ' + op.location : '') +
+            (o.v.doorStyle ? ', ' + o.v.doorStyle : o.v.doorType ? ', ' + o.v.doorType : '') + '.',
+      why: whole ? 'Its measurements go too, and the doors after it move up a number.'
+                 : 'The other options on this opening stay.',
+      go: 'Remove the door'
+    });
+    if(!ok) return;
+    if(whole){
+      job.openings = job.openings.filter(x => x.id !== op.id);
+      job.openings.forEach((x, i) => x.number = i + 1);
+    } else op.options = op.options.filter(x => x.id !== o.id);
+    await persist(); calcJob(job); render();
+    return toast('Door removed');
   }
   if(d.revprint !== undefined){
     // the form pages are pictures: wait until they are in before printing
@@ -3677,6 +3706,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.20 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.21 · 18 Nov 2026</div>
 </body>
 </html>
