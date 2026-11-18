@@ -141,6 +141,14 @@ const check = (name, ok, got) => {
         ptext.includes('1 Lite Rain') && ptext.includes('Logan') && ptext.includes('Photo to come')), ptext.slice(0, 600));
   check('the printed forms carry the customer', (ptext.match(/Customer: Docs Test/g) || []).length === 2, ptext.slice(-400));
 
+  // 2.21: signature lines on the printed order (repeating), terms and door pages
+  if(info){
+    const pt = require('child_process').execFileSync('pdftotext', [pf, '-']).toString().split('\f');
+    const pages = pt.filter(x => x.trim());
+    const nonForm = pages.slice(0, pages.length - 3);   // the last three are the forms, pictures with their own lines
+    check('every printed page outside the forms has the signature lines', nonForm.length >= 3 &&
+          nonForm.every(x => /Date:/.test(x) && /Customer Signature/.test(x)), nonForm.map(x => x.slice(0, 60)));
+  }
   check('no page errors', errors.length === 0, errors);
   await browser.close(); server.close();
   console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
