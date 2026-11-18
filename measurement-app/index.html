@@ -3061,7 +3061,7 @@ async function padKey(k){
     const f = pad.f, v = padValue();
     if(op && !setOpeningSize(op, f, v)) return;      // refused: the pad stays up to fix it
     pad = null; drawPad();
-    if(op){ await persist(); render(); }
+    if(op){ render(); persistBg(); }
     return;
   }
   if(k === 'C'){ pad.whole = ''; pad.eighths = 0; }
@@ -3532,9 +3532,9 @@ async function reviewChange(t, d){
     }
     applyQtyRule(op);
   }
-  await persist();
   calcJob(job);
   render();
+  persistBg();
 }
 
 /* ---------------- render ---------------- */
@@ -4318,7 +4318,29 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
-async function persist(){ await saveJob(state.job); }
+/* 2.30, Andrew 18 Nov: "the door type buttons stick and won't let us click
+ * out of them". Every tap saved the job first (online: the save and then
+ * the job list, two trips to Supabase) and only then redrew the screen. On
+ * a slow connection the chip did not change for a second or more, so a
+ * second tap landed: within 450ms it counted as a double tap (marks NOW
+ * and quotes it again), later it undid the first. And if a save failed the
+ * handler stopped before redrawing at all, so the screen stayed as it was
+ * while the taps kept changing the job underneath. Taps could also overtake
+ * one another, an older save landing after a newer one.
+ *
+ * Now a tap redraws at once and saves behind it (persistBg), and saves go
+ * one at a time in the order made (saveChain), each the whole job as it is
+ * then, so the last one always wins. A failed save still says so (toast)
+ * and the next one carries everything. Flows that need the save finished
+ * first (sending, signing) still await persist(). */
+let saveChain = Promise.resolve();
+function persist(){
+  const job = state.job;
+  const p = saveChain.then(() => saveJob(job));
+  saveChain = p.catch(() => {});
+  return p;
+}
+const persistBg = () => { persist().catch(() => {}); };
 
 document.addEventListener('click', async e => {
   /* While the are-you-sure panel is up it is the only thing that answers, so
@@ -4401,7 +4423,7 @@ document.addEventListener('click', async e => {
       return toast('The contract holds ' + PAGE_ROWS.length + ' lines and they are all used');
     const o = newOpening(job.openings.length + 1, job.defaults);
     job.openings.push(o); state.openOpening = o.id; state.editOption = o.options[0].id;
-    await persist(); calcJob(job); render();
+    calcJob(job); render(); persistBg();
     const row = [...document.querySelectorAll('table.rv-two tbody tr.rv-l1')].pop();
     if(row){ row.scrollIntoView({block:'center'}); const f = row.querySelector('select,input'); if(f) f.focus(); }
     return toast('Door ' + o.number + ' added. Fill in its line.');
@@ -4426,7 +4448,7 @@ document.addEventListener('click', async e => {
       job.openings = job.openings.filter(x => x.id !== op.id);
       job.openings.forEach((x, i) => x.number = i + 1);
     } else op.options = op.options.filter(x => x.id !== o.id);
-    await persist(); calcJob(job); render();
+    calcJob(job); render(); persistBg();
     return toast('Door removed');
   }
   if(d.revprint !== undefined){
@@ -4544,7 +4566,7 @@ document.addEventListener('click', async e => {
   if(d.new !== undefined){ state.job = newJob(); state.view = 'job'; state.repOpen = false; state.custOpen = true;
     state.openOpening = state.job.openings[0].id;
     state.editOption = state.job.openings[0].options[0].id;
-    await persist(); return render(); }
+    render(); return persistBg(); }
   if(d.open){ const j = await loadJob(d.open);
     state.job = j; state.view = 'job'; state.repOpen = false;
     state.custOpen = !(j.customer && (j.openings || []).length);   // 2.20
@@ -4577,6 +4599,7 @@ document.addEventListener('click', async e => {
     toast((j.customer || 'That job') + ' deleted'); return render(); }
   if(d.back !== undefined){ state.view = 'jobs'; state.editOption = null; state.job = null;
     state.repOpen = false;
+    await saveChain;                    // 2.30: the list after the last save has landed
     state.jobs = await loadIndex(); return render(); }
   if(d.toggle === 'materials' || d.toggle === 'defaults'){
     state.openOpening = state.openOpening === d.toggle ? null : d.toggle;
@@ -4597,11 +4620,11 @@ document.addEventListener('click', async e => {
     if(!state.editOption || !op.options.some(o => o.id === state.editOption))
       state.editOption = op.options[0] && op.options[0].id;
     applyQtyRule(op);
-    await persist(); return render();
+    render(); return persistBg();
   }
   if(d.pickqty){
     op.qty = Number(d.pickqty); applyQtyRule(op);
-    await persist(); return render();
+    render(); return persistBg();
   }
   if(d.osize){
     op[d.osize] = (String(op[d.osize]) === d.val) ? '' : d.val;
@@ -4610,13 +4633,13 @@ document.addEventListener('click', async e => {
       // a range means the door gets cut down, so re-rail is not optional
       if(needsReRail(op)) op.options.forEach(o => { o.v.reRail = 'YES'; });
     }
-    await persist(); return render();
+    render(); return persistBg();
   }
   if(d.chip){
     const o = op.options.find(x => x.id === d.o);
     // tapping the chip that is already on clears it, so a rep can undo a mistap
     o.v[d.chip] = (String(o.v[d.chip]) === d.val) ? '' : d.val;
-    await persist(); return render();
+    render(); return persistBg();
   }
   if(d.applydef !== undefined){
     // only ever fills something in; never changes a choice the rep has made
@@ -4627,23 +4650,23 @@ document.addEventListener('click', async e => {
         if(dv[f.k] && !o3.v[f.k]){ o3.v[f.k] = dv[f.k]; filled++; }
       });
     }));
-    await persist();
+    persistBg();
     toast(filled ? 'Filled ' + filled + ' blank field' + (filled === 1 ? '' : 's')
                  : 'Nothing was blank');
     return render();
   }
   if(d.cleardef !== undefined){
     job.defaults = {};
-    await persist();
+    persistBg();
     toast('Defaults cleared. Openings already added are untouched.');
     return render();
   }
   if(d.only){
     op.options.forEach(x => x.include = (x.id === d.only));
-    await persist(); return render();
+    render(); return persistBg();
   }
   if(d.inc){ const o = op.options.find(x => x.id === d.inc); o.include = !o.include;
-    await persist(); return render(); }
+    render(); return persistBg(); }
   if(d.edit){ state.editOption = state.editOption === d.edit ? null : d.edit; return render(); }
   if(d.done !== undefined){ state.editOption = null; return render(); }
   /* the rep is known from the sign in, so the dropdown only appears on asking */
@@ -4651,9 +4674,9 @@ document.addEventListener('click', async e => {
   /* 2.20: the folded customer line opens and closes */
   if(d.custopen !== undefined){ state.custOpen = d.custopen === '1'; return render(); }
   if(d.skip){ const o = op.options.find(x => x.id === d.o);
-    o.skipped[d.skip] = !o.skipped[d.skip]; await persist(); return render(); }
+    o.skipped[d.skip] = !o.skipped[d.skip]; render(); return persistBg(); }
   if(d.addopt){ const o = newOption(job.defaults); op.options.push(o); state.editOption = o.id;
-    await persist(); return render(); }
+    render(); return persistBg(); }
   if(d.rmopt){
     const o = op.options.find(x => x.id === d.rmopt) || {};
     const last = op.options.length === 1;
@@ -4669,11 +4692,11 @@ document.addEventListener('click', async e => {
     if(!ok) return;
     if(last){ op.options[0] = newOption(job.defaults); }
     else op.options = op.options.filter(x => x.id !== d.rmopt);
-    state.editOption = op.options[0].id; await persist(); return render(); }
+    state.editOption = op.options[0].id; render(); return persistBg(); }
   if(d.addop !== undefined){ const o = newOpening(job.openings.length + 1, job.defaults);
     job.openings.push(o); state.openOpening = o.id; state.editOption = o.options[0].id;
     state.scrollTo = o.id;
-    await persist(); return render(); }
+    render(); return persistBg(); }
   if(d.rmop){
     const gone = job.openings.find(x => x.id === d.rmop) || {};
     const where = (gone.options && gone.options[0] && gone.options[0].v &&
@@ -4689,7 +4712,7 @@ document.addEventListener('click', async e => {
     if(!ok) return;
     job.openings = job.openings.filter(x => x.id !== d.rmop);
     job.openings.forEach((x,i) => x.number = i + 1);
-    await persist(); return render(); }
+    render(); return persistBg(); }
   if(d.xml !== undefined){
     const miss = missing(job);
     if(miss.length){ toast('Still needed: ' + miss.slice(0,2).join('; ') +
@@ -4725,12 +4748,12 @@ document.addEventListener('change', async e => {
     toast(t.checked
       ? 'In-home measurement. Location, quantity, type and size only.'
       : 'Everything is back.');
-    try{ await persist(); }catch(err){}
+    persistBg();
     return;
   }
   if(d.jstatus !== undefined){
     job.status = statusOf({status: t.value});
-    await persist();
+    persistBg();
     toast('Marked ' + STATUS_LABEL[job.status]);
     return render();
   }
@@ -4742,9 +4765,9 @@ document.addEventListener('change', async e => {
       t.value = fixed;
     }
     job.defaults[d.def] = t.value;
-    await persist(); return render(); }
-  if(d.m){ job.materials[+d.mi][d.m] = t.value; await persist(); return render(); }
-  if(d.j){ job[d.j] = t.value; await persist();
+    render(); return persistBg(); }
+  if(d.m){ job.materials[+d.mi][d.m] = t.value; render(); return persistBg(); }
+  if(d.j){ job[d.j] = t.value; persistBg();
            return (d.j === 'customer') ? renderJob() : renderJob(); }
   const op = d.op && job.openings.find(o => o.id === d.op);
   if(d.f === 'location'){
@@ -4758,12 +4781,12 @@ document.addEventListener('change', async e => {
       }
       t.value = fixed;
     }
-    op.location = t.value; await persist(); return render(); }
+    op.location = t.value; render(); return persistBg(); }
   if(d.f === 'qty'){ op.qty = Math.max(1, parseInt(t.value || '1', 10));
-    applyQtyRule(op); await persist(); return render(); }
+    applyQtyRule(op); render(); return persistBg(); }
   if(d.of){
     if(!setOpeningSize(op, d.of, t.value)){ t.value = ''; return; }
-    await persist(); return render(); }
+    render(); return persistBg(); }
   if(d.v){ const o = op.options.find(x => x.id === d.o);
     if(d.combo){
       const fixed = comboResolve(d.combo, t.value);
@@ -4777,7 +4800,7 @@ document.addEventListener('change', async e => {
     }
     o.v[d.v] = t.value;
     if(d.v === 'reRail') o.reRailByHand = true;
-    await persist();
+    persistBg();
     if(d.combo) render(); }
 });
 
@@ -4894,6 +4917,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.29 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.30 · 18 Nov 2026</div>
 </body>
 </html>
