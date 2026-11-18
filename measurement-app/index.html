@@ -1169,18 +1169,41 @@ async function contractPdf(job){
       pg.drawLine({start:{x:28, y:y - 15}, end:{x:LW - 28, y:y - 15}, thickness:0.4, color:RULE});
       y -= 15; li++;
     }
-    if(li >= lines.length && prices){
-      // the totals, as the Order Total box on the sheet, when they fit under the doors
-      const rows = REVIEW_BOXES[3].rows.filter(r => plain(cv('Q' + r)) !== '');
-      const need = 14 + rows.length * 10;
+    if(li >= lines.length){
+      // 2.23: the four boxes under the doors, as on the review and the sheet
+      const boxes = sumBoxes(), need = 30 + Math.max(...boxes.map(b => b.rows.length)) * 10.5;
       if(y - need < 92){ sigLines(pg, 'contract', 28, 64); foot(pg, LW); continue; }
-      y -= 14; kicker(pg, 'Order total', LW - 228, y); y -= 4;
-      pg.drawRectangle({x:LW - 228, y:y - rows.length * 10 - 4, width:200, height:rows.length * 10 + 4, color:PANEL});
-      rows.forEach((r, i) => { const yy = y - 11 - i * 10, tot = r === 54;
-        text(pg, plain(cv('Q' + r)), LW - 222, yy, {size:7.5, font:tot ? FB : F, color:tot ? RED : INK});
-        const v = cv('U' + r);
-        text(pg, v === 0 || v == null ? '' : money(v), LW - 34, yy, {size:7.5, font:tot ? FB : F, color:tot ? RED : INK, right:true}); });
-      const q59 = plain(cv('Q59')); if(q59) text(pg, q59, 28, y - 10, {size:7, color:GREY});
+      y -= 14; kicker(pg, 'Pricing summary', 28, y); y -= 5;
+      const WID = {Installation:180, 'Special Materials and Rework':228, Hardware:160, 'Order Total':150};
+      const FR = {Installation:[.42, .14, .21, .23], 'Special Materials and Rework':[.5, .17, .11, .22],
+                  Hardware:[.6, .15, .25], 'Order Total':[.6, .4]};
+      let bx = 28;
+      boxes.forEach(b => {
+        const bw = WID[b.title], fr = b.cols.length === FR[b.title].length ? FR[b.title]
+          : b.cols.map((c, k) => k ? .4 / (b.cols.length - 1) : .6);
+        const hasHead = b.cols.some(c => c.label), bh = 12 + (hasHead ? 9 : 0) + b.rows.length * 10.5 + 3;
+        pg.drawRectangle({x:bx, y:y - bh, width:bw, height:bh, borderColor:RULE, borderWidth:0.6});
+        pg.drawRectangle({x:bx, y:y - 12, width:bw, height:12, color:CHAR});
+        text(pg, b.title.toUpperCase(), bx + 4, y - 8.5, {size:6.2, font:FB, color:WHITE});
+        let yy = y - 12;
+        const colX = []; let cx = bx; fr.forEach(f => { colX.push([cx, f * bw]); cx += f * bw; });
+        if(hasHead){
+          pg.drawRectangle({x:bx, y:yy - 9, width:bw, height:9, color:PANEL});
+          b.cols.forEach((c, k) => { const [x0, w] = colX[k], num = k > 0;
+            text(pg, c.label.toUpperCase(), num ? x0 + w - 3 : x0 + 3, yy - 6.5, {size:5, color:GREY, right:num}); });
+          yy -= 9;
+        }
+        b.rows.forEach(r => { const tot = b.price && r === 54;
+          if(tot) pg.drawLine({start:{x:bx, y:yy}, end:{x:bx + bw, y:yy}, thickness:0.8, color:CHAR});
+          b.cols.forEach((c, k) => { const [x0, w] = colX[k], v = boxText(b, c, r, k), num = k > 0;
+            text(pg, fitText(v, tot ? FB : F, 6.8, w - 5), num ? x0 + w - 3 : x0 + 3, yy - 7.5,
+                 {size:6.8, font:tot ? FB : F, color:tot ? RED : INK, right:num}); });
+          yy -= 10.5;
+          pg.drawLine({start:{x:bx, y:yy}, end:{x:bx + bw, y:yy}, thickness:0.3, color:RULE});
+        });
+        bx += bw + 6;
+      });
+      const q59 = prices ? plain(cv('Q59')) : ''; if(q59) text(pg, q59, 28, y - need + 8, {size:7, color:GREY});
     }
     sigLines(pg, 'contract', 28, 64); foot(pg, LW);
   } while(li < lines.length);
@@ -2656,6 +2679,21 @@ function boxEditor(ed, job, v){
     esc(m.desc || '') + '" placeholder="Item ' + (ed.mat + 1) + '">';
   return '<input type="number" inputmode="decimal" step="any" min="0" class="rv-boxin" data-rvmat="' + ed.mat + ':' + ed.f +
     '" value="' + esc(m[ed.f] || '') + '">';
+}
+/* 2.23: the boxes, rows and cell text the review shows, so the signed PDF
+   carries exactly the same summary */
+function sumBoxes(){
+  const prices = canSeePrices();
+  return REVIEW_BOXES.filter(b => prices || !b.price).map(b => {
+    const cols = b.cols.filter(c => prices || !c.money);
+    return {title:b.title, price:b.price, cols, rows:b.rows.filter(r => plain(cv(cols[0].c + r)) !== '')};
+  });
+}
+function boxText(b, c, r, j){
+  const v = cv(c.c + r);
+  if(j === 0) return canSeePrices() ? plain(v) : plain(v).replace(/\s*@\s*\$[\d.,]+/, '');
+  if(c.money) return v === 0 || v == null ? '' : money(v);
+  return typeof v === 'number' ? plain(Math.round(v * 100) / 100) : plain(v);
 }
 /* 2.23: the two money cells a sales associate may type over */
 const PRICE_EDIT = {R:'msrpTyped', U:'handleTyped'};
@@ -4255,6 +4293,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.23 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.24 · 18 Nov 2026</div>
 </body>
 </html>

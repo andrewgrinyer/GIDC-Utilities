@@ -143,6 +143,16 @@ const check = (name, ok, got) => {
   check('signed PDF: order, terms, door page and each form', pdf.n >= 3 + forms &&
     pdf.sizes[0][0] === 792 && pdf.sizes[pdf.n - 1][0] === 612, pdf);
 
+  // 6b. the pricing summary boxes are on the PDF, as on the review
+  const bytes = await page.evaluate(async () => Array.from(await contractPdf(state.job)));
+  const tmp = path.join(require('os').tmpdir(), 'sign-contract-test.pdf');
+  fs.writeFileSync(tmp, Buffer.from(bytes));
+  let txt = '';
+  try{ txt = require('child_process').execFileSync('pdftotext', ['-f', '1', '-l', '2', tmp, '-']).toString(); }catch(e){ txt = null; }
+  if(txt === null) console.log('SKIP pricing boxes on the PDF (no pdftotext here)');
+  else check('PDF has all four pricing boxes', ['INSTALLATION', 'SPECIAL MATERIALS AND REWORK', 'HARDWARE', 'ORDER TOTAL',
+    'Grand Total', 'Astragal'].every(w => txt.includes(w)), txt.slice(0, 600));
+
   // 7. a change after signing shows the warning and drops the marks
   await page.fill('input[data-rvprice="msrpTyped"] >> nth=2', '450');
   await page.locator('input[data-rvprice="msrpTyped"] >> nth=2').dispatchEvent('change');
