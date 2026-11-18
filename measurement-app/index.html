@@ -488,6 +488,41 @@ body.padding{overflow:hidden}
 .homecheck span{display:block;font-size:13px;color:var(--muted);line-height:1.35}
 .homecheck span b{display:block;font-size:15.5px;color:var(--ink);font-weight:700;
   margin-bottom:2px;letter-spacing:-.01em}
+/* 2.20: Add door under the review table */
+.rv-add{margin:8px 0 14px}
+@media print{.rv-add{display:none!important}}
+/* 2.20: the customer box as a tight grid, and its folded one line form */
+.jobcard .card-body{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:2px 10px;position:relative}
+.jobcard .field{padding:5px 0;border-bottom:0;min-width:0}
+.jobcard .field label{font-size:12px;margin-bottom:3px}
+.jobcard input, .jobcard select{padding:8px 10px}
+.jobcard .jf-customer, .jobcard .jf-address, .jobcard .jf-email, .jobcard .awaynote,
+.jobcard .jf-salesRep, .jobcard .jf-docType{grid-column:1 / -1}
+.jobcard .awaynote{font-size:12px;color:var(--muted)}
+.jc-fold{position:absolute;top:6px;right:10px;z-index:1;padding:2px 8px;font-size:12px}
+.custline{display:flex;align-items:center;gap:10px;padding:10px 14px}
+.cl-t{flex:1;min-width:0}
+.cl-t b{display:block;font-size:16px;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cl-t span{display:block;font-size:12.5px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.jobcard .jf-customer{order:1}.jobcard .jf-address{order:2}.jobcard .jf-city{order:3}
+.jobcard .jf-phone{order:4}.jobcard .jf-email{order:5}.jobcard .jf-date{order:6}
+.jobcard .jf-status{order:7}.jobcard .jf-salesRep{order:8}.jobcard .jf-leadTime{order:9}
+.jobcard .jf-docType{order:10}.jobcard .awaynote{order:11}
+@media (min-width:700px){
+  .jobcard .card-body{grid-template-columns:repeat(12,minmax(0,1fr))}
+  .jobcard .jf-customer{order:1;grid-column:span 5}
+  .jobcard .jf-phone{order:2;grid-column:span 4}
+  .jobcard .jf-status{order:3;grid-column:span 3}
+  .jobcard .jf-address{order:4;grid-column:span 5}
+  .jobcard .jf-city{order:5;grid-column:span 4}
+  .jobcard .jf-date{order:6;grid-column:span 3}
+  .jobcard .jf-email{order:7;grid-column:span 5}
+  .jobcard .jf-salesRep{order:8;grid-column:span 7}
+  .jobcard .jf-leadTime{order:9;grid-column:span 5}
+  .jobcard .jf-docType{order:10;grid-column:span 7}
+  .jobcard .awaynote{order:11;grid-column:span 7}
+}
+}
 /* the rep, already known from the sign in */
 .known{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
 .known b{font-size:16px;font-weight:600}
@@ -2229,6 +2264,9 @@ function renderReview(){
   if(!lines.length)
     h += '<tr><td colspan="' + (span + 1) + '" class="rv-empty">No doors ticked to quote yet.</td></tr>';
   h += '</tbody></table></div>';
+  // 2.20: add a door without leaving the review
+  h += '<div class="rv-add"><button class="btn" data-revaddop="1"' +
+       (lines.length >= PAGE_ROWS.length ? ' disabled' : '') + '>+ Add door</button></div>';
   const notes = [];
   // the supplier size check, one line per door that is not plain stock
   const sizeNotes = [];
@@ -2866,11 +2904,22 @@ function renderJob(){
          ? 'Showing only what gets filled in on site. Untick for the rest.'
          : 'Puts away everything except location, quantity, door type and size.') +
        '</span></label>';
-  h += '<div class="card"><div class="card-body" style="border-top:0;padding-top:14px">';
+  /* 2.20, Andrew 18 Nov: the customer box took a whole screen. It is now a
+     tight grid, and a job opened with a customer and doors already on it
+     shows the customer as one line until Edit is tapped. */
+  if(state.custOpen === false && job.customer){
+    h += '<div class="card custline"><div class="cl-t"><b>' + esc(job.customer) + '</b>' +
+         '<span>' + esc([docAddress(job), job.phone, job.email, (STATUSES.find(x => x[0] === statusOf(job)) || [])[1]]
+           .filter(Boolean).join('  \u00b7  ')) + '</span></div>' +
+         '<button class="btn btn-ghost btn-sm" data-custopen="1">Edit customer</button></div>';
+  } else {
+  h += '<div class="card jobcard"><div class="card-body" style="border-top:0;padding-top:8px">';
+  if(job.customer && (job.openings || []).length)
+    h += '<button class="btn btn-ghost btn-sm jc-fold" data-custopen="0">Fold away</button>';
   /* Where this job is up to. It moves to Downloaded on its own the first time
      the contract is taken out of here, so the only one anybody sets by hand is
      Closed. */
-  h += '<div class="field"><label>Status</label>' +
+  h += '<div class="field jf-status"><label>Status</label>' +
        '<select data-jstatus="1">' +
        STATUSES.map(([k,l]) => '<option value="' + k + '"' +
          (statusOf(job) === k ? ' selected' : '') + '>' + l + '</option>').join('') +
@@ -2881,7 +2930,7 @@ function renderJob(){
     /* The rep is already known, so it reads as a line rather than a dropdown
        until somebody says they want to change it. */
     if(f.k === 'salesRep' && job.salesRep && state.repOpen !== true){
-      h += '<div class="field"><label>' + f.label + '</label>' +
+      h += '<div class="field jf-salesRep"><label>' + f.label + '</label>' +
            '<div class="known"><b>' + esc(job.salesRep) + '</b>' +
            (job.salesRep === repFromName(state.me && state.me.name)
               ? '<span>signed in as this</span>' : '<span>set on this job</span>') +
@@ -2889,9 +2938,8 @@ function renderJob(){
            '</div></div>';
       return;
     }
-    h += '<div class="field"><label>' + f.label +
-         (f.req ? ' <span style="color:var(--brass)">required</span>' :
-                  ' <span style="color:var(--skip);font-weight:400">optional</span>') + '</label>';
+    h += '<div class="field jf-' + f.k + '"><label>' + f.label +
+         (f.req ? ' <span style="color:var(--brass)">required</span>' : '') + '</label>';
     if(f.list){
       h += '<select data-j="' + f.k + '">' + opt(f.list, job[f.k]) + '</select>';
     } else {
@@ -2905,6 +2953,7 @@ function renderJob(){
     h += '<div class="field awaynote">Lead time, document type and the sales ' +
          'representative are put away. Untick In-Home Measurement to set them.</div>';
   h += '</div></div>';
+  }
 
   /* THE DEFAULTS CARD IS THE SAME FIELDS AGAIN
      Product type, style, paint, hardware: exactly what the tick is putting
@@ -3127,7 +3176,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
-  'comboval','sure','jfclear','doc'];
+  'comboval','sure','jfclear','doc','custopen','revaddop'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 async function persist(){ await saveJob(state.job); }
@@ -3152,6 +3201,18 @@ document.addEventListener('click', async e => {
   if(d.review !== undefined) return openReview();
   if(d.padof){ const o = job && job.openings.find(x => x.id === d.op); if(o) openPad(o, d.padof); return; }
   if(d.revback !== undefined){ state.view = 'job'; return render(); }
+  /* 2.20, Andrew 18 Nov: a door added straight from the review. It is a new
+     opening with the job's defaults, and its line is filled in right here. */
+  if(d.revaddop !== undefined){
+    if(reviewLines(job).length >= PAGE_ROWS.length)
+      return toast('The contract holds ' + PAGE_ROWS.length + ' lines and they are all used');
+    const o = newOpening(job.openings.length + 1, job.defaults);
+    job.openings.push(o); state.openOpening = o.id; state.editOption = o.options[0].id;
+    await persist(); calcJob(job); render();
+    const row = [...document.querySelectorAll('table.rv-two tbody tr.rv-l1')].pop();
+    if(row){ row.scrollIntoView({block:'center'}); const f = row.querySelector('select,input'); if(f) f.focus(); }
+    return toast('Door ' + o.number + ' added. Fill in its line.');
+  }
   if(d.revprint !== undefined){
     // the form pages are pictures: wait until they are in before printing
     await Promise.all(jobDocs(job).map(f => f.png).concat(doorPicks(job).map(p => p.photo).filter(Boolean))
@@ -3264,12 +3325,13 @@ document.addEventListener('click', async e => {
     state.users = state.users.filter(x => x.name !== d.rmuser);
     await saveUsers(state.users); toast('Account removed'); return render();
   }
-  if(d.new !== undefined){ state.job = newJob(); state.view = 'job'; state.repOpen = false;
+  if(d.new !== undefined){ state.job = newJob(); state.view = 'job'; state.repOpen = false; state.custOpen = true;
     state.openOpening = state.job.openings[0].id;
     state.editOption = state.job.openings[0].options[0].id;
     await persist(); return render(); }
   if(d.open){ const j = await loadJob(d.open);
     state.job = j; state.view = 'job'; state.repOpen = false;
+    state.custOpen = !(j.customer && (j.openings || []).length);   // 2.20
     const first = state.job.openings[0];
     state.openOpening = first && first.id;
     state.editOption = first && first.options[0] && first.options[0].id;
@@ -3370,6 +3432,8 @@ document.addEventListener('click', async e => {
   if(d.done !== undefined){ state.editOption = null; return render(); }
   /* the rep is known from the sign in, so the dropdown only appears on asking */
   if(d.repopen !== undefined){ state.repOpen = true; return render(); }
+  /* 2.20: the folded customer line opens and closes */
+  if(d.custopen !== undefined){ state.custOpen = d.custopen === '1'; return render(); }
   if(d.skip){ const o = op.options.find(x => x.id === d.o);
     o.skipped[d.skip] = !o.skipped[d.skip]; await persist(); return render(); }
   if(d.addopt){ const o = newOption(job.defaults); op.options.push(o); state.editOption = o.id;
@@ -3613,6 +3677,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.19 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.20 · 18 Nov 2026</div>
 </body>
 </html>
