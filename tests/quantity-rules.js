@@ -49,7 +49,8 @@ const check = (name, ok, got) => {
   // 2.3: sizes are typed on the number pad
   const padType = async (f, digits) => {
     await page.click('[data-padof="' + f + '"]');
-    for(const k of String(digits)) await page.click('#pad [data-pk="' + k + '"]');
+    if(Array.isArray(digits)) await page.click('#pad [data-pk="C"]');
+    for(const k of Array.isArray(digits) ? digits : String(digits)) await page.click('#pad [data-pk="' + k + '"]');
     await page.click('#pad [data-pk="done"]');
     await page.waitForTimeout(100);
   };
@@ -84,9 +85,17 @@ const check = (name, ok, got) => {
   check('bifold width list stops at 72',
         !(await page.$('[data-osize="width"][data-val="76"]')) &&
         !!(await page.$('[data-osize="width"][data-val="72"]')), 'chips');
+  // 2.29: up to 72 1/2 is allowed, and 36 1/2 is still one door
+  await padType('width', ['7', '2', 'f4']); s = await op();
+  check('bifold 72 1/2 is allowed, quantity 2', String(s.width) === '72.5' && s.qty === 2 && s.miss.length === 0, s);
+  await padType('width', ['3', '6', 'f4']); s = await op();
+  check('bifold 36 1/2 is quantity 1', s.qty === 1, s);
+  await padType('width', ['3', '6', 'f5']); s = await op();
+  check('bifold over 36 1/2 is quantity 2', s.qty === 2, s);
+  await padType('width', ['7', '2', 'f4']);
   await padType('width', 80);
   s = await op();
-  check('typing 80 on a bifold is refused', String(s.width) === '72', s.width);
+  check('typing 80 on a bifold is refused', String(s.width) === '72.5', s.width);
   check('and the pad stays up to fix it', !!(await page.$('#pad')), 'pad closed');
   await page.click('#pad [data-pk="cancel"]');
   // a wide opening that becomes a bifold afterwards is blocked, not lost

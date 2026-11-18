@@ -30,6 +30,8 @@ const CASES = [
   ['Lynden double swing 60: leaves 30', 'Double Swing AST', '1.375 Hollow', 'Lopez', 60, 80, 2, 'ok'],
   ['Lynden double swing 76: leaves 38', 'Double Swing AST', '1.375 Hollow', 'Lopez', 76, 80, 2, 'so', 'Each leaf'],
   ['Lynden bifold 48 at 6\'8"', 'Bifold', '1.375 Hollow', 'Kingston', 48, 80, 2, 'ok'],
+  ['Lynden bifold 72 1/2 opening takes the 72 unit', 'Bifold', '1.375 Hollow', 'Kingston', 72.5, 80, 2, 'ok'],
+  ['Lynden bifold 36 1/2 opening takes the 36 unit', 'Bifold', '1.375 Hollow', 'Kingston', 36.5, 80, 1, 'ok'],
   ['Lynden bifold at 7\'0"', 'Bifold', '1.375 Hollow', 'Kingston', 30, 84, 1, 'so', '6\'8" only'],
   ['Masonite 36 x 80', 'Single Swing', '1.375 Hollow', 'Riverside', 36, 80, 1, 'ok'],
   ['Masonite 40 wide', 'Single Swing', '1.375 Hollow', 'Riverside', 40, 80, 1, 'so'],

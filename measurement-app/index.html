@@ -778,7 +778,8 @@ function isDouble(op){
 /* QUANTITY FOLLOWS THE DOOR TYPE
  *
  * Andrew, 17 Nov: a single swing is always 1 and a double swing always 2.
- * A bifold is 1 up to 36 inches wide and 2 above that, up to 72; nothing
+ * A bifold is 1 up to 36 inches wide and 2 above that, up to 72 (2.29: an
+ * opening up to 1/2" over either still counts, so 36 1/2 and 72 1/2); nothing
  * wider is made, so a wider bifold cannot be written. A bypass has to have
  * its quantity picked, from 2, 3 or 4. Every other door type is typed in
  * as before. The GDL and Premium bifolds, and the GDL bypass, follow the
@@ -1901,7 +1902,12 @@ function docsBox(job){
       esc(d.title) + '</a><span>' + esc('For ' + d.why + ': opening' + (d.openings.length > 1 ? 's ' : ' ') +
       [...new Set(d.openings)].join(', ')) + '</span></li>').join('') + '</ul></div>';
 }
-const BIFOLD_MAX = 72, BIFOLD_ONE = 36;
+/* 2.29, Andrew 18 Nov: a bifold opening can be up to 72 1/2" wide. A bifold
+   is made narrower than its opening (the Bifold Fit Guide), so a 72" unit
+   takes an opening up to 1/2" wider. The same 1/2" holds at the one door
+   break: up to 36 1/2" is one door. BIFOLD_SLACK is that 1/2", also used by
+   the supplier size check to find the unit for the opening. */
+const BIFOLD_SLACK = 0.5, BIFOLD_MAX = 72 + BIFOLD_SLACK, BIFOLD_ONE = 36 + BIFOLD_SLACK;
 /* The door being quoted decides: the ticked option, else the first one with
    a type, else what is installed today. */
 function quoteType(op){
@@ -2972,8 +2978,9 @@ function sizeCheck(op, o, msrp){
          L.bifoldStyles.map(x => x === 'Deman' ? 'Denman' : x).join(', ') + ')');
       return res;
     }
+    need = Math.max(0, w - BIFOLD_SLACK);       // 2.29: the unit for the opening
     if(L.bifold){
-      list = L.bifold[h]; need = w; what = 'the bifold';
+      list = L.bifold[h]; need = Math.max(0, w - BIFOLD_SLACK); what = 'the bifold';
       if(!list){ so(L.name + ' bifolds are 6\'8" only'); return res; }
       if(L.bifoldWhy) ck(L.bifoldWhy);
     } else ck(L.name + ' bifold sizes are not on the reference, check with the supplier');
@@ -4887,6 +4894,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.28 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.29 · 18 Nov 2026</div>
 </body>
 </html>
