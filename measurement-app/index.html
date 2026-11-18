@@ -280,7 +280,7 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   .rv-box table.rv td, .rv-box table.rv th{padding:1px 4px}
   .print-forms{display:block!important}
   /* 2.21: the signature lines, as on the workbook */
-  .print-sig{display:flex!important;gap:.5in;align-items:flex-end;margin:10px 0 0;break-inside:avoid;
+  .print-sig{display:flex!important;gap:.5in;align-items:flex-end;margin:10px 0 0;padding-bottom:14px;break-inside:avoid;
     font-family:Arial,Helvetica,sans-serif;font-size:9pt;color:#000}
   .print-sig > div{display:flex;align-items:flex-end;gap:6px;position:relative}
   .print-sig i{display:block;border-bottom:1px solid #000;height:18px}
@@ -325,8 +325,12 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   .pd-card span{display:block;font-size:9px;color:#555;margin-top:2px}
   .print-doors.many .pd-card{width:1.2in}
   .print-doors.many .pd-card img, .print-doors.many .pd-nophoto{height:2.35in}
-  .pd-card.wide{width:2.9in}
-  .print-doors.many .pd-card.wide{width:2.6in}
+  /* 2.22, Andrew 18 Nov: every door the same size. Each photo fills the
+     same door shaped box (30 x 80 proportions); the GDL room photos are
+     cut to that shape around the closet door in the files themselves. */
+  .pd-card img, .pd-nophoto{width:1.55in!important;height:4.13in!important;max-width:none;object-fit:fill}
+  .pd-card img.room{object-fit:cover;object-position:center}
+  .print-doors.many .pd-card img, .print-doors.many .pd-nophoto{width:.83in!important;height:2.2in!important}
   .print-form{break-before:page;page:form;display:flex;justify-content:center;align-items:flex-start}
   .print-form svg{display:block;height:7.7in;width:auto}
   @supports (page: form){ .print-form svg{height:10.4in} }
@@ -801,7 +805,7 @@ const DOOR_PHOTOS = {
   "Awamori":"docs/doors/gdl-awamori.jpg",
   "Soba":"docs/doors/gdl-soba.jpg"
 };
-/* 2.16: room photos (GDL sets) are landscape and print on a wider card */
+/* 2.16: room photos (GDL sets); 2.22 crops them to the door box */
 const WIDE_PHOTO = p => /\/gdl-/.test(p);
 function doorPicks(job){
   const by = new Map();
@@ -818,12 +822,11 @@ const letterhead = () => '<div class="lh"><img src="' + (document.querySelector(
 function doorsPage(job){
   const picks = doorPicks(job);
   if(!picks.length) return '';
-  // 2.16: a wide (room) photo takes the room of two doors
-  const many = picks.reduce((n, p) => n + (WIDE_PHOTO(p.photo) ? 2 : 1), 0) > 6 ? ' many' : '';
+  const many = picks.length > 6 ? ' many' : '';
   return '<div class="print-doors' + many + '">' + letterhead() +
     '<h2>Your door selections</h2><p class="pd-who">' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  ·  ')) + '</p>' +
-    '<div class="pd-grid">' + picks.map(p => '<div class="pd-card' + (WIDE_PHOTO(p.photo) ? ' wide' : '') + '">' +
-      (p.photo ? '<img src="' + p.photo + '" alt="">' : '<div class="pd-nophoto">Photo to come</div>') +
+    '<div class="pd-grid">' + picks.map(p => '<div class="pd-card">' +
+      (p.photo ? '<img src="' + p.photo + '" alt=""' + (WIDE_PHOTO(p.photo) ? ' class="room"' : '') + '>' : '<div class="pd-nophoto">Photo to come</div>') +
       '<b>' + esc(styleName(p.style)) + '</b><span>' + esc(p.qty + (p.qty === 1 ? ' door' : ' doors') + ': ' + [...new Set(p.where)].join(', ')) +
       '</span></div>').join('') + '</div>' + sigBlock() + '</div>';
 }
@@ -3729,6 +3732,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.21 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.22 · 18 Nov 2026</div>
 </body>
 </html>
