@@ -341,6 +341,7 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   .ph-grid{display:flex;flex-wrap:wrap;gap:8px 16px;justify-content:center}
   .ph-card{width:1.45in;text-align:center;break-inside:avoid}
   .ph-card img{display:block;width:.9in;height:.9in;object-fit:contain;margin:0 auto 3px}
+  .ph-none{width:.9in;height:.9in;margin:0 auto 3px;border:1px dashed #aaa;display:flex;align-items:center;justify-content:center;font-size:8px;color:#888}
   .ph-card b{display:block;font-size:10.5px}
   .ph-card span{display:block;font-size:8px;color:#555;margin-top:1px}
   .ph-card i{display:block;font-size:7.5px;color:#B5121B;margin-top:1px}
@@ -955,7 +956,7 @@ function doorsPage(job){
       '<b>' + esc(styleName(p.style)) + '</b><span>' + esc(p.qty + (p.qty === 1 ? ' door' : ' doors') + ': ' + [...new Set(p.where)].join(', ')) +
       '</span></div>').join('') + '</div>' +
     (hp.length ? '<div class="print-kick ph-kick">Handles</div><div class="ph-grid">' + hp.map(h => '<div class="ph-card">' +
-      '<img src="' + h.photo + '" alt=""><b>' + esc(h.title) + '</b><span>' + esc(h.rose + ', ' + h.colour) + '</span>' +
+      '<img src="' + h.photo + '" alt="" onerror="this.outerHTML=\'<div class=ph-none>Photo to come</div>\'"><b>' + esc(h.title) + '</b><span>' + esc(h.rose + ', ' + h.colour) + '</span>' +
       '<span>' + esc(h.line + ': ' + [...new Set(h.where)].join(', ')) + '</span>' +
       (h.note ? '<i>' + esc(h.note) + '</i>' : '') + '</div>').join('') + '</div>' : '') +
     sigBlock(job, 'doors') + '</div>';
@@ -3904,7 +3905,7 @@ document.addEventListener('click', async e => {
   }
   if(d.revprint !== undefined){
     // the form pages are pictures: wait until they are in before printing
-    await Promise.all(jobDocs(job).map(f => f.png).concat(doorPicks(job).map(p => p.photo).filter(Boolean))
+    await Promise.all(jobDocs(job).map(f => f.png).concat(doorPicks(job).map(p => p.photo).filter(Boolean)).concat(handlePicks(job).map(h => h.photo))
       .map(src => new Promise(ok => { const im = new Image(); im.onload = im.onerror = ok; im.src = src; })));
     return window.print();
   }
@@ -4366,6 +4367,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.25 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.25.1 · 18 Nov 2026</div>
 </body>
 </html>
