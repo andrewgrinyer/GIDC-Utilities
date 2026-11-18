@@ -20,7 +20,7 @@ const server = http.createServer((q, r) => {
   let body = fs.readFileSync(f);
   if(p === '/index.html') body = body.toString('utf8')
     .replace("supabaseUrl: 'https://baakegbtuygtldksmant.supabase.co'", "supabaseUrl: ''");
-  r.setHeader('Content-Type', p.endsWith('.js') ? 'text/javascript' : p.endsWith('.png') ? 'image/png' :
+  r.setHeader('Content-Type', p.endsWith('.js') ? 'text/javascript' : p.endsWith('.png') ? 'image/png' : p.endsWith('.jpg') ? 'image/jpeg' :
     p.endsWith('.pdf') ? 'application/pdf' : 'text/html');
   r.end(body);
 });
@@ -104,8 +104,19 @@ const check = (name, ok, got) => {
         texts.every(t => t === 'NO PDFTOTEXT' || (t.includes('Docs Test') && t.includes('12 Main St, Cambridge'))),
         texts.map(t => t.slice(0, 80)));
 
+  // 2.13: the door selections page: photos where the style sheet has one
+  await page.evaluate(() => { state.job.openings[0].options[0].v.doorStyle = '1 Lite Rain';
+    state.job.openings[1].options[0].v.doorStyle = 'Logan'; calcJob(state.job); render(); });
+  const picks = await page.evaluate(() => doorPicks(state.job).map(p => [p.style, !!p.photo, p.qty]));
+  check('door selections: one card per style, photo where there is one',
+        JSON.stringify(picks) === JSON.stringify([['1 Lite Rain', true, 1], ['Logan', true, 2], ['Columbia', false, 2]]), picks);
+  const photosOk = await page.evaluate(async () => Promise.all(Object.values(DOOR_PHOTOS).map(async f => (await fetch(f)).status)));
+  check('every door photo is there', photosOk.every(x => x === 200), photosOk);
+
   // 2.12: printing the review gives the order on letter sideways, then each form upright
   await page.evaluate(() => render());
+  await page.evaluate(() => Promise.all([...document.querySelectorAll('.pd-card img')].map(i => i.complete ? 1 :
+    new Promise(ok => { i.onload = i.onerror = ok; }))));
   await page.waitForFunction(() => [...document.querySelectorAll('.print-form image')].length === 3);
   await page.evaluate(() => Promise.all(JOB_DOCS.map(f => new Promise(ok => {
     const im = new Image(); im.onload = im.onerror = ok; im.src = f.png; }))));
@@ -116,10 +127,14 @@ const check = (name, ok, got) => {
   try{ info = execFileSync('pdfinfo', ['-f', '1', '-l', '20', pf]).toString(); }catch(e){}
   const psizes = [...info.matchAll(/Page\s+\d+ size:\s+([\d.]+) x ([\d.]+)/g)].map(m => [+m[1], +m[2]]);
   check('the order prints on letter sideways (11 x 8.5)', !info || (psizes[0][0] === 792 && psizes[0][1] === 612), psizes);
+  check('then the door selections page, also sideways, before the forms',
+        !info || (psizes.filter(([w]) => w === 792).length >= 2 && psizes[psizes.length - 4][0] === 792), psizes);
   check('then one upright letter page per form, three here',
         !info || (psizes.slice(-3).every(([w, h]) => w === 612 && h === 792) &&
                   psizes.filter(([w]) => w === 612).length === 3), psizes);
   const ptext = info ? execFileSync('pdftotext', [pf, '-']).toString() : 'Docs Test';
+  check('the door page names the doors and says where they go', !info || (ptext.includes('Your door selections') &&
+        ptext.includes('1 Lite Rain') && ptext.includes('Logan') && ptext.includes('Photo to come')), ptext.slice(0, 600));
   check('the printed forms carry the customer', (ptext.match(/Customer: Docs Test/g) || []).length === 2, ptext.slice(-400));
 
   check('no page errors', errors.length === 0, errors);

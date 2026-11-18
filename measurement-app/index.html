@@ -279,12 +279,35 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   .rv-box table.rv{font-size:8px}
   .rv-box table.rv td, .rv-box table.rv th{padding:1px 4px}
   .print-forms{display:block!important}
+  /* typed cells print like the rest of the table: same font, no box */
+  table.rv input, table.rv select, .rv-box input.rv-boxin{font:inherit!important;font-size:inherit!important;color:inherit!important;
+    border:0!important;padding:0!important;margin:0;background:none!important;min-height:0!important;box-shadow:none;
+    width:100%!important;max-width:none!important;-webkit-appearance:none;appearance:none;text-align:inherit}
+  .rv-box td.num input.rv-boxin{text-align:right}
+  table.rv input::placeholder{color:inherit;opacity:1}
+  .rv-box input.rv-boxtext::placeholder{color:transparent}
+  table.rv-two td > select, table.rv-two td > input{font-size:10.5px!important}
+  /* 2.13: the door selections page, landscape, on the letterhead */
+  .print-doors{display:block!important;break-before:page}
+  .lh{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:1.5px solid #1F1F24;padding-bottom:8px;margin-bottom:14px}
+  .lh img{height:48px;width:auto}
+  .lh-addr{text-align:right;font-size:10px;line-height:1.45;color:#444}
+  .print-doors h2{font-size:22px;margin:0 0 2px}
+  .pd-who{font-size:11px;color:#555;margin:0 0 14px}
+  .pd-grid{display:flex;flex-wrap:wrap;gap:16px 18px;justify-content:center}
+  .pd-card{width:1.55in;text-align:center;break-inside:avoid}
+  .pd-card img, .pd-nophoto{display:block;height:4.15in;width:auto;max-width:100%;margin:0 auto 6px;object-fit:contain}
+  .pd-nophoto{width:1.4in;border:1px dashed #aaa;display:flex;align-items:center;justify-content:center;font-size:10px;color:#888}
+  .pd-card b{display:block;font-size:12px}
+  .pd-card span{display:block;font-size:9px;color:#555;margin-top:2px}
+  .print-doors.many .pd-card{width:1.2in}
+  .print-doors.many .pd-card img, .print-doors.many .pd-nophoto{height:2.35in}
   .print-form{break-before:page;page:form;display:flex;justify-content:center;align-items:flex-start}
   .print-form svg{display:block;height:7.7in;width:auto}
   @supports (page: form){ .print-form svg{height:10.4in} }
   @page form{size:8.5in 11in;margin:0.3in}
 }
-.print-forms{display:none}
+.print-forms, .print-doors{display:none}
 .warn.stop{background:var(--brass-soft);border-color:var(--brass-line);color:var(--brass)}
 .chip.now{background:var(--brass-soft);border-color:var(--brass-line);color:var(--ink)}
 .chip.on.now{background:var(--brass);border-color:var(--brass);color:#fff}
@@ -606,6 +629,62 @@ async function stampedDoc(d, job){
   });
   return await pdf.save();
 }
+/* 2.13, Andrew 18 Nov: a page of the door styles the customer picked, with
+   photos, printed with the order on the letterhead. Photos come from the
+   Door Styles 2023 sheet; only styles that sheet shows by the same (or
+   plainly the same) name have one. The rest print with the name alone until
+   there is a photo for them. */
+const DOOR_PHOTOS = {
+  "1 Lite Clear":"docs/doors/1-lite-clear.jpg",
+  "1 Lite Mirror":"docs/doors/1-lite-mirror.jpg",
+  "1 Lite Mirror Double Sided":"docs/doors/1-lite-mirror.jpg",
+  "1 Lite Reed":"docs/doors/1-lite-reed.jpg",
+  "1 Lite Rain":"docs/doors/1-lite-rain.jpg",
+  "1 Lite Pantry":"docs/doors/1-lite-pantry.jpg",
+  "1 Lite Laundry":"docs/doors/1-lite-laundry.jpg",
+  "10 Lite Clear":"docs/doors/10-lite-clear.jpg",
+  "3 Lite Privacy":"docs/doors/3-lite-privacy.jpg",
+  "Plantation Louver":"docs/doors/plantation-louver.jpg",
+  "Lincoln Park":"docs/doors/lincoln-park.jpg",
+  "Logan":"docs/doors/logan.jpg",
+  "Winslow":"docs/doors/winslow.jpg",
+  "Berkley":"docs/doors/berkley.jpg",
+  "Melrose":"docs/doors/melrose.jpg",
+  "Livingston":"docs/doors/livingston.jpg",
+  "Riverside":"docs/doors/riverside.jpg",
+  "1 Panel True Shaker":"docs/doors/1-panel-shaker.jpg",
+  "2 Panel True Shaker":"docs/doors/2-panel-shaker.jpg",
+  "3 Panel Equal Shaker":"docs/doors/3-panel-equal-shaker.jpg",
+  "3 Panel Shaker (T-Shape)":"docs/doors/3-panel-shaker.jpg",
+  "5 Panel True Shaker":"docs/doors/5-panel-shaker.jpg",
+  "2 Panel Arch Top":"docs/doors/2-panel-arch.jpg",
+  "2 Panel Roman Smooth":"docs/doors/2-panel-roman.jpg",
+  "Flush":"docs/doors/flush-white.jpg"
+};
+function doorPicks(job){
+  const by = new Map();
+  (job.openings || []).forEach(op => op.options.filter(o => o.include && o.v.doorStyle).forEach(o => {
+    const k = o.v.doorStyle;
+    if(!by.has(k)) by.set(k, {style:k, photo:DOOR_PHOTOS[k] || '', where:[], qty:0});
+    const e = by.get(k);
+    e.where.push((op.location || 'Opening ' + op.number)); e.qty += Number(op.qty) || 1;
+  }));
+  return [...by.values()];
+}
+const letterhead = () => '<div class="lh"><img src="' + (document.querySelector('.brand img') || {}).src + '" alt="Grinyer Interior Doors and Closets">' +
+  '<div class="lh-addr">1177 Franklin Blvd<br>Cambridge, ON<br>877 566 4052</div></div>';
+function doorsPage(job){
+  const picks = doorPicks(job);
+  if(!picks.length) return '';
+  const many = picks.length > 6 ? ' many' : '';
+  return '<div class="print-doors' + many + '">' + letterhead() +
+    '<h2>Your door selections</h2><p class="pd-who">' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  ·  ')) + '</p>' +
+    '<div class="pd-grid">' + picks.map(p => '<div class="pd-card">' +
+      (p.photo ? '<img src="' + p.photo + '" alt="">' : '<div class="pd-nophoto">Photo to come</div>') +
+      '<b>' + esc(styleName(p.style)) + '</b><span>' + esc(p.qty + (p.qty === 1 ? ' door' : ' doors') + ': ' + [...new Set(p.where)].join(', ')) +
+      '</span></div>').join('') + '</div></div>';
+}
+const styleName = s => s === 'Deman' ? 'Denman' : s;
 function jobDocs(job){
   const opts = [];
   (job.openings || []).forEach(op => op.options.filter(o => o.include).forEach(o => opts.push({op, o})));
@@ -1928,7 +2007,7 @@ const BOX_EDITS = {C47:{fee:'serviceQty'}, K47:{fee:'disposalQty'}};
 function boxEditor(ed, job, v){
   if(ed.fee){
     const set = (job.fees || {})[ed.fee];
-    const auto = typeof v === 'number' ? Math.round(v * 100) / 100 : '';
+    const auto = typeof v === 'number' && v ? Math.round(v * 100) / 100 : '';
     return '<input type="number" inputmode="decimal" step="any" min="0" class="rv-boxin" data-rvfee="' + ed.fee + '" value="' +
       esc(set === undefined || set === null ? '' : set) + '" placeholder="' + esc(auto) + '" title="Grey is worked out by the sheet. Type to set it; 0 removes it">';
   }
@@ -2102,6 +2181,7 @@ function renderReview(){
   if(prices && plain(cv('Q59'))) h += '<p class="hint">' + esc(plain(cv('Q59'))) + '</p>';
   // 2.12: the forms this order needs print after it, one page each, with the
   // customer written on them. Print only: the screen lists them above.
+  h += doorsPage(job);
   if(formsToPrint.length) h += '<div class="print-forms">' + formsToPrint.map(d => docPage(d, job)).join('') + '</div>';
   $('#app').innerHTML = h;
 
@@ -2971,8 +3051,8 @@ document.addEventListener('click', async e => {
   if(d.revback !== undefined){ state.view = 'job'; return render(); }
   if(d.revprint !== undefined){
     // the form pages are pictures: wait until they are in before printing
-    await Promise.all(jobDocs(job).map(f => new Promise(ok => {
-      const im = new Image(); im.onload = im.onerror = ok; im.src = f.png; })));
+    await Promise.all(jobDocs(job).map(f => f.png).concat(doorPicks(job).map(p => p.photo).filter(Boolean))
+      .map(src => new Promise(ok => { const im = new Image(); im.onload = im.onerror = ok; im.src = src; })));
     return window.print();
   }
   /* a form opened from Documents for this order: with the customer on it */
@@ -3430,6 +3510,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.12 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.13 · 18 Nov 2026</div>
 </body>
 </html>
