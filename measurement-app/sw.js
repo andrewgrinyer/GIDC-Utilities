@@ -6,7 +6,7 @@
    file cached whatever came back, so a single 403 from the edge could be kept
    and handed out afterwards, which is exactly what happened on 23 Sep 2026.
    A response already in the cache from that version is ignored and refetched. */
-const CACHE = 'gidc-5.8';   // 2.16, door photos from grinyer.ca, install defaults to yes
+const CACHE = 'gidc-5.9';   // 2.17, 1 Lite Laminated photo
 const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.png', './icon-512.png',
                './apple-touch-icon.png', './manifest.webmanifest',
                './docs/handle-hardware-selection.pdf', './docs/bypass-door-overlap-guide.pdf',
@@ -18,6 +18,7 @@ const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.
                './docs/doors/1-lite-laundry.jpg',
                './docs/doors/1-lite-mirror.jpg',
                './docs/doors/1-lite-pantry.jpg',
+               './docs/doors/1-lite-privacy-glass.jpg',
                './docs/doors/1-lite-rain.jpg',
                './docs/doors/1-lite-reed.jpg',
                './docs/doors/1-panel-shaker.jpg',
