@@ -88,6 +88,7 @@ type Job = {
   salesRep?: string;
   signed?: { at?: string; name?: string; rev?: number };
   contracts?: { at?: string; supersededBy?: number }[];
+  specialOrder?: unknown[];
 };
 const revLabel = (r: number) => "Rev " + String(r).padStart(3, "0");
 
@@ -97,6 +98,9 @@ function emailFor(j: Job, repName: string) {
   const rev = Number(j.signed?.rev ?? 0) || 0;
   const old = rev ? (j.contracts ?? []).filter((c) => c.supersededBy === rev).pop() : undefined;
   const revLine = rev ? `This is ${revLabel(rev)}${old?.at ? `, and replaces the contract signed ${when(old.at)}, which is now superseded` : ""}.` : "";
+  // 2.32: special order items are named in the email too
+  const so: string[] = Array.isArray(j.specialOrder) ? j.specialOrder.map((x: unknown) => String(x)).slice(0, 30) : [];
+  const soLine = so.length ? `Special order items: ${so.join("; ")}. Special order items are made for this order and cannot be returned or refunded.` : "";
   const subject = `Your Grinyer contract${rev ? " " + revLabel(rev) : ""}, signed ${when(j.signed?.at)}`;
   const html =
     `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,` +
@@ -110,6 +114,8 @@ function emailFor(j: Job, repName: string) {
         `<p style="font-size:15px;line-height:1.5;margin:0 0 14px">Signed by ` +
         `${esc(j.signed?.name || who)} on ${esc(when(j.signed?.at))}` +
         `${repName ? ` with ${esc(repName)}` : ""}.${revLine ? " " + esc(revLine) : ""}</p>` +
+        (so.length ? `<p style="font-size:15px;line-height:1.5;margin:0 0 14px;color:#B5121B"><b>Special order items:</b> ` +
+          `${so.map(esc).join("<br>")}<br><b>Special order items are made for this order and cannot be returned or refunded.</b></p>` : "") +
         `<p style="font-size:15px;line-height:1.5;margin:0 0 14px">If anything ` +
         `on it is not right, reply to this email or call us at 877 566 4052 ` +
         `within 24 hours, before we order your materials.</p>` +
@@ -124,6 +130,7 @@ function emailFor(j: Job, repName: string) {
     "contract is attached as a PDF.", "",
     `Signed by ${j.signed?.name || who} on ${when(j.signed?.at)}` +
       (repName ? ` with ${repName}` : "") + "." + (revLine ? " " + revLine : ""), "",
+    ...(soLine ? [soLine, ""] : []),
     "If anything on it is not right, reply to this email or call us at " +
     "877 566 4052 within 24 hours, before we order your materials.", "",
     "Grinyer Interior Doors & Closets, 1177 Franklin Blvd, Cambridge, ON",

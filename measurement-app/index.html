@@ -214,6 +214,10 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .rv-sizes ul{margin:0;padding-left:18px}
 .rv-sizes li{margin:4px 0;font-size:14px}
 .rv-sizes li.rv-so b{color:var(--brass)} .rv-sizes li.rv-check b{color:#8A5A00}
+.rv-conf{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 2px;font-size:13px}
+.rv-conf .btn{padding:4px 10px;font-size:13px;min-height:0}
+.linkbtn{background:none;border:0;color:var(--brass);text-decoration:underline;cursor:pointer;font:inherit;padding:0 2px}
+@media print{.rv-conf,.linkbtn{display:none!important}}
 .rv-box input.rv-boxin{font:inherit;font-size:13px;width:52px;text-align:right;border:1px solid var(--rule);
   border-radius:6px;padding:4px 5px;min-height:30px;background:#fff}
 .rv-box input.rv-boxtext{width:100%;min-width:80px;text-align:left}
@@ -1123,10 +1127,15 @@ const markSvg = (m, cls) => !m ? '' :
   '<path d="' + m.d + '" fill="none" stroke="#14213D" stroke-width="' + (m.sw || 3) + '" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 const termsItems = () => TERMS_HTML.split('</li>').filter(x => x.trim()).map(x => x.replace(/^<li>/, ''));
 const INI_TAG = '<span class="ini"></span>';
+const SO_TERM = 'Special order items are made for this order and cannot be returned or refunded.';
 function signFields(job){
   const total = calc && typeof cv('U54') === 'number' ? money(cv('U54')) : '';
   const f = [{id:'contract', kind:'sign', title:'Sign the order',
     note:'You agree to the doors, hardware and prices on this order' + (total ? ', grand total ' + total : '') + '.'}];
+  // 2.32: special order items are initialled on their own
+  const so = specialOrders(job);
+  if(so.length) f.push({id:'ini-so', kind:'initial', title:'Initial the special order items',
+    html:'<b>' + SO_TERM + '</b><br>' + so.map(x => esc(x.text)).join('<br>')});
   termsItems().forEach((t, i) => { if(t.indexOf(INI_TAG) >= 0)
     f.push({id:'ini-' + (i + 1), kind:'initial', title:'Initial term ' + (i + 1), html:t.replace(INI_TAG, '')}); });
   f.push({id:'terms', kind:'sign', title:'Sign the Install Instructions and Contract Amendment',
@@ -1385,12 +1394,16 @@ async function contractPdf(job, opts){
   const LW = 792, LH = 612;
   const lines = reviewLines(job).slice(0, PAGE_ROWS.length);
   const COLS = [['#', 16], ['Location', 64], ['Qty', 20], ['Door type', 68], ['Door style', 80], ['Product', 52],
-    ['Height', 30], ['Width', 28], ['Jamb', 28], ['Handle', 60], ['Handle style', 84], ['HW colour', 46], ['Paint', 46],
+    ['Height', 30], ['Width', 28], ['Ordered', 46], ['Jamb', 28], ['Handle', 60], ['Handle style', 70], ['HW colour', 46], ['Paint', 46],
     ['Install', 28]].concat(prices ? [['Door MSRP', 42], ['Door total', 44], ['Handle', 38]] : []);
   const scaleW = (LW - 56) / COLS.reduce((a, c) => a + c[1], 0);
+  // 2.32: the size ordered from the supplier, next to each opening
+  const orderedText = (op, o, i) => { const z = sizeCheck(op, o, cv('R' + PAGE_ROWS[i]));
+    return z.status === 'so' ? 'S/O' : z.stock || ''; };
+  const soList = specialOrders(job);
   const cell = (ln, i) => { const {op, o} = ln, row = PAGE_ROWS[i], v = o.v;
     const base = [op.number, op.location, op.qty, v.doorType, styleName(v.doorStyle || ''), v.productType,
-      lineSize(op, ln.o).height, lineSize(op, ln.o).width, v.jamb, v.handleType, v.handleStyle, v.hwColour, v.paintColour, v.install];
+      lineSize(op, ln.o).height, lineSize(op, ln.o).width, orderedText(op, ln.o, i), v.jamb, v.handleType, v.handleStyle, v.hwColour, v.paintColour, v.install];
     return base.concat(prices ? [money(cv('R' + row)), money(cv('T' + row)), money(cv('U' + row))] : []).map(x => x == null ? '' : String(x)); };
   let li = 0, pageNo = 0;
   do {
@@ -1418,14 +1431,29 @@ async function contractPdf(job, opts){
       pg.drawRectangle({x:28, y:y - 15, width:COLS[0][1] * scaleW, height:15, color:stop ? RED : CHAR});
       x = 28; vals.forEach((v, k) => { const cw = COLS[k][1] * scaleW, num = prices && k >= COLS.length - 3;
         text(pg, fitText(v, F, 7, cw - 5), num ? x + cw - 3 : k ? x + 3 : x + cw / 2, y - 10,
-             {size:7, color:k ? (num && /S\/O|#/.test(v) ? RED : INK) : WHITE, right:num, center:!k, font:k ? F : FB}); x += cw; });
+             {size:7, color:k ? (stop || (num && /S\/O|#/.test(v)) ? RED : INK) : WHITE, right:num, center:!k, font:k ? F : FB}); x += cw; });
       pg.drawLine({start:{x:28, y:y - 15}, end:{x:LW - 28, y:y - 15}, thickness:0.4, color:RULE});
       y -= 15; li++;
     }
     if(li >= lines.length){
       // 2.23: the four boxes under the doors, as on the review and the sheet
-      const boxes = sumBoxes(), need = 30 + Math.max(...boxes.map(b => b.rows.length)) * 10.5;
+      const boxes = sumBoxes(), soH = soList.length ? 22 + soList.length * 9 : 0,
+            need = 30 + soH + Math.max(...boxes.map(b => b.rows.length)) * 10.5;
       if(y - need < 92){ sigLines(pg, 'contract', 28, 64); foot(pg, LW); continue; }
+      if(soList.length){
+        // 2.32: the special order items, in red, initialled by the customer
+        y -= 8;
+        pg.drawRectangle({x:28, y:y - soH + 4, width:LW - 56, height:soH - 4, borderColor:RED, borderWidth:0.8});
+        text(pg, 'SPECIAL ORDER ITEMS', 34, y - 9, {size:7, font:FB, color:RED});
+        text(pg, SO_TERM, 128, y - 9, {size:7, font:FB, color:RED});
+        soList.forEach((x, k) => text(pg, fitText(x.text, F, 7, LW - 160), 34, y - 19 - k * 9, {size:7, color:RED}));
+        const ix = LW - 28 - 78, iy = y - soH + 8;
+        text(pg, 'Initial', ix - 26, iy + 5, {size:7, color:GREY});
+        pg.drawRectangle({x:ix, y:iy, width:70, height:16, borderColor:INK, borderWidth:0.6});
+        mark(pg, signed('ini-so'), ix + 2, iy + 1, 66, 14);
+        spot(pg, 'ini-so', ix - 3, iy - 3, 76, 22);
+        y -= soH;
+      }
       y -= 14; kicker(pg, 'Pricing summary', 28, y); y -= 5;
       const WID = {Installation:180, 'Special Materials and Rework':228, Hardware:160, 'Order Total':150};
       const FR = {Installation:[.42, .14, .21, .23], 'Special Materials and Rework':[.5, .17, .11, .22],
@@ -1638,7 +1666,11 @@ async function sendToSign(job, again){
   if(!reviewLines(job).length) return toast('There are no doors on this order');
   const miss = missing(job);
   if(miss.length) return toast('Fill these in before sending: ' + miss.slice(0, 2).join('; ') + (miss.length > 2 ? ' and ' + (miss.length - 2) + ' more' : ''));
+  const unconf = sizeUnconfirmed(job);
+  if(unconf.length) return toast('Confirm the supplier size on opening' + (unconf.length > 1 ? 's ' : ' ') + unconf.join(', ') +
+    ' first (marked Check on the review)');
   if(prices0(job)) return toast('Every door needs a price before sending. Type the Door MSRP on the S/O lines.');
+  job.specialOrder = specialOrders(job).map(x => x.text);
   const to = String(job.email || '').trim();
   if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to)) return toast('Put the customer email on the job first');
   const nr = nextRev(job), old = job.signed && job.signed.at ? job.signed : null;
@@ -1854,7 +1886,11 @@ async function signContract(job){
   if(!reviewLines(job).length) return toast('There are no doors on this order to sign for');
   const miss = missing(job);
   if(miss.length) return toast('Fill these in before signing: ' + miss.slice(0, 2).join('; ') + (miss.length > 2 ? ' and ' + (miss.length - 2) + ' more' : ''));
+  const unconf = sizeUnconfirmed(job);
+  if(unconf.length) return toast('Confirm the supplier size on opening' + (unconf.length > 1 ? 's ' : ' ') + unconf.join(', ') +
+    ' first (marked Check on the review)');
   if(prices0(job)) return toast('Every door needs a price before signing. Type the Door MSRP on the S/O lines.');
+  job.specialOrder = specialOrders(job).map(x => x.text);
   openSignPad(job, async signed => {
     if(!signed) return;
     // 2.28: signed before, the old one is kept, superseded, and this is the next revision
@@ -3091,7 +3127,7 @@ const STOCK_H = [80, 84, 96];
    price is stock, S/O or nothing is not available. */
 const isGdlLine = (o, type) => o.v.productType === 'GDL' || /^GDL /.test(type) ||
   /^GDL/.test(((LISTS.doorStyle || []).find(d => d.n === o.v.doorStyle) || {}).f || '');
-function sizeCheck(op, o, msrp){
+function sizeCheckRaw(op, o, msrp){
   const style = o.v.doorStyle || '', type = o.v.doorType || quoteType(op);
   const res = {status:'ok', line:'', stock:'', why:[]};
   const so = w => { res.status = 'so'; res.why.push(w); };
@@ -3182,6 +3218,30 @@ function sizeCheck(op, o, msrp){
   return res;
 }
 const SIZE_WORD = {ok:'Stock', check:'Check', so:'Special order', none:'Not checked'};
+/* 2.32, Andrew 18 Nov: a line the size check marks Check has to be
+   confirmed with the supplier, as stock or as special order, before the
+   contract can be signed or sent to sign. Who and when are kept on the
+   option (o.sizeOk). Changing the door or its size undoes it. */
+const sizeFp = (op, o) => JSON.stringify([o.v.doorStyle || '', o.v.productType || '', o.v.doorType || '',
+  String(op.width), String(op.height), String(op.openW || ''), String(op.openH || ''), String(op.qty)]);
+function sizeCheck(op, o, msrp){
+  const res = sizeCheckRaw(op, o, msrp), c = o.sizeOk;
+  if(res.status !== 'check') return res;
+  if(!c || c.fp !== sizeFp(op, o)) return res;
+  res.confirmed = c;
+  const by = 'Confirmed ' + (c.as === 'so' ? 'special order' : 'stock') + ' by ' + (c.by || 'the office') + ', ' + signDay(c.at);
+  res.why.unshift(by);
+  res.status = c.as === 'so' ? 'so' : 'ok';
+  return res;
+}
+// lines still waiting on a size confirmation
+const sizeUnconfirmed = job => reviewLines(job).slice(0, PAGE_ROWS.length)
+  .filter(({op, o}) => sizeCheck(op, o).status === 'check').map(({op}) => op.number);
+// the special order lines, in words, for the contract and its emails
+const specialOrders = job => { if(calc) calcJob(job); return reviewLines(job).slice(0, PAGE_ROWS.length).map(({op, o}, i) => {
+  const z = sizeCheck(op, o, calc ? cv('R' + PAGE_ROWS[i]) : undefined);
+  return z.status === 'so' ? {n:op.number, text:'Opening ' + op.number + (op.location ? ' (' + op.location + ')' : '') + ': ' +
+    styleName(o.v.doorStyle || o.v.doorType || 'door') + (z.stock ? ', ' + z.stock : '')} : null; }).filter(Boolean); };
 
 /* ---------------- the number pad ----------------
  *
@@ -3576,16 +3636,23 @@ function renderReview(){
   const lineSize = (l, i) => sizeCheck(l.op, l.o, cv('R' + PAGE_ROWS[i]));
   lines.slice(0, PAGE_ROWS.length).forEach(({op, o}, i) => {
     const z = lineSize({op, o}, i);
-    if(z.status === 'so' || z.status === 'check')
+    const ids = ' data-op="' + op.id + '" data-o="' + o.id + '"';
+    if(z.status === 'so' || z.status === 'check' || z.confirmed)
       sizeNotes.push('<li class="rv-' + z.status + '"><b>Opening ' + op.number + ' · ' + SIZE_WORD[z.status] +
         '</b> ' + esc((o.v.doorStyle || '') + (z.line ? ' (' + z.line + ')' : '')) + ': ' +
-        esc(z.why.join('. ')) + '</li>');
+        esc(z.why.join('. ')) +
+        (z.status === 'check' ? '<span class="rv-conf">Checked with the supplier? ' +
+          '<button class="btn" data-sizeok="stock"' + ids + '>Confirmed stock</button>' +
+          '<button class="btn" data-sizeok="so"' + ids + '>Special order</button></span>'
+         : z.confirmed ? ' <button class="linkbtn" data-sizeok=""' + ids + '>Undo</button>' : '') + '</li>');
   });
   const unchecked = lines.slice(0, PAGE_ROWS.length).filter((l, i) => lineSize(l, i).status === 'none').length;
   state.reviewSO = lines.slice(0, PAGE_ROWS.length).filter((l, i) => lineSize(l, i).status === 'so').length;
   if(sizeNotes.length || unchecked)
     h += '<div class="rv-sizes"><h3>Supplier sizes</h3>' +
       (sizeNotes.length ? '<ul>' + sizeNotes.join('') + '</ul>' : '<p>Every door checked is a stock size.</p>') +
+      (lines.slice(0, PAGE_ROWS.length).some((l, i) => lineSize(l, i).status === 'check')
+        ? '<p class="hint">Lines marked Check need confirming with the supplier before the contract is signed or sent.</p>' : '') +
       (unchecked ? '<p class="hint">' + unchecked + ' line' + (unchecked === 1 ? ' is' : 's are') +
         ' not checked: the style is not on the supplier size list, or the size is not in yet.</p>' : '') +
       '</div>';
@@ -4512,7 +4579,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','sign','signpdf','signmail',
-  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf'];
+  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 /* 2.30, Andrew 18 Nov: "the door type buttons stick and won't let us click
@@ -4647,6 +4714,14 @@ document.addEventListener('click', async e => {
     } else op.options = op.options.filter(x => x.id !== o.id);
     calcJob(job); render(); persistBg();
     return toast('Door removed');
+  }
+  if(d.sizeok !== undefined){
+    const op = job.openings.find(x => x.id === d.op), o = op && op.options.find(x => x.id === d.o);
+    if(!op || !o) return;
+    if(!d.sizeok) delete o.sizeOk;
+    else o.sizeOk = {as:d.sizeok, by:(state.me && state.me.name) || '', at:new Date().toISOString(), fp:sizeFp(op, o)};
+    calcJob(job); render(); persistBg();
+    return toast(!d.sizeok ? 'Back to Check' : d.sizeok === 'so' ? 'Opening ' + op.number + ' is special order' : 'Opening ' + op.number + ' confirmed stock');
   }
   if(d.revprint !== undefined){
     // the form pages are pictures: wait until they are in before printing
@@ -5115,6 +5190,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.31 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.32 · 18 Nov 2026</div>
 </body>
 </html>

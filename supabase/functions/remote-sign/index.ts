@@ -386,6 +386,9 @@ Deno.serve(async (req) => {
       }
     } catch (e) { console.log("job not updated: " + (e as Error).message); }
 
+    // 2.32: special order items are named in the email too
+    const sd = (r.job as { specialOrder?: unknown })?.specialOrder;
+    const so: string[] = Array.isArray(sd) ? sd.map((x: unknown) => String(x)).slice(0, 30) : [];
     const to = [r.sent_to, ...(r.sent_by_email && EMAIL.test(r.sent_by_email) &&
       r.sent_by_email.toLowerCase() !== r.sent_to.toLowerCase() ? [r.sent_by_email] : [])];
     let emailed: string[] = [];
@@ -400,12 +403,15 @@ Deno.serve(async (req) => {
           `Signed electronically by ${esc(r.signer_name)} on ${esc(day(r.signed_at))}.` +
           (rev ? ` This is ${revLabel(rev)}${replaced?.at ? `, and replaces the contract signed ${esc(day(replaced.at))}, which is now superseded` : ""}.` : "") +
           `</p>` +
+          (so.length ? `<p style="font-size:15px;line-height:1.5;margin:0 0 14px;color:#B5121B"><b>Special order items:</b> ` +
+            `${so.map(esc).join("<br>")}<br><b>Special order items are made for this order and cannot be returned or refunded.</b></p>` : "") +
           `<p style="font-size:15px;line-height:1.5;margin:0 0 14px">If anything on it is not right, reply to this email or ` +
           `call 877 566 4052 within 24 hours, before we order your materials.</p></div>` +
           `<p style="color:#6B6B6B;font-size:12px;border-top:1px solid #C8C8C8;padding-top:10px;margin:18px 0 0">` +
           `Grinyer Interior Doors &amp; Closets, 1177 Franklin Blvd, Cambridge, ON</p></div>`,
         text: `Thank you. Your signed Grinyer contract is attached. Signed electronically by ${r.signer_name} on ${day(r.signed_at)}.` +
-          (rev ? ` This is ${revLabel(rev)}${replaced?.at ? `, and replaces the contract signed ${day(replaced.at)}, which is now superseded` : ""}.` : ""),
+          (rev ? ` This is ${revLabel(rev)}${replaced?.at ? `, and replaces the contract signed ${day(replaced.at)}, which is now superseded` : ""}.` : "") +
+          (so.length ? `\n\nSpecial order items: ${so.join("; ")}. Special order items are made for this order and cannot be returned or refunded.` : ""),
         attachments: [{ filename: path.split("/").pop(), content: pdf }],
       });
       emailed = to;

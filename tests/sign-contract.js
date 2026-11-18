@@ -114,8 +114,9 @@ const check = (name, ok, got) => {
   check('the signing pad asks for the name first', await page.inputValue('#sp-name') === 'Jane Sample');
   await page.click('[data-sp="start"]');
   const fields = await page.evaluate(() => signFields(state.job).map(f => f.id));
-  check('fields: 8 initials, contract, terms, doors and each form',
-    fields.filter(f => f.startsWith('ini-')).length === 8 && ['contract', 'terms', 'doors'].every(f => fields.includes(f)) &&
+  // 2.32: the S/O line (typed price) adds the special order initial after the contract
+  check('fields: 8 initials, special order initial, contract, terms, doors and each form',
+    fields.filter(f => /^ini-\d/.test(f)).length === 8 && fields[1] === 'ini-so' && ['contract', 'terms', 'doors'].every(f => fields.includes(f)) &&
     fields.includes('form-bifold'), fields);
   // Next on an empty pad does not move on
   const head0 = await page.locator('.signpad').innerText();
