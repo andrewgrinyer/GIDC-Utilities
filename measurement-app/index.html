@@ -2029,6 +2029,7 @@ function setOpeningSize(op, f, val){
  * (job.reveal, job.floorGap). A re-rail or re-stile set by hand stays. */
 const SIZING = 2;
 const REVEAL = 0.094, FLOOR_GAP = 0.5, CUT_TOL = 0.02, GAP_EXTRA = 0.75;
+const SWING_OVER_SINGLE = 0.4, SWING_OVER_DOUBLE = 0.6;   // Andrew 18 Nov
 const PORTAL_W = [12,14,16,18,20,22,24,26,28,30,32,34,36], PORTAL_BIFOLD_W = [24,30,36];
 const PORTAL_H = [80,84,90,96];
 const SHAKER_NAMES = ['1 panel true shaker','2 panel true shaker','3 panel equal shaker','3 panel shaker (t-shape)',
@@ -2105,7 +2106,13 @@ function openPlan(op, o){
     return P;
   }
   const ws = bifold ? list : blankWidths(L, bH, list);
-  const bW = P.typedW ? tW : ws.find(w => w >= finW - CUT_TOL);
+  /* 2.34, Andrew 18 Nov: a swing opening can be up to 0.400" over the stock
+     door width (0.600" over the pair on a double) and still take that door;
+     the door is then hung uncut on width and the reveal is a little wider. */
+  const over = per > 1 ? SWING_OVER_DOUBLE : SWING_OVER_SINGLE;
+  const bW = P.typedW ? tW : swing ? ws.find(w => W <= w * per + over + 1e-6)
+                                   : ws.find(w => w >= finW - CUT_TOL);
+  if(swing && bW !== undefined && bW < finW){ finW = bW; P.finW = r4(finW); }
   P.blankH = bH;
   if(bW === undefined){
     P.so = 'no ' + (L ? L.name : 'stock') + ' door is wide enough at ' + ftin(bH) + ': each door has to be ' + sizeText(r4(finW)) +
@@ -5233,6 +5240,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.33 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.34 · 18 Nov 2026</div>
 </body>
 </html>

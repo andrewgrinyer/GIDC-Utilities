@@ -28,11 +28,15 @@ const check = (name, ok, got) => {
 const CASES = [
   ['swing, close fit: no rework', 'Single Swing', '1.375 Hollow', 'Kingston', 30.125, 80.5, 1,
     {blankW:30, blankH:80, reRail:false, reStile:false, exportW:30, exportH:80}],
-  ['swing 30 1/4 x 81: 6 foot 8 fits uncut (floor gap under 1 1/4), re-stile', 'Single Swing', '1.375 Hollow', 'Kingston', 30.25, 81, 1,
-    {blankW:32, blankH:80, reRail:false, reStile:true, exportW:32, exportH:80}],
-  ['swing, wide and tall: up a size, re-rail and re-stile', 'Single Swing', '1.375 Hollow', 'Kingston', 30.25, 82, 1,
+  ['swing 30 1/4 x 81: a 30 x 80, uncut (0.400 over is allowed; floor gap under 1 1/4)', 'Single Swing', '1.375 Hollow', 'Kingston', 30.25, 81, 1,
+    {blankW:30, blankH:80, reRail:false, reStile:false, exportW:30, exportH:80}],
+  ['swing 30.4 wide still takes a 30', 'Single Swing', '1.375 Hollow', 'Kingston', 30.4, 80.5, 1, {blankW:30}],
+  ['swing 30.45 wide goes to a 32', 'Single Swing', '1.375 Hollow', 'Kingston', 30.45, 80.5, 1, {blankW:32, reStile:true}],
+  ['double 60.6 still takes two 30s', 'Double Swing AST', '1.375 Hollow', 'Kingston', 60.6, 80.5, 2, {blankW:30, per:2}],
+  ['double 60.65 goes to two 32s', 'Double Swing AST', '1.375 Hollow', 'Kingston', 60.65, 80.5, 2, {blankW:32, per:2}],
+  ['swing, wide and tall: up a size, re-rail and re-stile', 'Single Swing', '1.375 Hollow', 'Kingston', 30.5, 82, 1,
     {blankW:32, blankH:84, reRail:true, reStile:true, exportW:32, exportH:84}],
-  ['swing, solid core: never reworked', 'Single Swing', '1.375 Solid', 'Kingston', 30.25, 82, 1,
+  ['swing, solid core: never reworked', 'Single Swing', '1.375 Solid', 'Kingston', 30.5, 82, 1,
     {blankW:32, blankH:84, reRail:false, reStile:false}],
   ['swing, shaker: Trimlite widths, never reworked', 'Single Swing', '1.375 Solid', '1 Panel True Shaker', 26.75, 80.5, 1,
     {blankW:28, blankH:80, reRail:false, reStile:false}],
@@ -99,7 +103,7 @@ const CASES = [
   // a re-rail or re-stile set by hand stays; the rest follow the opening
   const hand = await page.evaluate(() => {
     state.job = newJob();
-    const op = state.job.openings[0]; op.openW = '30.25'; op.openH = '82';
+    const op = state.job.openings[0]; op.openW = '30.5'; op.openH = '82';
     Object.assign(op.options[0].v, {doorType:'Single Swing', productType:'1.375 Hollow', doorStyle:'Kingston'});
     syncPlans(state.job);
     const auto = [op.options[0].v.reRail, op.options[0].v.reStile, op.width, op.height];
@@ -137,7 +141,7 @@ const CASES = [
     Object.assign(v, {doorType:'Single Swing', productType:'1.375 Hollow', doorStyle:'Kingston'});
     state.job.openings[0].options[0].include = true; return missing(state.job); });
   check('the opening size is needed before the workbook', miss.some(m => /door opening width/.test(m)), miss);
-  await page.evaluate(() => { const op = state.job.openings[0]; op.openW = '30.25'; op.openH = '82'; render(); });
+  await page.evaluate(() => { const op = state.job.openings[0]; op.openW = '30.5'; op.openH = '82'; render(); });
   const card = await page.evaluate(() => ({plan:(document.querySelector('.plan') || {}).textContent || '',
     w:state.job.openings[0].width, h:state.job.openings[0].height}));
   check('the card shows the door worked out', /2'8" x 7'0"/.test(card.plan) && /Re-rail yes, re-stile yes/.test(card.plan), card);
