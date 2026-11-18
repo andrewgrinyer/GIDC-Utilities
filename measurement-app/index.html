@@ -312,6 +312,8 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   .pd-card span{display:block;font-size:9px;color:#555;margin-top:2px}
   .print-doors.many .pd-card{width:1.2in}
   .print-doors.many .pd-card img, .print-doors.many .pd-nophoto{height:2.35in}
+  .pd-card.wide{width:2.9in}
+  .print-doors.many .pd-card.wide{width:2.6in}
   .print-form{break-before:page;page:form;display:flex;justify-content:center;align-items:flex-start}
   .print-form svg{display:block;height:7.7in;width:auto}
   @supports (page: form){ .print-form svg{height:10.4in} }
@@ -647,7 +649,6 @@ async function stampedDoc(d, job){
 const DOOR_PHOTOS = {
   "1 Lite Clear":"docs/doors/1-lite-clear.jpg",
   "1 Lite Mirror":"docs/doors/1-lite-mirror.jpg",
-  "1 Lite Mirror Double Sided":"docs/doors/1-lite-mirror.jpg",
   "1 Lite Reed":"docs/doors/1-lite-reed.jpg",
   "1 Lite Rain":"docs/doors/1-lite-rain.jpg",
   "1 Lite Pantry":"docs/doors/1-lite-pantry.jpg",
@@ -669,8 +670,85 @@ const DOOR_PHOTOS = {
   "5 Panel True Shaker":"docs/doors/5-panel-shaker.jpg",
   "2 Panel Arch Top":"docs/doors/2-panel-arch.jpg",
   "2 Panel Roman Smooth":"docs/doors/2-panel-roman.jpg",
-  "Flush":"docs/doors/flush-white.jpg"
+  "Flush":"docs/doors/flush-white.jpg",
+  /* 2.16, Andrew 18 Nov: the rest from grinyer.ca product pages */
+  "Columbia":"docs/doors/columbia-raised.jpg",
+  "Bonneville":"docs/doors/bonneville-raised.jpg",
+  "Kingston":"docs/doors/kingston-raised.jpg",
+  "Rosario":"docs/doors/rosario-raised.jpg",
+  "Lopez":"docs/doors/lopez-raised.jpg",
+  "MontLake":"docs/doors/montlake-modern.jpg",
+  "Mercer":"docs/doors/mercer-beveled.jpg",
+  "Whitman":"docs/doors/whitman-beveled.jpg",
+  "Aberdeen":"docs/doors/aberdeen-beveled.jpg",
+  "Yarrow":"docs/doors/yarrow-beveled.jpg",
+  "Winthrop":"docs/doors/winthrop-beveled.jpg",
+  "Benton":"docs/doors/benton-raised.jpg",
+  "Flat Slab":"docs/doors/flush-white.jpg",
+  "Deman":"docs/doors/denman-modern.jpg",
+  "Alki":"docs/doors/alki-modern.jpg",
+  "Robson":"docs/doors/robson-modern.jpg",
+  "Van Air Ventilated":"docs/doors/vanair-ventilated.jpg",
+  "Laurelhurst":"docs/doors/laurelhurst-modern.jpg",
+  "Ballard":"docs/doors/ballard-modern.jpg",
+  "Fairview":"docs/doors/fairview-modern.jpg",
+  "Granville":"docs/doors/granville-modern.jpg",
+  "Ravenna":"docs/doors/ravenna-modern.jpg",
+  "2 Panel Square":"docs/doors/2-panel-raised.jpg",
+  "Cheyenne":"docs/doors/cheyenne-raised.jpg",
+  "1 Lite Mirror Double Sided":"docs/doors/1-lite-double-sided-mirror.jpg",
+  "4 Panel True Shaker":"docs/doors/4-panel-shaker.jpg",
+  "3 Lite Clear":"docs/doors/3-lite-clear-glass.jpg",
+  "4 Lite Privacy":"docs/doors/4-lite-privacy-glass.jpg",
+  "4 Lite Clear":"docs/doors/4-lite-clear-glass.jpg",
+  "5 Lite Privacy":"docs/doors/5-lite-privacy-glass.jpg",
+  "5 Lite Clear":"docs/doors/5-lite-clear-glass.jpg",
+  "15 Lite Clear":"docs/doors/15-lite-clear-glass.jpg",
+  "Monroe Smooth":"docs/doors/monroe-beveled.jpg",
+  "Birkdale Smooth":"docs/doors/birkdale-beveled.jpg",
+  "Rockport Smooth":"docs/doors/rockport-raised.jpg",
+  "Santa Fe Smooth":"docs/doors/santa-fe-raised.jpg",
+  "Colonist Textured":"docs/doors/colonist-raised.jpg",
+  "Carrara Smooth":"docs/doors/carrara-raised.jpg",
+  "Conmore Smooth":"docs/doors/conmore-beveled.jpg",
+  "Craftsman III Smooth":"docs/doors/craftsman-iii-beveled.jpg",
+  "Madison Smooth":"docs/doors/madison-beveled.jpg",
+  "Glissade Square Style 1":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Square Style 2":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Square Style 3":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Square Style 4":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Square Style 5":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Square Style 6":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Square Style 7":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Square Style 8":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Square Style 9":"docs/doors/gdl-glissade-square.jpg",
+  "Glissade Swept Style 1":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Swept Style 2":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Swept Style 3":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Swept Style 4":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Swept Style 5":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Swept Style 6":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Swept Style 7":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Swept Style 8":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Swept Style 9":"docs/doors/gdl-glissade-swept.jpg",
+  "Glissade Bifold Style 1":"docs/doors/gdl-glissade-bifold.jpg",
+  "Glissade Bifold Style 2":"docs/doors/gdl-glissade-bifold.jpg",
+  "Glissade Bifold Style 3":"docs/doors/gdl-glissade-bifold.jpg",
+  "Glissade Bifold Style 4":"docs/doors/gdl-glissade-bifold.jpg",
+  "Glissade Bifold Style 5":"docs/doors/gdl-glissade-bifold.jpg",
+  "Glissade Bifold Style 6":"docs/doors/gdl-glissade-bifold.jpg",
+  "Glissade Bifold Style 7":"docs/doors/gdl-glissade-bifold.jpg",
+  "Glissade Bifold Style 8":"docs/doors/gdl-glissade-bifold.jpg",
+  "Glissade Bifold Style 9":"docs/doors/gdl-glissade-bifold.jpg",
+  "Economy (No Warranty)":"docs/doors/gdl-economy-glass.jpg",
+  "Malai":"docs/doors/gdl-malai.jpg",
+  "Madori":"docs/doors/gdl-midori.jpg",
+  "Select":"docs/doors/gdl-select.jpg",
+  "Awamori":"docs/doors/gdl-awamori.jpg",
+  "Soba":"docs/doors/gdl-soba.jpg"
 };
+/* 2.16: room photos (GDL sets, Aberdeen) are landscape and print on a wider card */
+const WIDE_PHOTO = p => /\/(gdl-|aberdeen)/.test(p);
 function doorPicks(job){
   const by = new Map();
   (job.openings || []).forEach(op => op.options.filter(o => o.include && o.v.doorStyle).forEach(o => {
@@ -686,10 +764,11 @@ const letterhead = () => '<div class="lh"><img src="' + (document.querySelector(
 function doorsPage(job){
   const picks = doorPicks(job);
   if(!picks.length) return '';
-  const many = picks.length > 6 ? ' many' : '';
+  // 2.16: a wide (room) photo takes the room of two doors
+  const many = picks.reduce((n, p) => n + (WIDE_PHOTO(p.photo) ? 2 : 1), 0) > 6 ? ' many' : '';
   return '<div class="print-doors' + many + '">' + letterhead() +
     '<h2>Your door selections</h2><p class="pd-who">' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  ·  ')) + '</p>' +
-    '<div class="pd-grid">' + picks.map(p => '<div class="pd-card">' +
+    '<div class="pd-grid">' + picks.map(p => '<div class="pd-card' + (WIDE_PHOTO(p.photo) ? ' wide' : '') + '">' +
       (p.photo ? '<img src="' + p.photo + '" alt="">' : '<div class="pd-nophoto">Photo to come</div>') +
       '<b>' + esc(styleName(p.style)) + '</b><span>' + esc(p.qty + (p.qty === 1 ? ' door' : ' doors') + ': ' + [...new Set(p.where)].join(', ')) +
       '</span></div>').join('') + '</div></div>';
@@ -1174,6 +1253,7 @@ const defaultsSet = job => DEFAULT_FIELDS.filter(f => job && job.defaults && job
 function newOption(defaults){
   const o = {id:uid(), include:true, skipped:{}, v:{}};
   SECTIONS.forEach(s => { if(!s.always) o.skipped[s.id] = false; });
+  o.v.install = 'YES';             // 2.16, Andrew 18 Nov: every door added is installed unless changed
   if(defaults) DEFAULT_FIELDS.forEach(f => { if(defaults[f.k]) o.v[f.k] = defaults[f.k]; });
   return o;
 }
@@ -3532,6 +3612,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.15 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.16 · 18 Nov 2026</div>
 </body>
 </html>

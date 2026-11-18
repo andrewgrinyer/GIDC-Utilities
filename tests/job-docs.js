@@ -47,7 +47,7 @@ const check = (name, ok, got) => {
     const j = newJob(); j.customer = 'Docs Test'; j.openings = [];
     lines.forEach(([type, handle, w]) => {
       const op = newOpening(j.openings.length + 1); op.location = 'Bed 1'; op.width = String(w); op.height = 80;
-      Object.assign(op.options[0].v, {doorType:type, productType:'1.375 Hollow', doorStyle:'Columbia', handleType:handle});
+      Object.assign(op.options[0].v, {doorType:type, productType:'1.375 Hollow', doorStyle:'Samish (Smooth)', handleType:handle});
       applyQtyRule(op); if(BYPASS_TYPES.indexOf(type) >= 0) op.qty = 2; j.openings.push(op);
     });
     state.job = j; state.view = 'job'; state.openOpening = null; render();
@@ -109,7 +109,7 @@ const check = (name, ok, got) => {
     state.job.openings[1].options[0].v.doorStyle = 'Logan'; calcJob(state.job); render(); });
   const picks = await page.evaluate(() => doorPicks(state.job).map(p => [p.style, !!p.photo, p.qty]));
   check('door selections: one card per style, photo where there is one',
-        JSON.stringify(picks) === JSON.stringify([['1 Lite Rain', true, 1], ['Logan', true, 2], ['Columbia', false, 2]]), picks);
+        JSON.stringify(picks) === JSON.stringify([['1 Lite Rain', true, 1], ['Logan', true, 2], ['Samish (Smooth)', false, 2]]), picks);
   const photosOk = await page.evaluate(async () => Promise.all(Object.values(DOOR_PHOTOS).map(async f => (await fetch(f)).status)));
   check('every door photo is there', photosOk.every(x => x === 200), photosOk);
 
