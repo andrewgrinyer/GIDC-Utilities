@@ -3319,6 +3319,8 @@ function sheetInputs(job){
       let val = (secOf[k] && skipped(secOf[k])) ? '' : (o.v[k] || '');
       // cutting a door down to a standard height always means a re-rail
       if(k === 'reRail' && needsReRail(op)) val = 'YES';
+      // 2.53: the jamb goes in as a number, so the jamb price lines count it
+      if(k === 'jamb' && val !== '' && !isNaN(val)){ out.push([col + row, Number(val)]); return; }
       out.push([col + row, val === '' ? '' : String(val)]);
     });
     /* 2.10, Andrew 18 Nov: a door the supplier size check calls special
@@ -3362,12 +3364,30 @@ const INPUT_REFS = (() => {
   return r;
 })();
 
+/* 2.53: the workbook's jamb lines (K52, K53) were COUNTIF(H9:H27, "4 5/8") and
+   "6 5/8". Excel reads those as 4.625 and 6.625, the price calculator here did
+   not, so the review charged no jamb. Andrew, 19 Nov: a jamb width typed with
+   Other is charged the same as the 6 5/8 jamb. So 4 5/8 counts on its own line
+   and every other jamb width on the 6 5/8 line, one jamb per contract line.
+   The same formulas go into the calculator and into the downloaded file. */
+const JAMB_FORMULAS = {
+  K52: 'COUNTIF(H9:H27,4.625)+COUNTIF(H37:H43,4.625)',
+  K53: 'COUNTIF(H9:H27,">0")+COUNTIF(H37:H43,">0")-COUNTIF(H9:H27,4.625)-COUNTIF(H37:H43,4.625)'
+};
+function setFormula(xml, ref, f){
+  const pair = new RegExp('<c r="' + ref + '"([^>]*)><f>[^<]*</f>(<v>[^<]*</v>)?</c>');
+  const m = xml.match(pair);
+  if(!m) return xml;
+  return xml.replace(m[0], '<c r="' + ref + '"' + m[1] + '><f>' + xesc(f) + '</f></c>');
+}
 function fillSheet(xml, job){
   sheetInputs(job).forEach(([ref, v]) => {
     if(v === null) return;
     if(v === '') xml = clearCell(xml, ref);
     else xml = setCell(xml, ref, v, typeof v === 'number');
   });
+  if(xml.indexOf('COUNTIF(H9:H27, &quot;4 5/8&quot;)') >= 0 || xml.indexOf('COUNTIF(H9:H27, "4 5/8")') >= 0)
+    Object.keys(JAMB_FORMULAS).forEach(ref => { xml = setFormula(xml, ref, JAMB_FORMULAS[ref]); });
   return xml;
 }
 
@@ -3967,14 +3987,10 @@ async function getCalc(){
   const hf = (lib.HyperFormula || lib).buildFromSheets(sheets, {licenseKey:'gpl-v3'});
   const sid = hf.getSheetId('Pricing Sheet');
   if(sid === undefined) throw new Error('the template does not look like the contract workbook');
-  /* 2.53: the jamb lines count column H with COUNTIF(H9:H27, "4 5/8"). Excel and
-     LibreOffice read "4 5/8" as the number 4.625, so the downloaded workbook
-     charges the jamb, but the calculator here does not, and the review showed
-     no jamb charge. Same count, written with the numbers, for the calculator only. */
-  [['K52', 4.625], ['K53', 6.625]].forEach(([ref, w]) => {
-    const c = {sheet: sid, row: +ref.slice(1) - 1, col: 10};
-    if(/COUNTIF\(H9:H27/i.test(String(hf.getCellFormula(c) || '')))
-      hf.setCellContents(c, [['=COUNTIF(H9:H27,' + w + ')+COUNTIF(H37:H43,' + w + ')']]);
+  /* 2.53: jamb lines counted on numbers (JAMB_FORMULAS), in the calculator as in the file */
+  Object.keys(JAMB_FORMULAS).forEach(ref => {
+    const c = {sheet: sid, row: +ref.slice(1) - 1, col: colNum(ref.replace(/\d+$/, '')) - 1};
+    if(/COUNTIF\(H9:H27/i.test(String(hf.getCellFormula(c) || ''))) hf.setCellContents(c, [['=' + JAMB_FORMULAS[ref]]]);
   });
   calc = {hf, sid, orig:{}};
   INPUT_REFS.forEach(ref => { calc.orig[ref] = hf.getCellSerialized(cellAt(ref)); });
@@ -5891,6 +5907,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.53 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.54 · 19 Nov 2026</div>
 </body>
 </html>

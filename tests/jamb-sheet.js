@@ -109,8 +109,24 @@ const check = (name, ok, got) => {
   const jc = await page.evaluate(async () => { await openReview(); calcJob(state.job);
     return {k52:cv('K52'), l52:cv('L52'), k53:cv('K53'), l53:cv('L53'), box:(document.querySelector('.rv-boxes') || {}).textContent || ''}; });
   check('4 5/8 jamb counted and charged', jc.k52 === 1 && jc.l52 > 0, jc);
-  check('6 5/8 jamb counted and charged', jc.k53 === 1 && jc.l53 > 0, jc);
+  check('6 5/8 and typed jamb widths counted on the 6 5/8 line', jc.k53 === 2 && jc.l53 > 0, jc);
   check('jamb lines show in the materials box', /4 5\/8 FJ Jamb/.test(jc.box) && /6 5\/8 FJ Jamb/.test(jc.box), jc.box.slice(0, 400));
+
+  // the downloaded workbook carries the same jamb formulas (LibreOffice recalculates them)
+  const { execFileSync } = require('child_process');
+  const lo = ['soffice', 'libreoffice'].find(c => { try{ execFileSync('which', [c]); return true; }catch(e){ return false; } });
+  if(lo){
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.evaluate(() => download(state.job))]);
+    const os = require('os'), tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'jamb-'));
+    await dl.saveAs(path.join(tmp, 'job.xlsx'));
+    const xml = require('child_process').execSync('unzip -p ' + JSON.stringify(path.join(tmp, 'job.xlsx')) + ' xl/worksheets/sheet3.xml').toString();
+    check('downloaded workbook has the numeric jamb formulas', /<c r="K53"[^>]*><f>COUNTIF\(H9:H27,&quot;&gt;0&quot;\)/.test(xml) || /<c r="K53"[^>]*><f>COUNTIF\(H9:H27,"&gt;0"\)/.test(xml), (xml.match(/<c r="K53".{0,160}/) || [''])[0]);
+    execFileSync(lo, ['--headless', '--convert-to', 'csv:Text - txt - csv (StarCalc):44,34,76,1,,0,false,true,false,false,false,3', '--outdir', tmp, path.join(tmp, 'job.xlsx')], {stdio:'ignore'});
+    const csvf = fs.readdirSync(tmp).find(f => /Pricing Sheet|job-Pricing/.test(f) && f.endsWith('.csv'));
+    const rows = csvf ? fs.readFileSync(path.join(tmp, csvf), 'utf8').split('\n') : [];
+    const cell = (r, c) => ((rows[r - 1] || '').split(',')[c.charCodeAt(0) - 65] || '').replace(/"/g, '');
+    check('LibreOffice counts the jambs in the file the same', cell(52, 'K') === '1' && cell(53, 'K') === '2', [csvf, cell(52, 'K'), cell(53, 'K')]);
+  }
 
   check('no page errors', !errors.length, errors);
   await browser.close(); server.close();
