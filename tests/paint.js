@@ -38,7 +38,7 @@ const LINES = [
   L(5073, '5071', 'No colour', null, 'none', 2, '2026-11-26', '2026-11-27'),
   L(5074, '5072', 'Big job', 'Pearly', 'stock', 70, '2026-11-30', '2026-12-01'),
 ];
-let COUNTS, ORDERS, n = 0, ROLE = 'manufacturing', MAIL_OK = true;
+let COUNTS, ORDERS, n = 0, ROLE = 'manufacturing', MAIL_OK = true, EXPIRED = false;
 const calls = [], posted = [];
 function reset(){
   COUNTS = [{id:'c1', colour:'Chantilly Lace', gallons:'10.00', counted_on:'2026-11-16', created_at:'2026-11-16T22:00:00Z', created_by:'Nick'},
@@ -53,17 +53,24 @@ async function mock(page){
     calls.push(m + ' ' + p + u.search);
     const j = (b, s) => route.fulfill({status:s || 200, contentType:'application/json', body:JSON.stringify(b)});
     const body = req.postData() ? JSON.parse(req.postData()) : {};
+    if(p === '/auth/v1/token') return j({access_token:'x2', refresh_token:'y2', user:{id:'a1', email:'a@g.ca'}});
+    // A sign in older than an hour: the first save is refused with 401,
+    // as Supabase does, and the page has to renew and send it again.
+    if(EXPIRED && m !== 'GET'){ EXPIRED = false; return j({message:'JWT expired'}, 401); }
+    // Like PostgREST: a write sends the rows back only when asked to.
+    const wantRows = /return=representation/.test(req.headers()['prefer'] || '');
+    const jw = (b, st) => wantRows ? j(b, st) : route.fulfill({status: st === 201 ? 201 : 204, body: ''});
     if(p === '/rest/v1/profiles') return j([{id:'a1', name:'Nick', role:ROLE, active:true, email_verified_at:'2026-10-24'}]);
     if(p === '/auth/v1/user') return j({id:'a1'});
     if(p === '/rest/v1/paint_colours'){
       if(m === 'PATCH'){ const nm = decodeURIComponent(u.searchParams.get('name').replace('eq.', ''));
-        const c = COLOURS.find(x => x.name === nm); Object.assign(c, body); posted.push(['colour', nm, body]); return j([c]); }
+        const c = COLOURS.find(x => x.name === nm); Object.assign(c, body); posted.push(['colour', nm, body]); return jw([c]); }
       return j(COLOURS);
     }
     if(p === '/rest/v1/paint_schedule_lines') return j(+(u.searchParams.get('offset') || 0) ? [] : LINES);
     if(p === '/rest/v1/paint_counts'){
-      if(m === 'POST'){ const row = Object.assign({id:'n' + (++n), created_at:'2026-11-19T16:00:00Z', created_by:'Nick'}, body); COUNTS.unshift(row); posted.push(['count', body]); return j([row], 201); }
-      if(m === 'DELETE'){ const id = u.searchParams.get('id').replace('eq.', ''); const i = COUNTS.findIndex(x => x.id === id); return j(COUNTS.splice(i, 1)); }
+      if(m === 'POST'){ const row = Object.assign({id:'n' + (++n), created_at:'2026-11-19T16:00:00Z', created_by:'Nick'}, body); COUNTS.unshift(row); posted.push(['count', body]); return jw([row], 201); }
+      if(m === 'DELETE'){ const id = u.searchParams.get('id').replace('eq.', ''); const i = COUNTS.findIndex(x => x.id === id); return jw(COUNTS.splice(i, 1)); }
       return j(COUNTS);
     }
     if(p === '/rest/v1/paint_orders'){
@@ -73,12 +80,12 @@ async function mock(page){
         const po = 'PD' + String(ORDERS.length + 1).padStart(5, '0');
         const row = Object.assign({id, po_no: po, status:'requested', requested_at:'2026-11-19T16:00:00Z', requested_by:'Nick', emailed_at:null, received_on:null},
           body, {gallons: String(body.pails_5 * 5 + body.pails_1)});
-        ORDERS.unshift(row); posted.push(['order', body]); return j([row], 201);
+        ORDERS.unshift(row); posted.push(['order', body]); return jw([row], 201);
       }
       if(m === 'PATCH'){
         const id = u.searchParams.get('id').replace('eq.', ''); const o = ORDERS.find(x => x.id === id);
         Object.assign(o, body); if(body.status === 'received') o.received_on = '2026-11-19';
-        posted.push(['status', id, body]); return j([o]);
+        posted.push(['status', id, body]); return jw([o]);
       }
       return j(ORDERS);
     }
@@ -222,6 +229,17 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   MAIL_OK = true;
   await page.click('[data-resend]'); await page.waitForTimeout(250);
   check(!(await page.$('[data-resend]')), 'Send email clears it once it goes');
+
+  // an hour old sign in: the save is refused once, renewed, and goes in
+  EXPIRED = true;
+  await page.click('[data-count="Alabaster"]');
+  await page.fill('#c-gal', '6'); await page.click('#c-save'); await page.waitForTimeout(250);
+  c = await card(page, 'Alabaster');
+  check(/6\.0 gal in stock/.test(c) && !/would not allow/.test(await text(page, '#msg')),
+    'after the sign in runs out, a count still saves without a permission error (' + await text(page, '#msg') + ')');
+  EXPIRED = true;
+  await page.click('[data-received="00000000-0000-0000-0000-00000000000a"]'); await page.waitForTimeout(250);
+  check(/Pearly received/.test(await text(page, '#msg')), 'and so does Received');
 
   // count
   await page.click('[data-count="Pearly"]');
