@@ -387,6 +387,8 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
 .print-forms, .print-doors, .print-terms, .print-sig, .pw-foot{display:none}
 table.pw{width:100%;border-collapse:collapse;border:0}
 table.pw > tbody > tr > td, table.pw > tfoot > tr > td{padding:0;border:0;vertical-align:top}
+/* 2.53: on screen the page wrapper table must never grow past the phone width (a wider page made iPhone zoom out and the fixed dock float mid screen); wide review tables scroll inside .rv-scroll */
+@media screen{table.pw{table-layout:fixed}}
 .warn.stop{background:var(--brass-soft);border-color:var(--brass-line);color:var(--brass)}
 .chip.now{background:var(--brass-soft);border-color:var(--brass-line);color:var(--ink)}
 .chip.on.now{background:var(--brass);border-color:var(--brass);color:#fff}
@@ -3965,6 +3967,15 @@ async function getCalc(){
   const hf = (lib.HyperFormula || lib).buildFromSheets(sheets, {licenseKey:'gpl-v3'});
   const sid = hf.getSheetId('Pricing Sheet');
   if(sid === undefined) throw new Error('the template does not look like the contract workbook');
+  /* 2.53: the jamb lines count column H with COUNTIF(H9:H27, "4 5/8"). Excel and
+     LibreOffice read "4 5/8" as the number 4.625, so the downloaded workbook
+     charges the jamb, but the calculator here does not, and the review showed
+     no jamb charge. Same count, written with the numbers, for the calculator only. */
+  [['K52', 4.625], ['K53', 6.625]].forEach(([ref, w]) => {
+    const c = {sheet: sid, row: +ref.slice(1) - 1, col: 10};
+    if(/COUNTIF\(H9:H27/i.test(String(hf.getCellFormula(c) || '')))
+      hf.setCellContents(c, [['=COUNTIF(H9:H27,' + w + ')+COUNTIF(H37:H43,' + w + ')']]);
+  });
   calc = {hf, sid, orig:{}};
   INPUT_REFS.forEach(ref => { calc.orig[ref] = hf.getCellSerialized(cellAt(ref)); });
   return calc;
@@ -5880,6 +5891,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.52 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.53 · 19 Nov 2026</div>
 </body>
 </html>

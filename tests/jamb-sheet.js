@@ -105,6 +105,13 @@ const check = (name, ok, got) => {
   if(process.env.PDF) fs.writeFileSync(process.env.PDF, buf);
   check('the contract PDF builds with the extra pages', buf.length > 10000 && pages >= 6, {bytes:buf.length, pages});
 
+  // 2.53: the jamb lines are charged on the review (the calculator missed "4 5/8")
+  const jc = await page.evaluate(async () => { await openReview(); calcJob(state.job);
+    return {k52:cv('K52'), l52:cv('L52'), k53:cv('K53'), l53:cv('L53'), box:(document.querySelector('.rv-boxes') || {}).textContent || ''}; });
+  check('4 5/8 jamb counted and charged', jc.k52 === 1 && jc.l52 > 0, jc);
+  check('6 5/8 jamb counted and charged', jc.k53 === 1 && jc.l53 > 0, jc);
+  check('jamb lines show in the materials box', /4 5\/8 FJ Jamb/.test(jc.box) && /6 5\/8 FJ Jamb/.test(jc.box), jc.box.slice(0, 400));
+
   check('no page errors', !errors.length, errors);
   await browser.close(); server.close();
   console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
