@@ -32,6 +32,18 @@ prints the sync function's code so it can be put in the repo.
 **dealer-sync-unmatched.sql** is read only. It lists the portal orders
 the sync cannot match, with the Access jobs that carry the same surname.
 
+**door-inventory.sql** adds the door inventory, the one new table, team
+only. Styles and cores are not listed again: the tools page takes them
+from wholesale_prices and wholesale_style_alias, and the send-order edge
+function matches each new dealer order against the shelf the same way.
+Independent of the login files. `tests/inventory.sh` tests it locally.
+
+**door-inventory-count-2026-11-12.sql** loads Andrew's count of 12
+November (42 lines, 54 doors) after door-inventory.sql. Styles put under
+the price list's names where clear; a style the price list does not have
+is Other with its name in the notes. Lines the sheet marked unclear say
+"Check:" and show under Needs a check on the tools page.
+
 **security-audit.sql** is read only and can be run any time. It reports
 what is actually exposed rather than what anybody remembers writing.
 

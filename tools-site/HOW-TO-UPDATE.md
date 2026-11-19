@@ -1,6 +1,6 @@
 # GIDC Tools, all in one
 
-One Cloudflare Pages project serves the landing page and ten tools. Upload this
+One Cloudflare Pages project serves the landing page and eleven tools. Upload this
 zip to the project that already answers on tools.gidc.ca and everything goes
 live together.
 
@@ -15,6 +15,7 @@ live together.
     tools.gidc.ca/packing/       Door Packing Sequencer
     tools.gidc.ca/wholesale/     Wholesale Order to QuickBooks
     tools.gidc.ca/exportdocs/    Export Documents
+    tools.gidc.ca/inventory/     Door Inventory
 
 No subdomains, no DNS, no certificates. The tiles link to the folders sitting
 beside them, so they work whatever address the project ends up on.

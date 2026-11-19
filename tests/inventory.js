@@ -1,0 +1,220 @@
+// Clicks through Door Inventory on the tools site against a fake Supabase.
+// Nothing leaves the machine.
+//
+//   node tests/inventory.js            (SHOTS=/some/dir to save screenshots)
+//
+// Prints each check, then ERRORS: [] when no page threw and FAILED: []
+// when every check held.
+
+const { chromium } = require(process.env.PLAYWRIGHT || 'playwright');
+const path = require('path'), fs = require('fs'), http = require('http');
+const ROOT = path.join(__dirname, '..');
+const SHOTS = process.env.SHOTS || '';
+function serve(dir, port){ return new Promise(ok => http.createServer((q, r) => {
+  let p = decodeURIComponent(q.url.split('?')[0]); if(p.endsWith('/')) p += 'index.html';
+  const f = path.join(dir, p);
+  if(!fs.existsSync(f)){ r.statusCode = 404; return r.end('nf'); }
+  r.setHeader('Content-Type', f.endsWith('.js') ? 'text/javascript' : 'text/html'); r.end(fs.readFileSync(f));
+}).listen(port, ok)); }
+
+const PRICES = [
+  {style:'Clear 1-Lite', size_key:"6'8|Solid", price:359.31},
+  {style:'Clear 1-Lite', size_key:"6'8|Hollow", price:null},
+  {style:'Columbia', size_key:"6'8|Hollow", price:212.77},
+  {style:'Columbia', size_key:"6'8|Solid", price:303.84},
+  {style:'Columbia', size_key:"6'8|Bifold", price:226.71},
+  {style:'Columbia', size_key:"6'8|1.75", price:368.01},
+  {style:'Flush', size_key:"6'8|Hollow", price:0},
+  {style:'Shipping 1 Pallet > 30 Doors', size_key:"6'8|Solid", price:350},
+];
+const ALIAS = [{order_style:'Samish (Smooth)', price_style:'Columbia'}];
+let ROLE = 'admin', STOCK, n = 0;
+const calls = [];
+async function mock(page){
+  await page.route('https://baakegbtuygtldksmant.supabase.co/**', async route => {
+    const req = route.request(), u = new URL(req.url()), p = u.pathname, m = req.method();
+    calls.push(m + ' ' + p + u.search);
+    const j = (b, s) => route.fulfill({status:s || 200, contentType:'application/json', body:JSON.stringify(b)});
+    if(p === '/rest/v1/profiles') return j([{id:'a1', name:'Andrew', role:ROLE, active:true, email_verified_at:'2026-10-24'}]);
+    if(p === '/auth/v1/user') return j({id:'a1'});
+    if(p === '/rest/v1/wholesale_prices'){
+      // Supabase gives at most 1000 rows a time: pad the list past that so
+      // the page has to ask twice, with Flush only on the second page
+      const all = ROLE === 'installer' ? [] : PRICES.slice(0, 6).concat(
+        Array.from({length: 1200}, (_, i) => ({style:'Columbia', size_key:"6'8|Hollow", price:212.77})), PRICES.slice(6));
+      const off = +(u.searchParams.get('offset') || 0), lim = Math.min(+(u.searchParams.get('limit') || 1000), 1000);
+      return j(all.slice(off, off + lim));
+    }
+    if(p === '/rest/v1/wholesale_style_alias') return j(ALIAS);
+    if(p === '/rest/v1/door_inventory'){
+      const id = (u.searchParams.get('id') || '').replace('eq.', '');
+      if(m === 'GET') return j(STOCK);
+      const body = req.postData() ? JSON.parse(req.postData()) : {};
+      if(m === 'POST'){ const row = Object.assign({id:'n' + (++n), notes:null, updated_by:'Andrew'}, body); STOCK.push(row); return j([row], 201); }
+      const i = STOCK.findIndex(d => d.id === id);
+      if(i < 0) return j([]);
+      if(m === 'PATCH'){ Object.assign(STOCK[i], body, {updated_by:'Andrew'}); return j([STOCK[i]]); }
+      if(m === 'DELETE'){ const gone = STOCK.splice(i, 1); return j(gone); }
+    }
+    return j([]);
+  });
+}
+const failed = [];
+const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if(!ok) failed.push(what); };
+const listText = page => page.$eval('#list', e => e.innerText.replace(/\s+/g, ' '));
+const msgText = page => page.$eval('#msg', e => e.innerText);
+
+(async () => {
+  await serve(ROOT + '/tools-site', 8724);
+  const b = await chromium.launch();
+  const errs = [];
+  async function open(role, viewport){
+    ROLE = role;
+    const page = await b.newPage({viewport: viewport || {width:1200, height:900}});
+    page.on('pageerror', e => errs.push(e.message));
+    await mock(page);
+    await page.goto('http://localhost:8724/');
+    await page.evaluate(() => localStorage.setItem('gidc:session', JSON.stringify({access_token:'x', refresh_token:'y', user:{id:'a1', email:'a@g.ca'}})));
+    await page.goto('http://localhost:8724/inventory/');
+    await page.waitForFunction(() => !/Loading/.test(document.getElementById('list').innerText));
+    return page;
+  }
+  STOCK = [{id:'s1', style:'Columbia', width_in:'30.000', height_in:'80.000', core:'Hollow', qty:2, notes:'Rack A', updated_by:'Nick'},
+           {id:'s2', style:'Clear 1-Lite', width_in:'29.500', height_in:'80.000', core:'Solid', qty:0, notes:null},
+           {id:'s3', style:'Columbia', width_in:'36.000', height_in:null, core:'Bifold', qty:1, notes:null},
+           {id:'s4', style:'Boston', width_in:'24.000', height_in:'78.000', core:null, qty:1, notes:'Check: style not on the price list'}];
+
+  // the tile is on the landing page
+  let page = await open('admin');
+  const tile = await page.evaluate(() => fetch('/').then(r => r.text()));
+  check(/Door Inventory/.test(tile) && /\.\/inventory\//.test(tile), 'landing page has the Door Inventory tile');
+
+  let t = await listText(page);
+  check(/Columbia/.test(t) && /30 x 80/.test(t) && /Rack A/.test(t), 'lists a door with its size and notes');
+  check(!/Clear 1-Lite/.test(t), 'a line with none left is hidden by default');
+  check(/36 wide, height not recorded/.test(t), 'a bifold counted by width alone says height not recorded');
+  check(/Boston\s*Core not recorded\s*Not on the price list/.test(t) || console.log(t), 'a style not on the price list, with no core, is marked');
+  check(/Needs a check \(1\)/.test(await page.$eval('#checkonly', e => e.innerText)), 'Needs a check counts the Boston line');
+  await page.click('#checkonly');
+  check(/Boston/.test(await listText(page)) && !/Rack A/.test(await listText(page)), 'Needs a check shows only that line');
+  await page.click('#checkonly');
+  await page.click('[data-edit="s4"]');
+  check(/Boston \(not on the price list\)/.test(await page.$eval('#f-style', e => e.selectedOptions[0].textContent)), 'Edit on an off list style keeps it, marked');
+  await page.fill('#f-notes', 'Shelf D'); await page.click('#f-save'); await page.waitForTimeout(150);
+  check(STOCK.find(d => d.id === 's4').notes === 'Shelf D', 'its notes can still be saved');
+  await page.click('[data-edit="s3"]');
+  check(await page.inputValue('#f-h') === '' && await page.inputValue('#f-core') === 'Bifold', 'Edit keeps a blank height blank');
+  await page.click('#f-cancel');
+  await page.click('#showzero');
+  check(/29 1\/2 x 80/.test(await listText(page)), 'Show none left shows it, with the size as 29 1/2');
+  await page.click('#showzero');
+
+  // search
+  STOCK.push({id:'s5', style:'Columbia', width_in:'30.000', height_in:'84.000', core:'Solid', qty:1, notes:'Rack B'});
+  await page.reload(); await page.waitForFunction(() => !/Loading/.test(document.getElementById('list').innerText));
+  const find = async q => { await page.fill('#q', q); await page.waitForTimeout(50);
+    return page.$$eval('#list .row [data-inc]', b => b.map(x => x.dataset.inc).sort().join()); };
+  check(await find('30x80') === 's1', '30x80 finds the 30 x 80');
+  check(await find('30 X 80"') === 's1', '30 X 80" finds it too');
+  check(await find('30') === 's1,s5', '30 alone finds both 30 wide doors and not the 36 bifold');
+  check(await find('columbia 30 hollow') === 's1', 'style, width and core together');
+  check(await find('samish smooth 30x80') === 's1', 'the portal name finds Columbia through the alias');
+  check(await find('rack b') === 's5', 'notes are searched');
+  check(await find('36x96 bifold') === 's3', 'a bifold with no height is found by any height');
+  check(await find('29 1/2 x 80') === 's2', '29 1/2 x 80 finds the Clear 1-Lite, even with none left');
+  check(await find('lite') === 's2', 'part of a style name finds it');
+  await find('rack b');
+  check(/1 line matches, 1 on the shelf/.test(await page.$eval('#count', e => e.innerText)), 'count says how many match');
+  check(/Clear 1-Lite/.test(await (await find('clear'), listText(page))), 'a search shows lines with none left too');
+  await page.fill('#q', ''); await page.waitForTimeout(50);
+  STOCK.pop();
+
+  // cores come from the price list for the style picked
+  const cores = async () => page.$$eval('#f-core option', o => o.map(x => x.value).join(','));
+  const styleOpts = await page.$$eval('#f-style option', o => o.map(x => x.textContent).join(','));
+  check(styleOpts === 'Pick a style,Other (put the style in the notes),Clear 1-Lite,Columbia,Flush',
+    'clicking Style lists every door style, Flush with no price yet included, shipping left out: ' + styleOpts);
+  check(calls.filter(c => /wholesale_prices/.test(c)).length >= 2, 'the price list is read past the first 1000 rows');
+  await page.selectOption('#f-style', 'Flush');
+  check(await cores() === 'Hollow,Solid,Bifold,1.75,', 'a style with no prices yet offers every core');
+  // Other, with the style in the notes
+  await page.selectOption('#f-style', 'Other'); await page.fill('#f-w', '24'); await page.fill('#f-h', '78');
+  await page.fill('#f-notes', ''); await page.click('#f-save');
+  check(/style name in the notes/.test(await msgText(page)), 'Other with no notes asks for the style name');
+  await page.fill('#f-notes', 'Ballard, rack F'); await page.click('#f-save'); await page.waitForTimeout(150);
+  const oth = STOCK.find(d => d.style === 'Other');
+  check(oth && oth.notes === 'Ballard, rack F', 'Other saves with the name in the notes');
+  check(!/Other[^\n]*Not on the price list/.test(await listText(page)), 'Other is not marked as off the list');
+  STOCK.splice(STOCK.indexOf(oth), 1); await page.reload();
+  await page.waitForFunction(() => !/Loading/.test(document.getElementById('list').innerText));
+  await page.selectOption('#f-style', 'Clear 1-Lite');
+  check(await cores() === 'Solid,', 'Clear 1-Lite offers Solid only, as the price list sells it');
+  await page.selectOption('#f-style', 'Columbia');
+  check(await cores() === 'Hollow,Solid,Bifold,1.75,', 'Columbia offers its four cores');
+
+  // adding through the alias saves under the price list name
+  await page.selectOption('#f-core', 'Bifold');
+  await page.fill('#f-w', '29 1/2'); await page.fill('#f-h', '80'); await page.fill('#f-qty', '3');
+  await page.fill('#f-notes', 'Back wall');
+  await page.click('#f-save');
+  await page.waitForTimeout(200);
+  const added = STOCK.find(d => d.core === 'Bifold' && d.width_in === 29.5);
+  check(added && added.style === 'Columbia' && added.width_in === 29.5 && added.qty === 3,
+    'Columbia is saved 29.5 wide, 3 of them');
+  check(/Added Columbia 29 1\/2 x 80/.test(await msgText(page)), 'says what was added');
+
+  // the same door again is refused, a style not on the list is refused
+  await page.selectOption('#f-style', 'Columbia'); await page.selectOption('#f-core', 'Hollow');
+  await page.fill('#f-w', '30'); await page.fill('#f-h', '80'); await page.click('#f-save');
+  check(/already on the list/.test(await msgText(page)), 'the same door twice is refused');
+  await page.selectOption('#f-style', ''); await page.click('#f-save');
+  check(/Pick a style/.test(await msgText(page)), 'no style picked is refused');
+  await page.selectOption('#f-style', 'Columbia'); await page.fill('#f-w', 'thirty'); await page.click('#f-save');
+  check(/width should be inches/.test(await msgText(page)), 'a width that is not inches is refused');
+
+  // plus and minus
+  await page.click('[data-inc="s1"]'); await page.waitForTimeout(150);
+  check(STOCK.find(d => d.id === 's1').qty === 3, '+ takes the count to 3');
+  await page.click('[data-dec="s1"]'); await page.waitForTimeout(150);
+  check(STOCK.find(d => d.id === 's1').qty === 2, 'minus takes it back to 2');
+
+  // edit
+  await page.click('[data-edit="s1"]');
+  check(await page.inputValue('#f-style') === 'Columbia' && await page.inputValue('#f-core') === 'Hollow', 'Edit fills the form');
+  await page.fill('#f-notes', 'Rack C'); await page.click('#f-save'); await page.waitForTimeout(150);
+  check(STOCK.find(d => d.id === 's1').notes === 'Rack C', 'Edit saves the notes');
+
+  // remove asks first
+  // a blank height and a Not recorded core save as nothing, not as a guess
+  await page.selectOption('#f-style', 'Columbia'); await page.fill('#f-w', '22'); await page.fill('#f-h', '');
+  await page.selectOption('#f-core', ''); await page.fill('#f-qty', '1'); await page.click('#f-save');
+  await page.waitForTimeout(150);
+  const blank = STOCK.find(d => Number(d.width_in) === 22);
+  check(blank && blank.height_in === null && blank.core === null, 'blank height and Not recorded core save as blank');
+  await page.click('[data-del="s1"]');
+  check(/for good/.test(await listText(page)), 'Remove asks first');
+  if(SHOTS) await page.screenshot({path: SHOTS + '/inventory-admin.png', fullPage: true});
+  await page.click('[data-delyes="s1"]'); await page.waitForTimeout(150);
+  check(!STOCK.find(d => d.id === 's1'), 'Yes removes it');
+  await page.close();
+
+  // an installer reads only, and the page does not ask for the price list
+  calls.length = 0;
+  page = await open('installer');
+  check(await page.$eval('#addcard', e => e.classList.contains('hide')), 'an installer gets no add form');
+  check(!(await page.$('[data-inc]')) && !(await page.$('[data-del]')), 'an installer gets no + or Remove');
+  check(!calls.some(c => /wholesale_prices/.test(c)), 'the page does not ask for prices for an installer');
+  await page.close();
+
+  // phone width
+  page = await open('admin', {width:390, height:844});
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth);
+  check(wide <= 390, 'no sideways scroll on a phone (' + wide + ')');
+  if(SHOTS) await page.screenshot({path: SHOTS + '/inventory-phone.png', fullPage: true});
+  await page.close();
+
+  await b.close();
+  console.log('ERRORS:', JSON.stringify(errs));
+  console.log('FAILED:', JSON.stringify(failed));
+  process.exit(errs.length || failed.length ? 1 : 0);
+})();

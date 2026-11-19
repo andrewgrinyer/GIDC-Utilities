@@ -235,6 +235,15 @@ const APPS = [
     who:  'team'
   },
   {
+    name: 'Door Inventory',
+    desc: 'Doors on the shelf. A dealer order with a matching door says so in the order email.',
+    url:  './inventory/',
+    icon: 'doors',
+    /* Andrew, 12 November. Everybody who works here can look; adding and
+       changing is staff, which the page and the database both hold. */
+    who:  'team'
+  },
+  {
     name: 'In Home Measurement',
     desc: 'Measure a job on site, quote it, and download the sales contract workbook.',
     url:  'https://measurement.gidc.ca/?v=2',
@@ -774,6 +783,6 @@ GIDCAuth.whoami().then(function(me){
   showSignIn();
 });
 </script>
-<div class="gidc-build">Tools 3.2 · 11 Nov 2026</div>
+<div class="gidc-build">Tools 3.3 · 12 Nov 2026</div>
 </body>
 </html>
