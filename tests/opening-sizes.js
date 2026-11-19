@@ -66,6 +66,21 @@ const CASES = [
     {so:'up to 144'}],
   ['4 lite is Trimlite: no 22, goes up to 24', 'Single Swing', '1.375 Glass', '4 Lite Clear', 22.25, 80.5, 1,
     {blankW:24, blankH:80, reStile:false}],
+  // 2.43, Andrew: rough opening = door at least 1 3/4 narrower and 1 1/2 shorter
+  ['rough 32 x 82: a 30 x 80, uncut', 'Single Swing', '1.375 Hollow', 'Kingston', 32, 82, 1,
+    {blankW:30, blankH:80, reRail:false, reStile:false, exportW:30, exportH:80}, 'Rough Opening'],
+  ['rough 33 wide: still a 30 (a 32 would leave under 1 3/4)', 'Single Swing', '1.375 Hollow', 'Kingston', 33, 82, 1,
+    {blankW:30, reStile:false}, 'Rough Opening'],
+  ['rough 34 x 86: a 32 x 84', 'Single Swing', '1.375 Hollow', 'Kingston', 34, 86, 1,
+    {blankW:32, blankH:84, reRail:false, exportW:32, exportH:84}, 'Rough Opening'],
+  ['rough 32 x 80: an 80 cut down, re-rail on hollow core', 'Single Swing', '1.375 Hollow', 'Kingston', 32, 80, 1,
+    {blankW:30, blankH:80, reRail:true, reStile:false}, 'Rough Opening'],
+  ['rough 32 x 80 solid core: cut, never re-railed', 'Single Swing', '1.375 Solid', 'Kingston', 32, 80, 1,
+    {blankW:30, blankH:80, reRail:false}, 'Rough Opening'],
+  ['rough double 62 x 82: 2 doors 30 x 80', 'Double Swing AST', '1.375 Hollow', 'Kingston', 62, 82, 2,
+    {blankW:30, blankH:80, per:2, reStile:false, exportW:30, exportH:80}, 'Rough Opening'],
+  ['jamb 32 x 82 is not a rough opening: a 32 x 84', 'Single Swing', '1.375 Hollow', 'Kingston', 32, 82, 1,
+    {blankW:32, blankH:84}, 'Jamb'],
 ];
 
 (async () => {
@@ -79,8 +94,9 @@ const CASES = [
 
   const got = await page.evaluate(cases => {
     state.job = newJob();
-    return cases.map(([what, type, prod, style, W, H, q]) => {
+    return cases.map(([what, type, prod, style, W, H, q, e, cond]) => {
       const op = newOpening(1, null, state.job); op.openW = String(W); op.openH = String(H); op.qty = q;
+      if(cond) op.cond = cond;
       Object.assign(op.options[0].v, {doorType:type, productType:prod, doorStyle:style});
       const P = openPlan(op, op.options[0]), ls = lineSize(op, op.options[0]);
       return {P, ls:{width:ls.width, height:ls.height}, text:planText(P), sc:sizeCheck(op, op.options[0])};

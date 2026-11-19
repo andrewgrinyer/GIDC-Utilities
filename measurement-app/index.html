@@ -2173,6 +2173,7 @@ function setOpeningSize(op, f, val){
 const SIZING = 2;
 const REVEAL = 0.094, FLOOR_GAP = 0.5, CUT_TOL = 0.02, GAP_EXTRA = 0.75;
 const SWING_OVER_SINGLE = 0.4, SWING_OVER_DOUBLE = 0.6;   // Andrew 18 Nov
+const ROUGH_W = 1.75, ROUGH_H = 1.5;                         // Andrew 19 Nov: rough opening less these
 const PORTAL_W = [12,14,16,18,20,22,24,26,28,30,32,34,36], PORTAL_BIFOLD_W = [24,30,36];
 const PORTAL_H = [80,84,90,96];
 const SHAKER_NAMES = ['1 panel true shaker','2 panel true shaker','3 panel equal shaker','3 panel shaker (t-shape)',
@@ -2247,8 +2248,16 @@ function openPlan(op, o){
      A stock height that leaves a floor gap of up to 1 1/4" (the terms'
      range, so up to 3/4" over the 1/2" gap) is used as it is, uncut;
      otherwise the next height up, cut down. */
+  /* 2.43, Andrew 19 Nov: a rough opening gets a new jamb, so the door is
+     sized from the rough opening: at least 1 3/4" narrower (each door, the
+     pair sharing it) and 1 1/2" shorter. The largest stock size that fits is
+     used uncut (32 gets a 30, 82 an 80, 86 an 84); if none fits, the
+     smallest is cut down (80 gets an 80 cut to 78 1/2, re-railed where that
+     door can be). */
+  const rough = swing && op.cond === 'Rough Opening';
+  if(rough){ P.rough = true; finW = (W - ROUGH_W) / per; finH = H - ROUGH_H; P.finW = r4(finW); }
   const under = (swing || /pocket/i.test(t)) && !P.typedH ? hs.filter(h => h <= finH + CUT_TOL).pop() : undefined;
-  const fits = under !== undefined && finH - under <= GAP_EXTRA + CUT_TOL;
+  const fits = under !== undefined && (rough || finH - under <= GAP_EXTRA + CUT_TOL);
   if(fits) finH = under;
   P.finH = r4(finH);
   const bH = P.typedH ? tH : fits ? under : hs.find(h => h >= finH - CUT_TOL);
@@ -2262,7 +2271,8 @@ function openPlan(op, o){
      door width (0.600" over the pair on a double) and still take that door;
      the door is then hung uncut on width and the reveal is a little wider. */
   const over = per > 1 ? SWING_OVER_DOUBLE : SWING_OVER_SINGLE;
-  const bW = P.typedW ? tW : swing ? ws.find(w => W <= w * per + over + 1e-6)
+  const roughW = rough ? (ws.filter(w => w <= finW + CUT_TOL).pop() || ws.find(w => w >= finW - CUT_TOL)) : undefined;
+  const bW = P.typedW ? tW : rough ? roughW : swing ? ws.find(w => W <= w * per + over + 1e-6)
                                    : P.pocket ? ws.find(w => w >= finW - 1e-6)
                                    : ws.find(w => w >= finW - CUT_TOL);
   if(swing && bW !== undefined && bW < finW){ finW = bW; P.finW = r4(finW); }
@@ -5517,6 +5527,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.42 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.43 · 19 Nov 2026</div>
 </body>
 </html>
