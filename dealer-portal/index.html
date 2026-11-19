@@ -963,7 +963,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.06 · 19 Nov 2026";
+const BUILD  = "Dealer portal 2.07 · 19 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -6995,8 +6995,10 @@ const UPLOAD_CUSTOMER = "AG";    // held the customer name, from Pricing Sheet P
 
 /* THE NAME ON THE ORDER FORM
  *
- * Andrew, 19 November: the form is named Dealer ID, a dash, and the
- * customer's last name, as in "SFD - Cortes". The Dealer ID box is
+ * Andrew, 19 November: the file is named Dealer ID, a dash, and the
+ * customer's last name, as in "SFD - Cortes.xlsx". Only the file name: the
+ * Customer Name cells inside, which Access reads, stay the Dealer ID. The
+ * Dealer ID box is
  * customer_name and the Customer box is order_ref, so the last word of the
  * customer is taken as the last name. Either half on its own is used as it
  * is when the other is missing. */
@@ -7051,14 +7053,14 @@ function fillSheet(xml, order){
     xml = xml.replace(reFull, '<c r="' + ref + '"' + (s ? ' s="' + s + '"' : "") + "/>");
   };
   const putAlways = (ref, v) => { if(v === "" || v == null) clear(ref); else put(ref, v); };
-  put("P2", formName(order));
+  put("P2", order.customer_name);
   put("P3", order.customer_addr);
   put("P4", order.customer_city);
   /* The second page repeats the customer and the date through formulas, and
      nothing recalculates this file between here and the printer. Until these
      were written, page two of every order form carried the name, the address
      and the date the blank template happened to be saved with. */
-  putAlways("P30", formName(order));
+  putAlways("P30", order.customer_name);
   putAlways("P31", order.customer_addr);
   putAlways("P32", order.customer_city);
   putAlways("P33", "");
@@ -7232,7 +7234,7 @@ function fillUpload(xml, order){
       if(up === "B") v = i + 1;
       put(up + row, v === "" || v == null ? "" : v);
     });
-    put(UPLOAD_CUSTOMER + row, i === 0 ? formName(order) : "");
+    put(UPLOAD_CUSTOMER + row, i === 0 ? (order.customer_name || "") : "");
   });
   /* and nothing at all on the rows it does not reach, row 30 included, which
      carries a broken reference in the template and read as #REF! */
@@ -7323,7 +7325,7 @@ function fillUploadDb(xml, order, zip){
       Z: yes_(r.reStile),
       AA: 0, AB: 0, AC: 0, AD: 0, AE: 0,           // handles are not ordered here
       AF: paintId,
-      AG: i === 0 ? formName(order) : ""
+      AG: i === 0 ? (order.customer_name || "") : ""
     };
     Object.keys(f).forEach(c => put(c + row, f[c]));
   });
@@ -7659,8 +7661,8 @@ function workbookBytes(order){
   zip[up] = strToU8(fillUploadDb(fillUpload(strFromU8(zip[up]), order), order, zip));
   dropCalcChain(zip);
   return {bytes: zipSync(zip, {level:6}),
-          name: (formName(order) || "Order").replace(/[^\w]+/g,"_").replace(/^_+|_+$/g, "") +
-                "_Order_Form.xlsx"};
+          name: (formName(order).replace(/[\\/:*?"<>|]+/g, " ").replace(/\s+/g, " ").trim()
+                 || "Order Form") + ".xlsx"};
 }
 
 /* ---------------- the packing list as a file ----------------
