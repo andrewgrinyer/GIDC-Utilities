@@ -2203,6 +2203,9 @@ function openPlan(op, o){
   const swing = /swing/i.test(t), bifold = BIFOLD_TYPES.indexOf(t) >= 0, bypass = /bypass/i.test(t),
         pivot = /pivot/i.test(t), dblPivot = t === 'Double Pivot';
   const P = {type:t, swing, W, H, line:L ? L.name : '', notes:[]};
+  /* 2.43 / 2.44, Andrew 19 Nov: every door type but barn is sized from a
+     rough opening by the rough opening rule below */
+  const rough = op.cond === 'Rough Opening' && !/barn/i.test(t);
   let per, finW, finH, list = PORTAL_W, limit;
   if(swing){
     per = DOUBLE_TYPES.indexOf(t) >= 0 ? 2 : 1;
@@ -2215,7 +2218,7 @@ function openPlan(op, o){
     // where the supplier lists its bifold units, only those (a pair is twice the unit)
     if(L) list = list.filter(w => (L.bifold || {80:BIFOLD_UNITS})[80].indexOf(w * per) >= 0);
   } else if(bypass){
-    per = Math.max(2, q); finW = W / per; finH = H - 2.5; limit = null;
+    per = Math.max(2, q); finW = (rough ? W - ROUGH_W : W) / per; finH = H - 2.5; limit = null;
     if(W > BYPASS_OPEN_MAX + 0.01){ P.per = per; P.so = 'bypass openings go up to ' + BYPASS_OPEN_MAX + '"'; return P; }
     if(finW > BYPASS_PANEL_MAX + CUT_TOL){
       P.per = per; P.so = 'each bypass panel would be ' + sizeText(r4(finW)) + '", over the ' + BYPASS_PANEL_MAX + '" most' +
@@ -2254,9 +2257,8 @@ function openPlan(op, o){
      used uncut (32 gets a 30, 82 an 80, 86 an 84); if none fits, the
      smallest is cut down (80 gets an 80 cut to 78 1/2, re-railed where that
      door can be). */
-  const rough = swing && op.cond === 'Rough Opening';
   if(rough){ P.rough = true; finW = (W - ROUGH_W) / per; finH = H - ROUGH_H; P.finW = r4(finW); }
-  const under = (swing || /pocket/i.test(t)) && !P.typedH ? hs.filter(h => h <= finH + CUT_TOL).pop() : undefined;
+  const under = (swing || rough || /pocket/i.test(t)) && !P.typedH ? hs.filter(h => h <= finH + CUT_TOL).pop() : undefined;
   const fits = under !== undefined && (rough || finH - under <= GAP_EXTRA + CUT_TOL);
   if(fits) finH = under;
   P.finH = r4(finH);
@@ -2275,7 +2277,7 @@ function openPlan(op, o){
   const bW = P.typedW ? tW : rough ? roughW : swing ? ws.find(w => W <= w * per + over + 1e-6)
                                    : P.pocket ? ws.find(w => w >= finW - 1e-6)
                                    : ws.find(w => w >= finW - CUT_TOL);
-  if(swing && bW !== undefined && bW < finW){ finW = bW; P.finW = r4(finW); }
+  if((swing || rough) && bW !== undefined && bW < finW){ finW = bW; P.finW = r4(finW); }
   P.blankH = bH;
   if(bW === undefined){
     P.so = 'no ' + (L ? L.name : 'stock') + ' door is wide enough at ' + ftin(bH) + ': each door has to be ' + sizeText(r4(finW)) +
@@ -2290,7 +2292,9 @@ function openPlan(op, o){
   if(!hollow) P.notes.push('not hollow core, so never re-railed or re-stiled');
   // what goes on the workbook
   // 2.33: a swing door goes on the workbook as each door (a double is 2 at 30, not 60)
-  P.exportW = swing || P.pocket ? bW : Math.round(W * 8) / 8;    // 2.39: pocket and barn too, each door
+  P.exportW = swing || P.pocket ? bW : rough ? bW * per : Math.round(W * 8) / 8;
+  /* 2.44: a rough opening bifold, bypass or pivot goes on the workbook at the
+     doors' width (a pair of 24s is 48), not the rough opening */    // 2.39: pocket and barn too, each door
   P.exportH = bH;
   return P;
 }
@@ -5527,6 +5531,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.43 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.44 · 19 Nov 2026</div>
 </body>
 </html>
