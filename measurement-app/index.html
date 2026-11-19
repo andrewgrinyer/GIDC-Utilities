@@ -214,6 +214,8 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .rv-sizes ul{margin:0;padding-left:18px}
 .rv-sizes li{margin:4px 0;font-size:14px}
 .rv-sizes li.rv-so b{color:var(--brass)} .rv-sizes li.rv-check b{color:#8A5A00}
+.cond .chips{margin-bottom:4px}.cond-jl{display:block;margin-top:8px}.cond .req{color:var(--brass);font-weight:600}
+.cond-note{color:var(--brass)}
 .door-sz{margin:10px 0 4px;padding:8px 10px;border:1px solid var(--rule);border-radius:10px}
 .door-sz-h{font-weight:600;font-size:14px;margin-bottom:4px}
 .door-sz i.auto,.door-sz i.typed{font-style:normal;font-size:11px;color:var(--muted, #6B6B6B);margin-left:4px}
@@ -2307,6 +2309,49 @@ function planText(P){
     (P.reStile ? 'yes' : 'no') + (P.notes.length ? ' (' + P.notes.join('; ') + ')' : '') + '.';
 }
 
+/* 2.41, Andrew 19 Nov: what the opening has around it (op.cond).
+ *   Jamb           a swing door there now and a swing door going in: nothing
+ *                  more. A jamb with some other door there now, changing
+ *                  to a swing door: router and stop is charged (YES).
+ *   Rough Opening  every door type needs a jamb, so the jamb width is asked
+ *                  for (4 5/8, 6 5/8 or typed) and goes on each door's line.
+ *   Drywall        taken as a rough opening for now (no jamb to hang on).
+ * Router and stop set by this rule goes back if the rule stops applying;
+ * one set by hand on the review stays. */
+const CONDITIONS = ['Jamb', 'Drywall', 'Rough Opening'];
+const JAMB_PICKS = [4.625, 6.625];   // Andrew 19 Nov: 4 5/8 and 6 5/8, as the workbook list
+const isSwingType = t => /swing/i.test(t || '');
+const needsJamb = op => op.cond === 'Rough Opening' || op.cond === 'Drywall';
+function syncConditions(job){
+  ((job && job.openings) || []).forEach(op => {
+    op.options.forEach(o => {
+      const t = o.v.doorType;
+      const rs = op.cond === 'Jamb' && isSwingType(t) && !!op.existingType && !isSwingType(op.existingType);
+      if(rs && o.v.routerStop !== 'YES'){ o.v.routerStop = 'YES'; o.routerAuto = true; }
+      else if(!rs && o.routerAuto){ if(o.v.routerStop === 'YES') o.v.routerStop = ''; delete o.routerAuto; }
+      if(needsJamb(op) && t){ const j = op.jambW ? Number(op.jambW) : ''; if(o.v.jamb !== j){ o.v.jamb = j; o.jambAuto = true; } }
+      else if(o.jambAuto){ o.v.jamb = ''; delete o.jambAuto; }
+    });
+  });
+}
+function conditionFields(op){
+  let h = '<div class="field cond"><label>Opening has</label><div class="chips">' +
+    CONDITIONS.map(c => '<button type="button" class="chip' + (op.cond === c ? ' on' : '') + '" data-cond="' + c +
+      '" data-op="' + op.id + '">' + c + '</button>').join('') + '</div>';
+  const swingIn = op.options.some(o => isSwingType(o.v.doorType));
+  if(op.cond === 'Jamb' && swingIn && op.existingType && !isSwingType(op.existingType))
+    h += '<p class="hint cond-note">Changing to a swing door: router and stop is charged (set to YES).</p>';
+  if(needsJamb(op)){
+    const typed = op.jambW && JAMB_PICKS.indexOf(Number(op.jambW)) < 0;
+    h += '<label class="cond-jl">Jamb width (in)' + (op.jambW ? '' : ' <b class="req">needed</b>') + '</label><div class="chips num">' +
+      JAMB_PICKS.map(j => '<button type="button" class="chip' + (Number(op.jambW) === j ? ' on' : '') + '" data-jambpick="' + j +
+        '" data-op="' + op.id + '">' + sizeText(j) + '</button>').join('') +
+      '<button type="button" class="chip' + (typed ? ' on' : '') + '" data-padof="jambW" data-op="' + op.id + '">' +
+      (typed ? esc(sizeText(op.jambW)) + '"' : 'Other') + '</button></div>';
+  }
+  return h + '</div>';
+}
+
 /* 32.5 shows as 32 1/2: tapes read in eighths */
 function sizeText(v){
   const n = parseFloat(v);
@@ -2773,6 +2818,8 @@ function missing(job){
       out.push('Opening ' + op.number + ': no door type to quote');
     } else if(on.length === 0){
       out.push('Opening ' + op.number + ': pick the door type to quote');
+    } else if(on.length === 1 && needsJamb(op) && !op.jambW){
+      out.push('Opening ' + op.number + ': jamb width (' + op.cond.toLowerCase() + ')');
     } else if(on.length > 1){
       out.push('Opening ' + op.number + ': ' + on.length +
                ' door types ticked, only one can be quoted');
@@ -3443,7 +3490,7 @@ function openPad(op, f){
   const ok = !isNaN(n) && !rangeFor(cur);
   const w = ok ? Math.floor(n) : 0, e = ok ? Math.round((n - w) * 8) : 0;
   pad = {opId: op.id, f, whole: ok && (w || e) ? String(w + (e === 8 ? 1 : 0)) : '',
-         eighths: e === 8 ? 0 : e, fresh: true, mode:'pick', step:'whole'};
+         eighths: e === 8 ? 0 : e, fresh: true, mode:f === 'jambW' ? 'num' : 'pick', step:'whole'};
   drawPad();
 }
 function padValue(){
@@ -3494,7 +3541,7 @@ function drawPad(){
   const v = padValue();
   const fr = ['1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
   el.innerHTML = '<div class="pad-card" role="dialog" aria-label="Type a size">' +
-    '<div class="pad-head"><b>' + ({width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height', doorW:'Each door width', doorH:'Each door height'}[pad.f] || 'Size') + '</b>' +
+    '<div class="pad-head"><b>' + ({width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height', doorW:'Each door width', doorH:'Each door height', jambW:'Jamb width'}[pad.f] || 'Size') + '</b>' +
     '<span>Opening ' + (op ? op.number + (op.location ? ' · ' + esc(op.location) : '') : '') + '</span></div>' +
     '<div class="pad-show">' + (v === '' ? '<i>0</i>' : esc(sizeText(v))) + '<small>in</small></div>' +
     '<div class="pad-fr">' + fr.map((x, i) =>
@@ -4342,7 +4389,7 @@ function sizeLine(o){
 
 function render(){
   document.body.classList.remove('reviewing');
-  if(state.job && state.view !== 'remote') syncPlans(state.job);
+  if(state.job && state.view !== 'remote'){ syncPlans(state.job); syncConditions(state.job); }
   if(state.view === 'remote') return renderRemote();
   if(state.view === 'review') return renderReview();
   if(state.view === 'setup')  return renderSetup();
@@ -4688,6 +4735,7 @@ function renderJob(){
         });
       }
       h += '</div></div><div class="op-right">';
+      h += '<div class="o-c">' + conditionFields(op) + '</div>';
       if(sized(op)) h += '<div class="o-w">' + openingFields(op) + '</div>';
       else h += '<div class="o-w">' + sizeChips(op, 'width', widthsFor(op), 'Other width') + '</div>';
       h += '<div class="o-warn">';
@@ -4830,7 +4878,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','sign','signpdf','signmail',
-  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote'];
+  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote','cond','jambpick'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 /* 2.30, Andrew 18 Nov: "the door type buttons stick and won't let us click
@@ -5148,6 +5196,14 @@ document.addEventListener('click', async e => {
     applyQtyRule(op);
     render(); return persistBg();
   }
+  if(d.cond){
+    op.cond = op.cond === d.cond ? '' : d.cond;
+    render(); return persistBg();
+  }
+  if(d.jambpick){
+    op.jambW = Number(op.jambW) === Number(d.jambpick) ? '' : d.jambpick;
+    render(); return persistBg();
+  }
   if(d.pickqty){
     op.qty = Number(d.pickqty); applyQtyRule(op);
     render(); return persistBg();
@@ -5444,6 +5500,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.40 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.41 · 19 Nov 2026</div>
 </body>
 </html>
