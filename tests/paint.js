@@ -69,7 +69,9 @@ async function mock(page){
     if(p === '/rest/v1/paint_orders'){
       if(m === 'POST'){
         const id = '00000000-0000-0000-0000-0000000000' + String(++n).padStart(2, '0');
-        const row = Object.assign({id, status:'requested', requested_at:'2026-11-19T16:00:00Z', requested_by:'Nick', emailed_at:null, received_on:null},
+        if(body.custom && !(body.for_job || '').trim()) return j({message:'new row violates check constraint "paint_orders_customer_ok"'}, 400);
+        const po = 'PD' + String(ORDERS.length + 1).padStart(5, '0');
+        const row = Object.assign({id, po_no: po, status:'requested', requested_at:'2026-11-19T16:00:00Z', requested_by:'Nick', emailed_at:null, received_on:null},
           body, {gallons: String(body.pails_5 * 5 + body.pails_1)});
         ORDERS.unshift(row); posted.push(['order', body]); return j([row], 201);
       }
@@ -184,7 +186,9 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   const o = posted.find(x => x[0] === 'order');
   check(o && o[1].colour === 'Extra White' && o[1].pails_5 === 2 && o[1].pails_1 === 1 && o[1].custom === false && o[1].note === 'Satin', 'the order is filed');
   check(posted.some(x => x[0] === 'email'), 'then emailed through paint-order');
-  check(/sent to Ashley/.test(await text(page, '#msg')), 'says it went to Ashley');
+  check(/^PO PD00002: Extra White, 11\.0 gal, sent to Ashley/.test(await text(page, '#msg')), 'says it went to Ashley, with its PO number');
+  check(/PD00002 Extra White, 2 x 5 gal and 1 x 1 gal/.test(await text(page, '#orders')), 'the order list shows the PO number');
+  check(/Customer \(optional\)/.test(await page.evaluate(() => document.body.innerText)) === false, 'form closed after sending');
   c = await card(page, 'Extra White');
   check(/On order 11\.0 gal/.test(c) && /Left after 2 weeks 10\.0 gal/.test(c) && /OK/.test(c), 'Extra White now counts what is on order (' + c + ')');
   if(SHOTS) await page.screenshot({path: SHOTS + '/paint-screen.png', fullPage: true});
@@ -199,14 +203,20 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   await page.click('[data-corder="Hale Navy"]');
   check(await page.inputValue('#o-1') === '1' && await page.inputValue('#o-5') === '0' && await page.inputValue('#o-job') === '#5069 SFD Abraham' &&
         await page.inputValue('#o-by') === '2026-11-23', 'custom Order is prefilled: 1 x 1 gal, the job, needed two days ahead');
+  await page.fill('#o-job', '');
+  await page.click('#o-save'); await page.waitForTimeout(150);
+  check(/A custom colour needs the customer/.test(await text(page, '#msg')), 'a custom colour with no customer is refused');
+  await page.fill('#o-job', '#5069 SFD Abraham');
   await page.click('#o-save'); await page.waitForTimeout(250);
   const co = posted.filter(x => x[0] === 'order').pop();
   check(co[1].custom === true && co[1].colour === 'Hale Navy' && co[1].needed_by === '2026-11-23', 'custom order filed as custom');
-  check(/Ordered 1\.0 gal/.test(await text(page, '#custom')), 'the custom colour now says Ordered');
+  check(/Ordered PD00003, 1\.0 gal/.test(await text(page, '#custom')), 'the custom colour now says Ordered, with its PO');
 
   // a failed email keeps the order and offers to send again
   MAIL_OK = false;
-  await page.click('[data-order="Alabaster"]'); await page.click('#o-save'); await page.waitForTimeout(250);
+  await page.click('[data-order="Alabaster"]');
+  check(/Customer \(optional\)/.test(await page.$eval('#panel', e => e.textContent)), 'a stocked colour says the customer is optional');
+  await page.click('#o-save'); await page.waitForTimeout(250);
   check(/The order is saved, but the email to Ashley did not go/.test(await text(page, '#msg')), 'a failed email says the order is saved');
   check(!!(await page.$('[data-resend]')) && /Email not sent/.test(await text(page, '#orders')), 'and offers Send email on it');
   MAIL_OK = true;

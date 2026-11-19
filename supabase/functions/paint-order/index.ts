@@ -90,6 +90,7 @@ type Order = {
   pails_5: number;
   pails_1: number;
   gallons: number | string;
+  po_no: string | null;
   for_job: string | null;
   needed_by: string | null;
   note: string | null;
@@ -109,7 +110,7 @@ function pails(o: Order) {
 function emailFor(o: Order) {
   const what = o.colour + (o.custom ? " (custom colour)" : "");
   const gallons = Number(o.gallons);
-  const subject = `PAINT ORDER ${o.colour.toUpperCase()}, ${gallons} GALLON${gallons === 1 ? "" : "S"}` +
+  const subject = `PAINT ORDER ${o.po_no ? o.po_no + ", " : ""}${o.colour.toUpperCase()}, ${gallons} GALLON${gallons === 1 ? "" : "S"}` +
     (o.for_job ? `, ${o.for_job.toUpperCase()}` : "");
 
   const row = (label: string, value: string) => value
@@ -122,15 +123,16 @@ function emailFor(o: Order) {
     `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,` +
     `Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;padding:4px 0">` +
       `<div style="border:3px solid #C80000;border-radius:6px;padding:22px 24px">` +
-        `<h1 style="font-size:21px;margin:0 0 2px;color:#17171A">Paint order request</h1>` +
+        `<h1 style="font-size:21px;margin:0 0 2px;color:#17171A">Paint order request${o.po_no ? " " + esc(o.po_no) : ""}</h1>` +
         `<p style="margin:0 0 20px;color:#6E6E76;font-size:13px">` +
           `Asked for by ${esc(o.requested_by || "the shop")}${o.requested_at ? " on " + esc(when(o.requested_at)) : ""}` +
         `</p>` +
         `<table style="border-collapse:collapse;width:100%">` +
+          row("PO number", o.po_no ? `<b>${esc(o.po_no)}</b>` : "") +
           row("Colour", `<b>${esc(what)}</b>`) +
           row("Order", esc(pails(o))) +
           row("Total", `${esc(gallons)} gallon${gallons === 1 ? "" : "s"}`) +
-          row("For job", esc(o.for_job ?? "")) +
+          row("Customer", esc(o.for_job ?? "")) +
           row("Needed by", esc(dayName(o.needed_by))) +
           row("Note", esc(o.note ?? "").replace(/\r?\n/g, "<br>")) +
         `</table>` +
@@ -143,10 +145,11 @@ function emailFor(o: Order) {
   const text = [
     "PAINT ORDER REQUEST",
     "",
+    o.po_no ? `PO number:  ${o.po_no}` : "",
     `Colour:     ${what}`,
     `Order:      ${pails(o)}`,
     `Total:      ${gallons} gallons`,
-    o.for_job ? `For job:    ${o.for_job}` : "",
+    o.for_job ? `Customer:   ${o.for_job}` : "",
     o.needed_by ? `Needed by:  ${dayName(o.needed_by)}` : "",
     o.note ? `Note:       ${o.note}` : "",
     "",

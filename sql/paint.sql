@@ -271,6 +271,47 @@ comment on table public.paint_orders is
 -- of this file gets it too.
 alter table public.paint_orders add column if not exists needed_by date;
 
+-- PURCHASE ORDER NUMBERS
+-- Andrew, 19 November: every paint order gets a PO number, PD for paint
+-- department and five digits, starting at PD00001. Given by the
+-- database when the order is saved, so a page cannot choose its own.
+-- One more than the highest so far, under a lock, so two orders sent at
+-- the same moment never share a number, and an order that is refused
+-- (no customer on a custom colour, say) leaves no gap: its number is
+-- given back with it. Past 99999 it simply carries on with six digits.
+alter table public.paint_orders add column if not exists po_no text;
+create or replace function public.paint_next_po()
+returns text language plpgsql volatile security definer set search_path = public as $$
+declare n bigint;
+begin
+  perform pg_advisory_xact_lock(hashtext('gidc paint po'));
+  select coalesce(max(substring(po_no from 3)::bigint), 0) + 1 into n
+    from public.paint_orders where po_no ~ '^PD[0-9]+$';
+  return 'PD' || case when n < 100000 then lpad(n::text, 5, '0') else n::text end;
+end $$;
+revoke all on function public.paint_next_po() from public, anon, authenticated;
+-- An order made before this part of the file existed gets a number in
+-- the order it was asked for. Nothing that has a number is touched.
+do $$
+declare r record;
+begin
+  for r in select id from public.paint_orders where po_no is null order by requested_at, id loop
+    update public.paint_orders set po_no = public.paint_next_po() where id = r.id;
+  end loop;
+end $$;
+create unique index if not exists paint_orders_po on public.paint_orders (po_no);
+comment on column public.paint_orders.po_no is
+  'Purchase order number, PD and five digits from PD00001. Set by the database.';
+
+-- THE CUSTOMER
+-- Andrew, 19 November: the customer is required for a custom colour and
+-- optional for a stocked one. for_job is that customer (or job).
+alter table public.paint_orders drop constraint if exists paint_orders_customer_ok;
+alter table public.paint_orders add constraint paint_orders_customer_ok
+  check (not custom or btrim(coalesce(for_job, '')) <> '');
+comment on column public.paint_orders.for_job is
+  'The customer or job. Required for a custom colour, optional for a stocked one.';
+
 -- ---------- 5. who changed it, set by the database ----------------------
 create or replace function public.paint_stamp()
 returns trigger language plpgsql security definer set search_path = public as $$
@@ -285,6 +326,8 @@ begin
   elsif tg_table_name = 'paint_orders' then
     if tg_op = 'INSERT' then
       new.requested_at := now(); new.requested_by := who;
+      new.po_no := public.paint_next_po();
+      new.for_job := nullif(btrim(coalesce(new.for_job, '')), '');
       new.status := 'requested'; new.emailed_at := null;
       new.received_on := null; new.received_by := null;
     else
@@ -293,6 +336,7 @@ begin
       new.colour := old.colour; new.custom := old.custom;
       new.pails_5 := old.pails_5; new.pails_1 := old.pails_1;
       new.for_job := old.for_job; new.needed_by := old.needed_by;
+      new.po_no := old.po_no;
       new.requested_at := old.requested_at;
       new.requested_by := old.requested_by;
       if auth.uid() is not null then new.emailed_at := old.emailed_at; end if;

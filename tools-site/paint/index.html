@@ -208,7 +208,7 @@ table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var
     </details>
   </div>
 </div>
-<div class="gidc-build">Paint 1.0 &middot; 19 Nov 2026</div>
+<div class="gidc-build">Paint 1.1 &middot; 19 Nov 2026</div>
 
 <script>
 (function(){
@@ -446,7 +446,7 @@ function drawCustom(){
       var status = got.length
         ? got.map(function(o){ return o.status === 'received'
             ? '<span class="chip ok">Received ' + g1(o.gallons) + ' gal</span>'
-            : '<span class="chip info">Ordered ' + g1(o.gallons) + ' gal ' + esc(nice(o.requested_at.slice(0, 10))) + '</span>'; }).join(' ')
+            : '<span class="chip info">Ordered ' + (o.po_no ? esc(o.po_no) + ', ' : '') + g1(o.gallons) + ' gal ' + esc(nice(o.requested_at.slice(0, 10))) + '</span>'; }).join(' ')
         : '<span class="chip low">Not ordered</span>';
       rows.push('<div class="row"><div class="what"><div class="t">' + esc(g.name) + '</div>' +
         '<div class="meta">' + esc(label) + ', ' + whole(j.doors) + ' doors, painted ' + esc(nice(j.day, true)) +
@@ -556,8 +556,8 @@ function drawOrders(){
              : '<span class="chip info">On order</span>';
     var mail = o.emailed_at ? 'Emailed to Ashley' : '<b style="color:var(--brass)">Email not sent</b>';
     return '<div class="row' + (o.status === 'cancelled' ? ' none' : '') + '"><div class="what">' +
-      '<div class="t">' + esc(o.colour) + (o.custom ? ' <span class="chip grey">custom</span>' : '') + ', ' + p.join(' and ') + ' (' + g1(o.gallons) + ' gal)</div>' +
-      '<div class="meta">' + (o.for_job ? 'For ' + esc(o.for_job) + '. ' : '') +
+      '<div class="t">' + (o.po_no ? esc(o.po_no) + ' &nbsp;' : '') + esc(o.colour) + (o.custom ? ' <span class="chip grey">custom</span>' : '') + ', ' + p.join(' and ') + ' (' + g1(o.gallons) + ' gal)</div>' +
+      '<div class="meta">' + (o.for_job ? 'Customer ' + esc(o.for_job) + '. ' : '') +
         (o.needed_by ? 'Needed by ' + esc(nice(o.needed_by, true)) + '. ' : '') +
         'Asked by ' + esc(o.requested_by || 'someone') + ' ' + esc(nice(o.requested_at.slice(0, 10))) + '. ' + mail +
         (o.note ? '. ' + esc(o.note) : '') + '</div></div>' +
@@ -623,7 +623,10 @@ function drawPanel(){
     (panel.custom && !panel.fixed ? '<div><label for="o-col">Colour</label><input id="o-col" value="' + esc(panel.colour) + '"></div>' : '') +
     '<div><label for="o-5">5 gal pails</label><input id="o-5" inputmode="numeric" value="' + esc(panel.p5 || 0) + '"></div>' +
     '<div><label for="o-1">1 gal pails</label><input id="o-1" inputmode="numeric" value="' + esc(panel.p1 || 0) + '"></div>' +
-    '<div><label for="o-job">For job</label><input id="o-job" value="' + esc(panel.job || '') + '" placeholder="' + (panel.custom ? 'Job' : 'Optional') + '"></div>' +
+    /* Andrew, 19 November: the customer is required for a custom colour
+       and optional for a stocked one. The database holds the same rule. */
+    '<div><label for="o-job">Customer' + (panel.custom ? '' : ' (optional)') + '</label><input id="o-job" value="' + esc(panel.job || '') +
+      '" placeholder="' + (panel.custom ? 'Required for a custom colour' : 'Optional') + '"></div>' +
     '<div><label for="o-by">Needed by</label><input id="o-by" type="date" value="' + esc(panel.day || '') + '"></div>' +
     '<div class="wide"><label for="o-note">Note for Ashley</label><input id="o-note" placeholder="Optional: brand, sheen, supplier"></div>' +
     '<div class="acts"><button class="save" id="o-save">Send order request</button><button class="plain" data-close>Cancel</button>' +
@@ -650,6 +653,7 @@ function saveOrder(){
   var p5 = num('o-5'), p1 = num('o-1');
   var colour = panel.custom && $('o-col') ? $('o-col').value.trim() : panel.colour;
   if(!colour) return message('bad', 'Type the colour.');
+  if(panel.custom && !$('o-job').value.trim()) return message('bad', 'A custom colour needs the customer.');
   if(!(Number.isInteger(p5) && p5 >= 0 && Number.isInteger(p1) && p1 >= 0) || p5 + p1 === 0)
     return message('bad', 'Order at least one pail, in whole pails.');
   busy = true; $('o-save').disabled = true;
@@ -674,7 +678,7 @@ function email(o){
     }); })
     .then(function(){
       o.emailed_at = new Date().toISOString(); draw();
-      message('good', 'Order for ' + o.colour + ', ' + g1(o.gallons) + ' gal, sent to Ashley.');
+      message('good', (o.po_no ? 'PO ' + o.po_no + ': ' : '') + o.colour + ', ' + g1(o.gallons) + ' gal, sent to Ashley.');
     })
     .catch(function(err){
       console.log('paint-order: ' + err.message);

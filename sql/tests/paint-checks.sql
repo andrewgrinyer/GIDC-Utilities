@@ -84,3 +84,17 @@ select name, doors_per_pail from paint_colours where doors_per_pail = 1;
 \echo -- colour words: want Pure White, Chantilly Lace twice, Primer only twice, null twice, Sea Salt, null
 select paint_colour_of('PURE WHITE (OC-64)'), paint_colour_of('Katie Chantilly'), paint_colour_of('Chantilly Lae'), paint_colour_of('PRIMER ONLY'), paint_colour_of('Prime only'), paint_colour_of('TBD'), paint_colour_of('Null'),
        paint_colour_of(' Sea Salt '), paint_colour_of('  ');
+
+\echo -- PO numbers: want PD00001, PD00002, PD00003 with no gaps from the refused tries above; a page cannot pick or change one
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into paint_orders(colour, pails_5, po_no) values ('Pure White', 1, 'PD99999');
+insert into paint_orders(colour, custom, pails_1, for_job) values ('Hale Navy', true, 2, '  Abraham ');
+update paint_orders set po_no = 'PD12345' where colour = 'Pure White';
+reset role;
+select po_no, colour, for_job from paint_orders order by po_no;
+
+\echo -- a custom colour with no customer is refused, a stocked colour with none is fine (want: violates, then PD00004)
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into paint_orders(colour, custom, pails_1, for_job) values ('Sea Salt', true, 1, '   ');
+insert into paint_orders(colour, pails_1) values ('Pearly', 1) returning po_no;
+reset role;
