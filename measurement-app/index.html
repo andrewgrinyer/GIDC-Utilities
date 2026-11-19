@@ -2302,7 +2302,9 @@ function openPlan(op, o){
   if(!hollow) P.notes.push('not hollow core, so never re-railed or re-stiled');
   // what goes on the workbook
   // 2.33: a swing door goes on the workbook as each door (a double is 2 at 30, not 60)
-  P.exportW = swing || P.pocket ? bW : rough ? bW * per : Math.round(W * 8) / 8;
+  P.exportW = swing || P.pocket ? bW : rough || bifold ? bW * per : Math.round(W * 8) / 8;
+  /* 2.48, Andrew 19 Nov: a bifold goes on the workbook at its stock size
+     (a 24 1/4 opening is a 24 bifold, a pair of 24s is 48), not the opening */
   /* 2.44: a rough opening bifold, bypass or pivot goes on the workbook at the
      doors' width (a pair of 24s is 48), not the rough opening */    // 2.39: pocket and barn too, each door
   P.exportH = bH;
@@ -3489,7 +3491,8 @@ function sizeCheckRaw(op, o, msrp){
          L.bifoldStyles.map(x => x === 'Deman' ? 'Denman' : x).join(', ') + ')');
       return res;
     }
-    need = Math.max(0, w - BIFOLD_SLACK);       // 2.29: the unit for the opening
+    // 2.29: the unit for the opening. 2.48: one worked out from the opening is already the unit
+    need = ls.plan && ls.plan.blankW ? w : Math.max(0, w - BIFOLD_SLACK);
     what = 'the bifold';
     list = (L.bifold || BIFOLD_HEIGHTS)[h];
     if(!list){ so(L.name + ' bifolds are 6\'8", 7\'0" and 8\'0" only'); return res; }
@@ -5628,6 +5631,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.47 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.48 · 19 Nov 2026</div>
 </body>
 </html>
