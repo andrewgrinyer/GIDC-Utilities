@@ -429,7 +429,7 @@ body.padding{overflow:hidden}
 /* an opening's fields: one column on a phone, in this order */
 .op-grid{display:flex;flex-direction:column}
 .op-left, .op-right{display:contents}
-.o-loc{order:1} .o-qty{order:2} .o-type{order:3} .o-w{order:4} .o-warn{order:5} .o-h{order:6} .o-prod{order:7}
+.o-loc{order:1} .o-qty{order:2} .o-type{order:3} .o-c{order:3} .o-w{order:4} .o-warn{order:5} .o-h{order:6} .o-prod{order:7}
 .o-warn .warn{margin-top:0}
 
 /* A TABLET HELD SIDEWAYS (2.3): the door on the left, its size on the
@@ -454,6 +454,14 @@ body.padding{overflow:hidden}
   .op-grid .chips.ranges{display:grid;grid-template-columns:repeat(4,1fr);margin-top:8px}
   .op-grid .other{margin-top:8px}
   .op-right{top:76px}
+  /* 2.41: Opening has, on one line beside its label */
+  .op-grid .field.cond{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:4px 0}
+  .op-grid .field.cond > label{margin:0}
+  .op-grid .field.cond .chips{margin:0}
+  .op-grid .field.cond .chip{min-height:40px}
+  .op-grid .field.cond .cond-jl{margin:0}
+  .op-grid .field.cond .chips.num{grid-template-columns:repeat(3,84px)}
+  .op-grid .field.cond .hint{flex-basis:100%}
   /* the logo and the job bar share one row, so the header takes less height */
   header{display:flex;align-items:center;gap:18px;padding-top:calc(env(safe-area-inset-top) + 8px);padding-bottom:8px}
   header > .bar:first-child{margin:0;padding-bottom:0!important;flex:none}
