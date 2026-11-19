@@ -3,8 +3,8 @@
 //   node tests/opening-condition.js
 //
 // A jamb with a non swing door there now and a swing door going in charges
-// router and stop; a swing for a swing needs nothing. A rough opening (and
-// drywall) asks for the jamb width, 4 5/8, 6 5/8 or typed, which goes on the
+// router and stop; a swing for a swing needs nothing. A rough opening asks for
+// the jamb width; drywall has none and no router and stop. The width, 4 5/8, 6 5/8 or typed, which goes on the
 // door's line, and the workbook waits for it. Prints PASS or FAIL per check.
 
 const { chromium } = require(process.env.PLAYWRIGHT || 'playwright');
@@ -58,12 +58,18 @@ const check = (name, ok, got) => {
   await page.click('#pad [data-pk="done"]'); await page.waitForTimeout(100);
   r = await v();
   check('a typed jamb (7 1/4) goes on the line', r.jamb === 7.25, r);
-  await page.click('[data-cond="Drywall"]'); await page.waitForTimeout(100);
-  r = await v();
-  check('drywall keeps the jamb', r.jamb === 7.25, r);
-  await page.click('[data-cond="Drywall"]'); await page.waitForTimeout(100);
+  await page.click('[data-cond="Rough Opening"]'); await page.waitForTimeout(100);
   r = await v();
   check('no condition: the jamb set by the rule comes off', r.jamb === '' && r.cond === '', r);
+  // drywall: no jamb, router and stop NO, even where a jamb would have charged it
+  await page.evaluate(() => { state.job.openings[0].existingType = 'Bifold'; render(); });
+  await page.click('[data-cond="Drywall"]'); await page.waitForTimeout(100);
+  r = await v();
+  check('drywall: router and stop NO, no jamb asked for', r.rs === 'NO' && r.jamb === '' && !/jamb width/.test(r.miss) &&
+        !(await page.$('[data-jambpick]')) && /no router and stop/i.test(r.note), r);
+  await page.click('[data-cond="Drywall"]'); await page.waitForTimeout(100);
+  r = await v();
+  check('off drywall: router and stop goes back to blank', r.rs === '', r);
 
   check('no page errors', !errors.length, errors);
   await browser.close(); server.close();

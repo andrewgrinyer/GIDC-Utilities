@@ -2323,20 +2323,27 @@ function planText(P){
  *                  to a swing door: router and stop is charged (YES).
  *   Rough Opening  every door type needs a jamb, so the jamb width is asked
  *                  for (4 5/8, 6 5/8 or typed) and goes on each door's line.
- *   Drywall        taken as a rough opening for now (no jamb to hang on).
+ *   Drywall        no jamb and no router and stop (drywall cannot be routed):
+ *                  router and stop is NO and the jamb column is left empty.
  * Router and stop set by this rule goes back if the rule stops applying;
  * one set by hand on the review stays. */
 const CONDITIONS = ['Jamb', 'Drywall', 'Rough Opening'];
 const JAMB_PICKS = [4.625, 6.625];   // Andrew 19 Nov: 4 5/8 and 6 5/8, as the workbook list
 const isSwingType = t => /swing/i.test(t || '');
-const needsJamb = op => op.cond === 'Rough Opening' || op.cond === 'Drywall';
+const needsJamb = op => op.cond === 'Rough Opening';
 function syncConditions(job){
   ((job && job.openings) || []).forEach(op => {
     op.options.forEach(o => {
       const t = o.v.doorType;
       const rs = op.cond === 'Jamb' && isSwingType(t) && !!op.existingType && !isSwingType(op.existingType);
+      if(op.cond === 'Drywall' && t){
+        // Andrew 19 Nov: a drywall opening cannot be routed, and has no jamb
+        if(o.v.routerStop !== 'NO'){ o.v.routerStop = 'NO'; o.routerAuto = true; }
+        if(o.v.jamb !== ''){ o.v.jamb = ''; }
+        return;
+      }
       if(rs && o.v.routerStop !== 'YES'){ o.v.routerStop = 'YES'; o.routerAuto = true; }
-      else if(!rs && o.routerAuto){ if(o.v.routerStop === 'YES') o.v.routerStop = ''; delete o.routerAuto; }
+      else if(!rs && o.routerAuto){ if(o.v.routerStop === 'YES' || o.v.routerStop === 'NO') o.v.routerStop = ''; delete o.routerAuto; }
       if(needsJamb(op) && t){ const j = op.jambW ? Number(op.jambW) : ''; if(o.v.jamb !== j){ o.v.jamb = j; o.jambAuto = true; } }
       else if(o.jambAuto){ o.v.jamb = ''; delete o.jambAuto; }
     });
@@ -2349,6 +2356,8 @@ function conditionFields(op){
   const swingIn = op.options.some(o => isSwingType(o.v.doorType));
   if(op.cond === 'Jamb' && swingIn && op.existingType && !isSwingType(op.existingType))
     h += '<p class="hint cond-note">Changing to a swing door: router and stop is charged (set to YES).</p>';
+  if(op.cond === 'Drywall')
+    h += '<p class="hint cond-note">Drywall opening: no jamb, and no router and stop (set to NO).</p>';
   if(needsJamb(op)){
     const typed = op.jambW && JAMB_PICKS.indexOf(Number(op.jambW)) < 0;
     h += '<label class="cond-jl">Jamb width (in)' + (op.jambW ? '' : ' <b class="req">needed</b>') + '</label><div class="chips num">' +
@@ -5508,6 +5517,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.41 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.42 · 19 Nov 2026</div>
 </body>
 </html>
