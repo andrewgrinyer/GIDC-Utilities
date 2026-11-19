@@ -27,7 +27,20 @@
 #    per order, in ProductTypeDetailValue_DateTime.
 #    The doors are DoorOrders, one row per door line, DoorQuantity doors
 #    on each, DoorProductTypeID 1 being interior doors.
-#    The colour is on the door line: see -ColourColumn below.
+#    The colour is on the door line. Found by gidc-paint-probe.ps1 on
+#    19 November: DoorOrders.DoorPaintColourName is the name as typed
+#    (Extra White on 4623 lines, Chantilly on a dozen, Oxford White and
+#    the like for custom), DoorPaintColourCode the maker's code (OC-65,
+#    SW 7042), and DoorPaintColourID points at def_DoorColours (1 Custom
+#    Colour, 2 Extra White, 3 Pure White, 4 Alabaster, 5 Pearly; there is
+#    no id for Chantilly Lace). So the typed name is used, the code is
+#    added for a custom colour so Ashley can order it, and the id is used
+#    only when no name was typed. Supabase decides which stocked colour a
+#    name is (paint_colour_of in sql/paint.sql), so Chantily, Chantilly
+#    Lae and Katie Chantilly all land on Chantilly Lace.
+#
+#    Bifolds: a bifold line is DoorQuantity doors, as entered. Bifolds
+#    are 27 lines in the whole history, so this is not worth a rule.
 #
 #  WHAT IT SENDS
 #    One line per order and colour: Access OrderID, OrderNo, the last
@@ -47,14 +60,11 @@ param(
   [string] $Key  = $env:GIDC_KPI_KEY,
   [string] $LogDir = "C:\GIDC\logs",
 
-  # THE COLOUR OF A DOOR LINE
-  # The column on DoorOrders that holds the colour. If it holds a number
-  # pointing at a list of colours, also give -ColourTable, the id column
-  # in it and the name column in it, and the name is looked up.
-  [string] $ColourColumn = "",
-  [string] $ColourTable = "",
-  [string] $ColourTableId = "",
-  [string] $ColourTableName = "",
+  # THE COLOUR OF A DOOR LINE, as the probe found it (see above)
+  [string] $ColourColumn = "DoorPaintColourName",
+  [string] $CodeColumn   = "DoorPaintColourCode",
+  [string] $IdColumn     = "DoorPaintColourID",
+  [string] $ColourTable  = "def_DoorColours",
 
   # Which door product types are painted. 1 is Interior Doors.
   [int[]]  $ProductTypes = @(1),
@@ -73,10 +83,6 @@ function Say($msg, $colour = "Gray") { Write-Host $msg -ForegroundColor $colour 
 function Stop-Badly($msg) { Say $msg "Red"; exit 1 }
 $inv = [Globalization.CultureInfo]::InvariantCulture
 
-if (-not $ColourColumn) {
-  Stop-Badly ("No colour column set. Run gidc-paint-probe.ps1 and send the result back, " +
-              "or pass -ColourColumn with the DoorOrders column that holds the colour.")
-}
 
 # ---- Access, read only ---------------------------------------------------
 if (-not (Test-Path -LiteralPath $Database)) { Stop-Badly "Cannot see the database at $Database" }
@@ -140,9 +146,6 @@ Say ("{0} order(s) have a prime or paint date from {1} to {2}" -f $orderIds.Coun
 
 # ---- dates, doors and names, a couple of hundred orders at a time ------------
 $prime = @{}; $paint = @{}; $names = @{}; $doorRows = @()
-$colourExpr = if ($ColourTable) { "c.[$ColourTableName]" } else { "dr.[$ColourColumn]" }
-$fromDoors  = if ($ColourTable) { "DoorOrders as dr left join [$ColourTable] as c on c.[$ColourTableId] = dr.[$ColourColumn]" }
-              else { "DoorOrders as dr" }
 $types = ($ProductTypes | ForEach-Object { [int]$_ }) -join ","
 
 for ($i = 0; $i -lt $orderIds.Count; $i += 200) {
@@ -165,34 +168,57 @@ for ($i = 0; $i -lt $orderIds.Count; $i += 200) {
     $names[[int]$r["OrderID"]] = @{ no = [string]$r["OrderNo"]; job = [string]$r["LastName"] }
   }
 
-  # Grouped on the colour expression itself, which Access insists on.
-  foreach ($r in (Rows "select dr.OrderID, $colourExpr as Colour, sum(dr.DoorQuantity) as Doors
-                          from $fromDoors
+  # Name, code and listed colour together; combined below, because
+  # Access over OLEDB has no Nz or Trim to do it in the query.
+  foreach ($r in (Rows "select dr.OrderID, dr.[$ColourColumn] as Nm, dr.[$CodeColumn] as Cd,
+                               c.DoorColourName as Listed, sum(dr.DoorQuantity) as Doors
+                          from DoorOrders as dr left join [$ColourTable] as c on c.DoorColourID = dr.[$IdColumn]
                          where dr.OrderID in ($chunk) and dr.DoorProductTypeID in ($types)
-                         group by dr.OrderID, $colourExpr")) {
+                         group by dr.OrderID, dr.[$ColourColumn], dr.[$CodeColumn], c.DoorColourName")) {
     $doorRows += $r
   }
 }
 $cn.Close()
 
+# ---- the colour of a line ------------------------------------------------------
+# Words that mean nothing has been decided yet. "Null" is typed in as text
+# on 55 lines, TBD on 34.
+$NOTHING = '^(null|tbd|n/?a|none|0|00-00|1|xyz)?$'
+function Clean($v) { if (Blank $v) { return "" }; $t = ([string]$v).Trim(); if ($t -match $NOTHING) { return "" }; return $t }
+function ColourOf($r) {
+  $name = Clean $r["Nm"]; $code = Clean $r["Cd"]; $listed = Clean $r["Listed"]
+  if (-not $name -and $listed -and $listed -ne "Custom Colour") { $name = $listed }
+  if (-not $name -and $code) { $name = $code; $code = "" }
+  if (-not $name) { return "" }
+  # The code goes with a custom colour, so the order says exactly what
+  # to buy. A stocked colour is left as named.
+  $stocked = ($name -replace '[^A-Za-z]', '').ToLower() -match 'extrawhite|purewhite|alabaster|pearly|chantil'
+  if ($code -and -not $stocked -and $name -notmatch [regex]::Escape($code) -and $code -notmatch 'do ?not ?prime') { $name = "$name ($code)" }
+  return $name
+}
+
 # ---- one line per order and colour ------------------------------------------
-$lines = @()
+$byKey = [ordered]@{}
 foreach ($r in $doorRows) {
   $id = [int]$r["OrderID"]
   $doors = if (Blank $r["Doors"]) { 0 } else { [double]$r["Doors"] }
   if ($doors -le 0) { continue }
   $p1 = $prime[$id]; $p2 = $paint[$id]
   if (-not $p1 -and -not $p2) { continue }
-  $lines += [pscustomobject]@{
+  $colour = ColourOf $r
+  $k = "$id|" + $colour.ToLower()
+  if ($byKey.Contains($k)) { $byKey[$k].doors += $doors; continue }
+  $byKey[$k] = [pscustomobject]@{
     order_id = $id
     order_no = if ($names.ContainsKey($id)) { $names[$id].no } else { $null }
     job      = if ($names.ContainsKey($id)) { $names[$id].job } else { $null }
-    colour   = if (Blank $r["Colour"]) { "" } else { ([string]$r["Colour"]).Trim() }
+    colour   = $colour
     doors    = $doors
     prime_on = $p1
     paint_on = $p2
   }
 }
+$lines = @($byKey.Values)
 Say ("{0} line(s) to send, {1} door(s)" -f $lines.Count, (($lines | Measure-Object doors -Sum).Sum)) "Green"
 $noColour = @($lines | Where-Object { -not $_.colour })
 if ($noColour.Count) { Say ("  {0} line(s) have no colour typed" -f $noColour.Count) "Yellow" }

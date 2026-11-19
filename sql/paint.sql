@@ -123,7 +123,7 @@ insert into public.paint_colours (name, kind, doors_per_pail, warn_gallons, matc
   ('Pure White',     'stock',  35, 5,    '{purewhite}',                        20),
   ('Alabaster',      'stock',  35, 5,    '{alabaster}',                        30),
   ('Pearly',         'stock',  35, 5,    '{pearly}',                           40),
-  ('Chantilly Lace', 'stock',  35, 5,    '{chantilly,chantily,chantilylace}',  50),
+  ('Chantilly Lace', 'stock',  35, 5,    '{chantil}',                          50),
   ('Custom',         'custom', 35, null, '{}',                                 90)
 on conflict (name) do nothing;
 
@@ -161,7 +161,9 @@ create or replace function public.paint_colour_of(raw text)
 returns text language sql stable set search_path = public as $$
   with n as (select lower(regexp_replace(coalesce(raw, ''), '[^A-Za-z0-9]', '', 'g')) as k)
   select case
-    when (select k from n) = '' then null
+    -- Typed in Access to mean not decided yet (probe, 19 November).
+    when (select k from n) in ('', 'null', 'tbd', 'na', 'none') then null
+    -- "Prime only" and "PRIMER ONLY" are both typed (probe, 19 November).
     when (select k from n) ~ '(primeronly|primedonly|primeonly)' then 'Primer only'
     else coalesce(
       (select c.name from public.paint_colours c, n

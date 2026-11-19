@@ -81,6 +81,6 @@ do $$ declare n text; begin
   end loop; end $$;
 select name, doors_per_pail from paint_colours where doors_per_pail = 1;
 
-\echo -- colour words: want Pure White, Pearly, Primer only, Sea Salt, null
-select paint_colour_of('PURE WHITE (OC-64)'), paint_colour_of('pearly white'), paint_colour_of('primed only'),
+\echo -- colour words: want Pure White, Chantilly Lace twice, Primer only twice, null twice, Sea Salt, null
+select paint_colour_of('PURE WHITE (OC-64)'), paint_colour_of('Katie Chantilly'), paint_colour_of('Chantilly Lae'), paint_colour_of('PRIMER ONLY'), paint_colour_of('Prime only'), paint_colour_of('TBD'), paint_colour_of('Null'),
        paint_colour_of(' Sea Salt '), paint_colour_of('  ');
