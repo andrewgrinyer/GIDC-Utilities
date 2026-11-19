@@ -77,7 +77,7 @@ const server = http.createServer(async (q, r) => {
       email:'jane@example.com', salesRep:'Sam Rep', leadTime:'8-10 Weeks', docType:'Sales Contract - Cash Web Pricing'}); j.openings = [];
     [['Foyer', 'Single Swing', 'Columbia', 'Passage', 'R -Latitude Standard', 'Matte Black'],
      ['Closet', 'Bifold', 'Kingston', 'Bifold Knob', 'N/A', 'Matte Black']].forEach(([loc, type, style, ht, hs, col]) => {
-      const op = newOpening(j.openings.length + 1); op.location = loc; op.existingType = type; op.width = '32'; op.height = 80;
+      const op = newOpening(j.openings.length + 1); op.location = loc; op.existingType = type; op.width = type === 'Bifold' ? '30' : '32'; op.height = 80; /* 2.49: a 32 bifold opening is special order */
       Object.assign(op.options[0].v, {doorType:type, productType:'1.375 Hollow', doorStyle:style, jamb:'', routerStop:'NO', reStile:'NO',
         install:'YES', paintColour:'STD White', handleType:ht, handleStyle:hs, hwColour:col}); applyQtyRule(op); j.openings.push(op); });
     state.job = j; state.view = 'job'; render();
