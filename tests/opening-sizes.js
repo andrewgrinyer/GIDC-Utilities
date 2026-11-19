@@ -50,6 +50,8 @@ const CASES = [
     {so:'tall enough'}],
   ['bifold pair: 24 units, opening width on the workbook', 'Bifold', '1.375 Hollow', 'Kingston', 48.5, 81.5, 2,
     {blankW:24, blankH:80, per:2, reStile:false, exportW:48.5, exportH:80}],
+  ['bifold 30 x 85 1/2: a 7/0 bifold is stock (2.46)', 'Bifold', '1.375 Hollow', 'Kingston', 30, 85.5, 1,
+    {blankW:30, blankH:84, exportH:84}],
   ['bifold single unit 30', 'Bifold', '1.375 Hollow', 'Kingston', 30.5, 81.5, 1,
     {blankW:30, blankH:80, per:1, exportW:30.5}],
   ['pocket 30 1/4: no deduction, up to a 32, not re-stiled', 'Pocket', '1.375 Hollow', 'Kingston', 30.25, 80.5, 1,

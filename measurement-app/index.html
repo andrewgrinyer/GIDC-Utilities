@@ -2223,7 +2223,7 @@ function openPlan(op, o){
     finW = q <= 1 ? W - 0.5 : W / q - 0.75; finH = H - (t === 'Premium Bifold' ? 2.5 : 1.5);
     list = PORTAL_BIFOLD_W; limit = 1;
     // where the supplier lists its bifold units, only those (a pair is twice the unit)
-    if(L) list = list.filter(w => (L.bifold || {80:BIFOLD_UNITS})[80].indexOf(w * per) >= 0);
+    if(L) list = list.filter(w => (L.bifold || BIFOLD_HEIGHTS)[80].indexOf(w * per) >= 0);
   } else if(bypass){
     per = Math.max(2, q); finW = (rough ? W - ROUGH_W : W) / per; finH = H - 2.5; limit = null;
     if(W > BYPASS_OPEN_MAX + 0.01){ P.per = per; P.so = 'bypass openings go up to ' + BYPASS_OPEN_MAX + '"'; return P; }
@@ -2249,7 +2249,7 @@ function openPlan(op, o){
   P.per = per; P.finW = r4(finW); P.finH = r4(finH);
   // the height first: the smallest the supplier makes at or above the door
   const hs = PORTAL_H.filter(h => (h !== 90 || isStileRailDoor(o)) &&
-    (!L || (bifold ? (L.bifold || {80:BIFOLD_UNITS})[h] : L.heights[h])));
+    (!L || (bifold ? (L.bifold || BIFOLD_HEIGHTS)[h] : L.heights[h])));
   /* 2.33, Andrew 18 Nov: the door size is its own pair of fields (each door,
      op.doorW / op.doorH). Filled from the opening; a size typed there wins. */
   const tW = parseFloat(op.doorW), tH = parseFloat(op.doorH);
@@ -2386,8 +2386,18 @@ function handleChoices(t){
   if(isSwingType(t)) return DOUBLE_TYPES.indexOf(t) >= 0 ? SWING_HANDLES.concat(['Passage/Dummy', 'Privacy/Dummy']) : SWING_HANDLES;
   return null;
 }
+/* 2.46, Andrew 19 Nov: a bifold or bypass has no handle style. Switching a
+   door to one blanks the style and any handle price typed over the sheet,
+   so the hardware price is the bifold knob's or finger pull's. */
+const noHandleStyle = t => !!t && (BIFOLD_TYPES.indexOf(t) >= 0 || /bypass/i.test(t));
 function syncHandles(job){
   ((job && job.openings) || []).forEach(op => op.options.forEach(o => {
+    const t = o.v.doorType;
+    if(noHandleStyle(t)){
+      if(o.v.handleStyle) o.v.handleStyle = '';
+      if(o.hwFor !== undefined && o.hwFor !== t && !noHandleStyle(o.hwFor)) o.v.handleTyped = '';
+    }
+    o.hwFor = t || '';
     const c = handleChoices(o.v.doorType);
     if(!c) return;
     if(c.length === 1){ if(o.v.handleType !== c[0]){ o.v.handleType = c[0]; o.handleAuto = true; } }
@@ -3346,21 +3356,24 @@ const UPTO48 = {upto:48}, UPTO36 = {upto:36, from:12};
 /* Andrew 18 Nov: bifolds come 24, 30, 36, 48, 60, 72 (a 48 and up is a pair
    of units). Bypass panels are at most 36 wide on an opening up to 144. */
 const BIFOLD_UNITS = [24,30,36,48,60,72];
+/* 2.46, Andrew 19 Nov: 7'0" bifolds are in the price list too, so a bifold
+   is stock at 6'8" and 7'0" (it was 6'8" only) */
+const BIFOLD_HEIGHTS = {80:BIFOLD_UNITS, 84:BIFOLD_UNITS};
 const BYPASS_PANEL_MAX = 36, BYPASS_OPEN_MAX = 144;
 const SUPPLIER_LINES = {
   lynden:   {name:'Lynden molded panel', heights:{80:W_LYNDEN, 84:W_LYNDEN, 96:W_LYN_8},
              check:{96:'8\'0" is model dependent, check with Lynden'},
-             bifold:{80:BIFOLD_UNITS}},
+             bifold:BIFOLD_HEIGHTS},
   flush:    {name:'Lynden flush', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48}},
   fineline: {name:'Lynden Fineline', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48},
              wideCheck:36, wideWhy:'Fineline over 3\'0" is select profiles only, up to 4\'0"',
              bifoldStyles:['Robson','Deman','MontLake'],
-             bifold:{80:BIFOLD_UNITS}},
+             bifold:BIFOLD_HEIGHTS},
   vanair:   {name:'Lynden VanAir', heights:{80:UPTO48, 84:UPTO48, 96:UPTO48},
              always:'VanAir sizes follow the Lynden style it is built into; check with Lynden'},
   masonite: {name:'Masonite molded panel', heights:{80:W_MASON, 84:W_MASON, 96:W_MASON},
              tall84:['2 Panel Square','2 Panel Roman Smooth','Livingston','Lincoln Park'],
-             bifold:{80:BIFOLD_UNITS}, thickCheck:'1 3/4" is select Masonite styles only'},
+             bifold:BIFOLD_HEIGHTS, thickCheck:'1 3/4" is select Masonite styles only'},
   archtop:  {name:'Masonite 2 Panel Arch Top', heights:{80:W_MAS_SP}},
   louver:   {name:'Masonite Plantation Louver', heights:{80:W_MAS_SP}, thinOnly:true},
   /* Andrew 18 Nov: 4 lite is Trimlite, and so is 3 Panel Shaker (T-Shape) */
@@ -3474,8 +3487,8 @@ function sizeCheckRaw(op, o, msrp){
     }
     need = Math.max(0, w - BIFOLD_SLACK);       // 2.29: the unit for the opening
     what = 'the bifold';
-    list = (L.bifold || {80:BIFOLD_UNITS})[h];
-    if(!list){ so(L.name + ' bifolds are 6\'8" only'); return res; }
+    list = (L.bifold || BIFOLD_HEIGHTS)[h];
+    if(!list){ so(L.name + ' bifolds are 6\'8" and 7\'0" only'); return res; }
   }
   if(BYPASS_TYPES.indexOf(type) >= 0){
     if(w > BYPASS_OPEN_MAX + 0.01){ so('Bypass openings go up to ' + BYPASS_OPEN_MAX + '"'); return res; }
@@ -3714,6 +3727,8 @@ async function getCalc(){
 }
 /* Puts the job into the calculator exactly as fillSheet puts it into the file. */
 function calcJob(job){
+  // 2.46: the door type rules first, so the price is for what the screen shows
+  if(job && state.view !== 'remote'){ syncPlans(job); syncConditions(job); syncHandles(job); }
   const {hf, orig} = calc;
   hf.batch(() => {
     sheetInputs(job).forEach(([ref, v]) => {
@@ -3868,6 +3883,7 @@ function reviewEditor(col, op, o){
   if(col.k === 'doorType')
     return reviewSelect(col.list, shown, at) + (op.existingType ? '<span class="rv-now">Now: ' + esc(op.existingType) + '</span>' : '');
   if(col.k === 'handleType') return reviewSelect(col.list, shown, at, handleChoices(o.v.doorType));
+  if(col.k === 'handleStyle' && noHandleStyle(o.v.doorType)) return '<span class="rv-fixed" title="A bifold or bypass has no handle style">None</span>';
   return reviewSelect(col.list, shown, at);
 }
 
@@ -4867,6 +4883,7 @@ function renderJob(){
             } else {
               h += '<div class="sect-body">';
               s.fields.forEach(f => {
+                if(f.k === 'handleStyle' && noHandleStyle(o.v.doorType)) return;   // 2.46
                 h += '<div class="field"><label>' + f.label +
                      (f.req ? ' <span style="color:var(--brass)">required</span>' : '') + '</label>';
                 if(f.chips){
@@ -5605,6 +5622,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.45 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.46 · 19 Nov 2026</div>
 </body>
 </html>

@@ -123,6 +123,23 @@ const check = (name, ok, got) => {
   const after = await page.evaluate(() => state.job.openings.map(op => op.options[0].v.paintColour));
   check('Overwrite all sets every door', after.every(x => x === paint), {after, paint});
 
+  // 2.46: switching a door to bifold blanks its handle style and the price follows
+  await page.evaluate(() => { const o = state.job.openings[0].options[0];
+    Object.assign(o.v, {handleStyle:'R -Latitude Standard', hwColour:'Matte Black', handleTyped:'99'}); calcJob(state.job); render(); });
+  await page.waitForTimeout(300);
+  const before = await page.evaluate(() => cv('U' + PAGE_ROWS[0]));
+  await page.selectOption('select[data-rv="doorType"][data-op="' + await page.evaluate(() => state.job.openings[0].id) + '"]', 'Bifold');
+  await page.waitForTimeout(500);
+  const sw = await page.evaluate(() => { const o = state.job.openings[0].options[0];
+    const cell = document.querySelectorAll('tr.rv-l2')[0].querySelector('.rv-fixed[title*="handle style"]');
+    return {style:o.v.handleStyle, typed:o.v.handleTyped, type:o.v.handleType, u:cv('U' + PAGE_ROWS[0]), shown:!!cell}; });
+  check('switched to bifold: handle style blank, typed handle price gone, bifold knob', sw.style === '' && sw.typed === '' &&
+        sw.type === 'Bifold Knob' && sw.shown, sw);
+  check('the hardware price follows the bifold knob', before === 99 && sw.u !== 99 && typeof sw.u === 'number', {before, u:sw.u});
+  await page.evaluate(() => { state.job.openings[0].options[0].v.handleTyped = '12'; render(); });
+  const keep = await page.evaluate(() => { render(); return state.job.openings[0].options[0].v.handleTyped; });
+  check('a price typed on the bifold afterwards stays', keep === '12', keep);
+
   check('no page errors', !errors.length, errors);
   await browser.close(); server.close();
   console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
