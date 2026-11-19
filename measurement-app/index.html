@@ -578,6 +578,13 @@ body.padding{overflow:hidden}
 }
 .dock-in{max-width:760px;margin:0 auto;display:flex;gap:10px;align-items:center}
 .dock .count{flex:1;font-size:13px;color:var(--muted)}
+/* 2.56: on a phone the review's five buttons did not fit; they wrap under the total */
+@media (max-width:600px){
+  body.reviewing .dock-in{flex-wrap:wrap;gap:6px}
+  body.reviewing .dock .count{flex-basis:100%}
+  body.reviewing .dock-in .btn{flex:1 1 auto;padding-left:10px;padding-right:10px}
+  body.reviewing .wrap{padding-bottom:190px}
+}
 
 /* ---- asking before something goes ---- */
 .sure{position:fixed;inset:0;z-index:300;background:rgba(18,18,24,.44);
@@ -732,6 +739,24 @@ td.rv-price input{width:100%;max-width:84px;text-align:right;padding:4px 6px;fon
 td.rv-price .rv-pp{display:none}
 td.rv-typed input{background:#FFF7D6;border-color:#C9A227;font-weight:600}
 @media print{td.rv-price input{display:none!important}td.rv-price .rv-pp{display:inline!important}}
+/* 2.56: notes for a door and for the whole order, small red print on the contract */
+.note-in{width:100%;min-height:40px;padding:6px 8px;border:1px solid var(--rule);border-radius:8px;font-size:13px;resize:vertical;background:#fff}
+.note-in.set{border-color:#B5121B;color:#B5121B}
+.op-note{margin:10px 0 4px}
+.op-noteadd{display:block;margin:8px 0 2px;font-size:13px;color:#B5121B}
+.op-note label{font-size:12px;color:var(--muted)}
+table.rv-two tr.rv-l3 td{padding:2px 6px 7px;border-top:0}
+table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
+.rv-notes{margin:10px 0 14px}
+.rv-notes label{font-size:12px;color:var(--muted);display:block;margin-bottom:3px}
+.note-print{display:none;color:#B5121B;font-size:11px;white-space:pre-wrap}
+@media print{
+  .note-in, .rv-notes label{display:none!important}
+  .note-print{display:block!important;font-size:7.5px;line-height:1.25}
+  .rv-notes .note-print{font-size:8px}
+  table.rv-two tr.rv-l3.empty, .rv-notes.empty{display:none!important}
+  table.rv-two tr.rv-l3 td{padding:0 4px 3px!important}
+}
 /* 2.20: Add door under the review table */
 .rv-add{margin:8px 0 14px}
 @media print{.rv-add, .rv-rm{display:none!important}}
@@ -1177,7 +1202,8 @@ const signDay = iso => { const d = new Date(iso);
 function signFp(job){
   const jr = jambRows(job).map(r => [r.n, r.type, r.dir, r.jamb, r.w, r.h, r.match]);
   const s = JSON.stringify([sheetInputs(job), job.docType || '', jobDocs(job).map(d => d.id),
-                            doorPicks(job).map(p => [p.style, p.qty])].concat(jr.length ? [jr] : []));
+                            doorPicks(job).map(p => [p.style, p.qty])].concat(jr.length ? [jr] : [])
+                            .concat(noteOf(job) || job.openings.some(noteOf) ? [[noteOf(job), job.openings.map(noteOf)]] : []));
   let h = 5381; for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36) + '.' + s.length.toString(36);
 }
@@ -1443,6 +1469,13 @@ async function contractPdf(job, opts){
     pg.drawText(t, {x: o.right ? x - w : o.center ? x - w / 2 : x, y, size:sz, font:f, color:o.color || INK}); return w; };
   const fitText = (s, f, sz, w) => { let t = safe(s); if(f.widthOfTextAtSize(t, sz) <= w) return t;
     while(t.length > 1 && f.widthOfTextAtSize(t + '...', sz) > w) t = t.slice(0, -1); return t + '...'; };
+  // 2.56: notes wrap onto as many lines as they need
+  const wrap = (s, f, sz, w) => { const out = [];
+    String(s == null ? '' : s).split(/\r?\n/).map(safe).forEach(par => { let line = '';
+      par.split(' ').forEach(word => { const t = line ? line + ' ' + word : word;
+        if(line && f.widthOfTextAtSize(t, sz) > w){ out.push(line); line = word; } else line = t; });
+      out.push(fitText(line, f, sz, w)); });
+    return out.filter((l, i, a) => l || i < a.length - 1); };
   const mark = (pg, m, x, y, w, h) => { if(!m) return;
     const s = Math.min(w / m.w, h / m.h), ox = x + (w - m.w * s) / 2;
     pg.drawSvgPath(m.d, {x:ox, y:y + h - (h - m.h * s) / 2, scale:s, borderColor:PEN, borderWidth:(m.sw || 3), borderLineCap:1}); };
@@ -1546,6 +1579,12 @@ async function contractPdf(job, opts){
   const orderedText = (op, o, i) => { const z = sizeCheck(op, o, cv('R' + PAGE_ROWS[i]));
     return z.status === 'so' ? 'S/O' : z.stock || ''; };
   const soList = specialOrders(job);
+  // 2.56: a door's note in small red under its line, the order note above the pricing
+  const noteW = LW - 56 - COLS[0][1] * scaleW - 6;
+  const noteLines = i => { const n = noteOf(lines[i].op);
+    return n && (i === 0 || lines[i - 1].op !== lines[i].op) ? wrap('Note: ' + n, F, 6.8, noteW) : []; };
+  const noteH = i => { const n = noteLines(i).length; return n ? n * 8 + 3 : 0; };
+  const orderNote = noteOf(job) ? wrap('Order notes: ' + noteOf(job), F, 7.5, LW - 68) : [];
   const cell = (ln, i) => { const {op, o} = ln, row = PAGE_ROWS[i], v = o.v;
     const base = [op.number, op.location, op.qty, v.doorType, styleName(v.doorStyle || ''), v.productType,
       lineSize(op, ln.o).height, lineSize(op, ln.o).width, orderedText(op, ln.o, i), v.jamb, v.handleType, v.handleStyle, v.hwColour, v.paintColour, v.install];
@@ -1570,21 +1609,33 @@ async function contractPdf(job, opts){
     let x = 28; COLS.forEach(([t, w], k) => { const cw = w * scaleW, num = prices && k >= COLS.length - 3;
       text(pg, t.toUpperCase(), num ? x + cw - 3 : x + 3, y - 9, {size:5.6, font:FB, color:WHITE, right:num}); x += cw; });
     y -= 13;
-    while(li < lines.length && y - 15 > 120){
+    while(li < lines.length && y - 15 - noteH(li) > 120){
       const vals = cell(lines[li], li), stop = sizeCheck(lines[li].op, lines[li].o, cv('R' + PAGE_ROWS[li])).status === 'so';
       if(li % 2) pg.drawRectangle({x:28, y:y - 15, width:LW - 56, height:15, color:rgb(0.969, 0.969, 0.969)});
       pg.drawRectangle({x:28, y:y - 15, width:COLS[0][1] * scaleW, height:15, color:stop ? RED : CHAR});
       x = 28; vals.forEach((v, k) => { const cw = COLS[k][1] * scaleW, num = prices && k >= COLS.length - 3;
         text(pg, fitText(v, F, 7, cw - 5), num ? x + cw - 3 : k ? x + 3 : x + cw / 2, y - 10,
              {size:7, color:k ? (stop || (num && /S\/O|#/.test(v)) ? RED : INK) : WHITE, right:num, center:!k, font:k ? F : FB}); x += cw; });
-      pg.drawLine({start:{x:28, y:y - 15}, end:{x:LW - 28, y:y - 15}, thickness:0.4, color:RULE});
-      y -= 15; li++;
+      const nl = noteLines(li);
+      if(nl.length){
+        if(li % 2) pg.drawRectangle({x:28, y:y - 15 - noteH(li), width:LW - 56, height:noteH(li), color:rgb(0.969, 0.969, 0.969)});
+        nl.forEach((l, k) => text(pg, l, 28 + COLS[0][1] * scaleW + 3, y - 15 - 7 - k * 8, {size:6.8, color:RED}));
+      }
+      y -= 15 + noteH(li);
+      pg.drawLine({start:{x:28, y}, end:{x:LW - 28, y}, thickness:0.4, color:RULE});
+      li++;
     }
     if(li >= lines.length){
       // 2.23: the four boxes under the doors, as on the review and the sheet
       const boxes = sumBoxes(), soH = soList.length ? 22 + soList.length * 9 : 0,
-            need = 30 + soH + Math.max(...boxes.map(b => b.rows.length)) * 10.5;
+            onH = orderNote.length ? 10 + orderNote.length * 9 : 0,
+            need = 30 + soH + onH + Math.max(...boxes.map(b => b.rows.length)) * 10.5;
       if(y - need < 92){ sigLines(pg, 'contract', 28, 64); foot(pg, LW); continue; }
+      if(orderNote.length){
+        y -= 8;
+        orderNote.forEach((l, k) => text(pg, l, 34, y - 8 - k * 9, {size:7.5, color:RED, font:k ? F : F}));
+        y -= onH - 8;
+      }
       if(soList.length){
         // 2.32: the special order items, in red, initialled by the customer
         y -= 8;
@@ -2005,7 +2056,9 @@ function renderRemote(){
           esc(v.doorType || '') + '</td><td>' + esc(styleName(v.doorStyle || '')) + '</td><td>' + esc((lineSize(l.op, l.o).width || '') + ' x ' + (lineSize(l.op, l.o).height || '')) +
           '</td><td>' + esc([v.handleType, v.handleStyle].filter(x => x && x !== 'N/A').join(', ')) + '</td><td>' + esc(v.hwColour || '') +
           '</td><td>' + esc(v.paintColour || '') + '</td><td class="num">' + esc(money(cv('T' + row))) + '</td><td class="num">' +
-          esc(money(cv('U' + row))) + '</td></tr>'; }).join('') + '</tbody></table></div>';
+          esc(money(cv('U' + row))) + '</td></tr>' +
+          (noteOf(l.op) && (i === 0 || lines[i - 1].op !== l.op) ? '<tr><td></td><td colspan="10" style="color:#B5121B;font-size:12px">Note: ' + esc(noteOf(l.op)) + '</td></tr>' : ''); }).join('') + '</tbody></table></div>' +
+      (noteOf(job) ? '<p style="color:#B5121B;font-size:13px;white-space:pre-wrap">Order notes: ' + esc(noteOf(job)) + '</p>' : '');
     h += '<div class="print-kick rs-kick">Pricing summary</div><div class="rv-boxes">' + sumBoxes().map(b =>
       '<div class="rv-box"><h3>' + esc(b.title) + '</h3><table class="rv rv-small"><tbody>' + b.rows.map(r =>
         '<tr' + (b.price && r === 54 ? ' class="rv-total"' : '') + '>' + b.cols.map((c, j) =>
@@ -4250,15 +4303,22 @@ function renderReview(){
       return '<td' + cs(n) + '>' + cap(c) + reviewEditor(c, op, o) + '</td>';
     };
     // 2.20: the number cell also carries Remove for that door
-    h += '<tr class="rv-l1' + flags + '"' + doorVars(op) + '><td class="rv-n" rowspan="2">' + op.number +
+    h += '<tr class="rv-l1' + flags + '"' + doorVars(op) + '><td class="rv-n" rowspan="3">' + op.number +
            '<button class="rv-rm" data-revrm="' + o.id + '" data-op="' + op.id + '" title="Remove this door" aria-label="Remove door ' +
            op.number + '">\u00d7</button></td>' +
            L1.map((c, k) => cell(c, S1[k])).join('') + '</tr>' +
-         '<tr class="rv-l2' + flags + '"' + doorVars(op) + '>' + L2.map((c, k) => cell(c, S2[k])).join('') + '</tr>';
+         '<tr class="rv-l2' + flags + '"' + doorVars(op) + '>' + L2.map((c, k) => cell(c, S2[k])).join('') + '</tr>' +
+         '<tr class="rv-l3' + flags + (noteOf(op) ? '' : ' empty') + '"' + doorVars(op) + '><td colspan="' + span + '">' +
+           noteBox('data-opnote="' + op.id + '"', op.note, 'Note for door ' + op.number + ' (prints in red)') +
+           '<div class="note-print">' + esc(noteOf(op) ? 'Note: ' + noteOf(op) : '') + '</div></td></tr>';
   });
   if(!lines.length)
     h += '<tr><td colspan="' + (span + 1) + '" class="rv-empty">No doors ticked to quote yet.</td></tr>';
   h += '</tbody></table></div>';
+  // 2.56: the order note, under the doors
+  h += '<div class="rv-notes' + (noteOf(job) ? '' : ' empty') + '"><label>Notes for the whole order (print on the contract in red)</label>' +
+       noteBox('data-jobnote="1"', job.note, 'e.g. call before arriving, park on the street') +
+       '<div class="note-print">' + esc(noteOf(job) ? 'Order notes: ' + noteOf(job) : '') + '</div></div>';
   // 2.20: add a door without leaving the review
   h += '<div class="rv-add"><button class="btn" data-revaddop="1"' +
        (lines.length >= PAGE_ROWS.length ? ' disabled' : '') + '>+ Add door</button>' +
@@ -4736,6 +4796,12 @@ function doorPlan(op){
    typed, or the one worked out (an uncut stock door, or the cut height).
    Andrew, 19 Nov: where we put in the jamb (a rough opening) the gap is 1/2". */
 const MIN_FLOOR_GAP = 0.5;
+/* 2.56, Andrew 19 Nov: notes for each door (op.note) and the whole order
+   (job.note), typed on the opening, on the review or on the job, printed
+   on the contract in small red print. */
+const noteOf = x => String((x && x.note) || '').trim();
+const noteBox = (attr, val, ph) => '<textarea class="note-in' + (String(val || '').trim() ? ' set' : '') + '" ' + attr +
+  ' rows="1" placeholder="' + esc(ph) + '">' + esc(val || '') + '</textarea>';
 function floorGap(op, o){
   if(!o || !sized(op)) return null;
   const P = openPlan(op, o);
@@ -5146,6 +5212,11 @@ function renderJob(){
                chips(pf, o, op.id) + '</div>';
         });
       }
+      // 2.56: the door's note (left column on a tablet, which has the room)
+      h += (op.note || state.noteOpen === op.id)
+        ? '<div class="field op-note"><label>Note for this door (prints on the contract in red)</label>' +
+          noteBox('data-opnote="' + op.id + '"', op.note, 'e.g. keep the existing stop, customer to paint') + '</div>'
+        : '<button type="button" class="linkbtn op-noteadd" data-opnoteadd="' + op.id + '">+ Note for this door</button>';
       h += '</div></div><div class="op-right">';
       if(sized(op)) h += '<div class="o-w">' + openingFields(op) + '</div>';
       else h += '<div class="o-w">' + sizeChips(op, 'width', widthsFor(op), 'Other width') + '</div>';
@@ -5158,7 +5229,7 @@ function renderJob(){
       sizeWarnings(op).forEach(x => { h += '<p class="warn">' + esc(x) + '</p>'; });
       h += '</div>';
       if(!sized(op)) h += '<div class="o-h">' + sizeChips(op, 'height', HEIGHTS, 'Other height') + '</div>';
-      h += '</div></div>';
+            h += '</div></div>';
 
 
       op.options.forEach((o, i) => {
@@ -5252,6 +5323,10 @@ function renderJob(){
   }
 
   h += docsBox(job);
+  // 2.56: notes for the whole order, also on the review
+  h += '<div class="card"><div class="card-body" style="border-top:0;padding-top:12px"><div class="field rv-notes" style="margin:0">' +
+       '<label>Notes for the whole order (print on the contract in red)</label>' +
+       noteBox('data-jobnote="1"', job.note, 'e.g. call before arriving, park on the street') + '</div></div></div>';
   /* 2.45, Andrew 19 Nov: special materials and rework are added on the
      review (the Special Materials and Rework box), not while measuring */
   if(false){
@@ -5293,7 +5368,7 @@ function renderJob(){
    Every data attribute the click handler answers to. It is one list rather than
    a hand-written selector because the selector fell out of step with the
    handler once already, and the buttons it left out simply did nothing. */
-const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done',
+const CLICK_KEYS = ['opnoteadd','open','del','new','back','toggle','inc','edit','skip','done',
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
@@ -5352,6 +5427,8 @@ document.addEventListener('click', async e => {
   /* 2.26: remote signing */
   { const act = Object.keys(REVIEW_ACTS).find(k => d[k] !== undefined);
     if(act && !await confirmReviewed(REVIEW_ACTS[act])) return; }
+  if(d.opnoteadd){ state.noteOpen = d.opnoteadd; render();
+    const ta = document.querySelector('textarea[data-opnote="' + d.opnoteadd + '"]'); if(ta) ta.focus(); return; }
   if(d.sendsign !== undefined) return sendToSign(job);
   if(d.quote !== undefined) return sendQuote(job);
   if(d.rscheck !== undefined) return remoteCheck(job);
@@ -5752,6 +5829,17 @@ document.addEventListener('change', async e => {
     return render();
   }
   if(!job) return;
+  if(d.opnote !== undefined || d.jobnote !== undefined){
+    const tgt = d.jobnote !== undefined ? job : job.openings.find(x => x.id === d.opnote);
+    if(!tgt) return;
+    tgt.note = t.value;
+    /* updated in place, not re-rendered, so a tap on the next box is not lost */
+    t.classList.toggle('set', !!noteOf(tgt));
+    const pr = t.parentNode.querySelector('.note-print'), row = t.closest('.rv-l3, .rv-notes');
+    if(pr) pr.textContent = noteOf(tgt) ? (tgt === job ? 'Order notes: ' : 'Note: ') + noteOf(tgt) : '';
+    if(row) row.classList.toggle('empty', !noteOf(tgt));
+    return persistBg();
+  }
   if(d.rv || d.rvjob || d.rvfee || d.rvmat || d.rvprice) return reviewChange(t, d);
   if(d.inhome !== undefined){
     job.inHome = t.checked;
@@ -5941,6 +6029,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.55 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.56 · 19 Nov 2026</div>
 </body>
 </html>

@@ -71,12 +71,13 @@ const check = (name, ok, got) => {
   const n = await page.evaluate(() => [document.querySelectorAll('table.rv-two tbody tr.rv-l1').length,
                                        document.querySelectorAll('table.rv-two tbody tr.rv-l2').length]);
   check('each door is two rows', n[0] === 5 && n[1] === 5, n);
+  // 2.56: a third row per door holds its note, under the number cell like the second
   const cols = await page.evaluate(() => [...document.querySelectorAll('table.rv-two tbody tr')].map(t =>
-    [...t.children].reduce((a, c) => a + (c.colSpan || 1), 0) + (t.classList.contains('rv-l2') ? 1 : 0)));
+    [...t.children].reduce((a, c) => a + (c.colSpan || 1), 0) + (t.classList.contains('rv-l2') || t.classList.contains('rv-l3') ? 1 : 0)));
   check('both lines fill the same width', new Set(cols).size === 1, cols);
   const alt = await page.$$eval('table.rv-two tr.rv-l1', t => t.map(x => getComputedStyle(x.children[1]).backgroundColor));
   check('next doors have different colours', alt.slice(0, 4).every((c, i) => i === 0 || c !== alt[i - 1]), alt);
-  const pair = await page.$$eval('table.rv-two tbody tr', t => t.slice(0, 4).map(x =>
+  const pair = await page.$$eval('table.rv-two tbody tr:not(.rv-l3)', t => t.slice(0, 4).map(x =>
     getComputedStyle(x.children[x.classList.contains('rv-l1') ? 1 : 0]).backgroundColor));
   check('a door\'s two lines share one shade', pair[0] === pair[1] && pair[2] === pair[3] && pair[1] !== pair[2], pair);
   const heads = await page.$$eval('table.rv-two thead th', t => t.map(x => x.textContent));
@@ -94,14 +95,14 @@ const check = (name, ok, got) => {
   await page.evaluate(() => { const v = state.job.openings[1].options[0].v; v.doorStyle = '1 Panel True Shaker';
     v.productType = '1.75 Thick'; calcJob(state.job); render(); });
   await page.waitForTimeout(200);
-  const red = await page.$$eval('table.rv-two tbody tr', t => t.slice(0, 4).map(x =>
+  const red = await page.$$eval('table.rv-two tbody tr:not(.rv-l3)', t => t.slice(0, 4).map(x =>
     [x.classList.contains('rv-stop'), getComputedStyle(x.children[x.classList.contains('rv-l1') ? 1 : 0]).backgroundColor]));
   check('special order door is tinted on both lines, over the shading',
         red[2][0] && red[3][0] && red[2][1] === red[3][1] && red[2][1] !== red[0][1], red);
 
   // no prices: the lines still match up
   await page.evaluate(() => { state.me.role = 'manufacturing'; render(); });
-  const cols2 = await page.evaluate(() => [...document.querySelectorAll('table.rv-two tbody tr')].map(t =>
+  const cols2 = await page.evaluate(() => [...document.querySelectorAll('table.rv-two tbody tr:not(.rv-l3)')].map(t =>
     [...t.children].reduce((a, c) => a + (c.colSpan || 1), 0) + (t.classList.contains('rv-l2') ? 1 : 0)));
   check('without prices both lines still fill the same width', new Set(cols2).size === 1, cols2);
 
