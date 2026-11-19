@@ -755,7 +755,10 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
   .note-in, .rv-notes label{display:none!important}
   .note-print{display:block!important;font-size:7.5px;line-height:1.25}
   .rv-notes .note-print{font-size:8px}
-  table.rv-two tr.rv-l3.empty, .rv-notes.empty{display:none!important}
+  /* 2.58: an empty note row stays in the table (hiding it broke the door
+     number's rowspan and shifted every door after it); it just has no height */
+  .rv-notes.empty{display:none!important}
+  table.rv-two tr.rv-l3.empty td{padding:0!important;border:0!important;height:0!important;line-height:0!important;font-size:0!important}
   table.rv-two tr.rv-l3 td{padding:0 4px 3px!important}
 }
 /* 2.57: the quote bar on the review */
@@ -6224,6 +6227,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.57 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.58 · 19 Nov 2026</div>
 </body>
 </html>

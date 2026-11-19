@@ -79,6 +79,14 @@ const check = (name, ok, got) => {
     boxes:[...document.querySelectorAll('.note-in')].filter(e => getComputedStyle(e).display !== 'none').length}));
   check('print shows the notes in red and hides the boxes', pr.boxes === 0 && pr.shown.length === 3 &&
     pr.shown.every(x => x[1] === 'rgb(181, 18, 27)') && pr.shown[0][0] === 'Note: Keep the existing stop' && /^Order notes: Call before arriving/.test(pr.shown[2][0]), pr);
+  // 2.58: a door with no note keeps its number block level with its own two lines when printed
+  await page.evaluate(() => { state.job.openings[0].note = ''; render(); });
+  const al = await page.evaluate(() => [...document.querySelectorAll('table.rv-two tbody tr.rv-l1')].map(r => {
+    const n = r.querySelector('td.rv-n').getBoundingClientRect(), l2 = r.nextElementSibling.getBoundingClientRect(), l3 = r.nextElementSibling.nextElementSibling.getBoundingClientRect();
+    return [Math.round(n.top - r.getBoundingClientRect().top), Math.round(n.bottom - Math.max(l2.bottom, l3.bottom))]; }));
+  check('printed number blocks line up with their own door, note or not', al.length === 2 && al.every(x => Math.abs(x[0]) <= 1 && Math.abs(x[1]) <= 1), al);
+  if(process.env.PRINT) await page.pdf({path:process.env.PRINT, landscape:true, format:'Letter', printBackground:true});
+  await page.evaluate(() => { state.job.openings[0].note = 'Keep the existing stop'; render(); });
   await page.emulateMedia({media:'screen'});
 
   // the contract PDF carries them

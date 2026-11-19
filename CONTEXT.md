@@ -282,3 +282,4 @@ not an error, which hid two silent failures. An RPC without
 - Signing records signed.opt and signed.qrev; markSigned locks the contract revision and marks other options superseded. signedOk needs the active option to be the signed one. Download workbook warns on an option that is not the signed one.
 - revLabel is now "Change Order 001" (app and both edge functions' emails).
 - Opening has (cond) is required on sized openings (missing()), and Opening has, door opening width and height show "needed" until set. The door note button is "+ Add note".
+- 2.58: printing hid empty note rows with display:none, which broke the door number cell's rowspan (3) and shifted every later door. Empty note rows now stay with no height. Test in tests/order-notes.js.
