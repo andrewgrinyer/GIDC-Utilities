@@ -431,6 +431,13 @@ body.padding{overflow:hidden}
 .op-left, .op-right{display:contents}
 .o-loc{order:1} .o-qty{order:2} .o-type{order:3} .o-c{order:3} .o-w{order:4} .o-warn{order:5} .o-h{order:6} .o-prod{order:7}
 .o-warn .warn{margin-top:0}
+.o-top{margin-bottom:4px}
+.rv-now{display:block;font-size:10.5px;line-height:1.2;color:var(--brass);margin-top:2px;white-space:nowrap}
+.rv-defs{margin:10px 0 4px;padding:10px 12px;border:1px solid var(--line, #C8C8C8);border-radius:8px}
+.rv-defs .rv-defgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 12px;margin:8px 0}
+.rv-defs .rv-defgrid label{display:block;font-size:12px;color:var(--muted)}
+.rv-defs select,.rv-defs .combo-in{width:100%}
+@media print{.rv-defs,.rv-defbtn{display:none!important}}
 
 /* A TABLET HELD SIDEWAYS (2.3): the door on the left, its size on the
    right, bigger targets, and the page uses the width of the screen. */
@@ -455,13 +462,13 @@ body.padding{overflow:hidden}
   .op-grid .other{margin-top:8px}
   .op-right{top:76px}
   /* 2.41: Opening has, on one line beside its label */
-  .op-grid .field.cond{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:4px 0}
-  .op-grid .field.cond > label{margin:0}
-  .op-grid .field.cond .chips{margin:0}
-  .op-grid .field.cond .chip{min-height:40px}
-  .op-grid .field.cond .cond-jl{margin:0}
-  .op-grid .field.cond .chips.num{grid-template-columns:repeat(3,84px)}
-  .op-grid .field.cond .hint{flex-basis:100%}
+  .card-body .field.cond{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;padding:4px 0}
+  .card-body .field.cond > label{margin:0}
+  .card-body .field.cond .chips{margin:0}
+  .card-body .field.cond .chip{min-height:46px}
+  .card-body .field.cond .cond-jl{margin:0}
+  .card-body .field.cond .chips.num{grid-template-columns:repeat(3,84px)}
+  .card-body .field.cond .hint{flex-basis:100%}
   /* the logo and the job bar share one row, so the header takes less height */
   header{display:flex;align-items:center;gap:18px;padding-top:calc(env(safe-area-inset-top) + 8px);padding-bottom:8px}
   header > .bar:first-child{margin:0;padding-bottom:0!important;flex:none}
@@ -2363,6 +2370,30 @@ function syncConditions(job){
     });
   });
 }
+/* 2.45, Andrew 19 Nov: the handles each door type can have. A bifold gets a
+   bifold knob and a barn door a barn door handle, set by themselves; the
+   others are limited to their list, and a handle that does not belong to the
+   door type is cleared. Pivots, and no door type yet, keep the full list.
+   A double swing also has the two pair handles of the workbook list
+   (Passage/Dummy, Privacy/Dummy), since one door of a pair is a dummy. */
+const SWING_HANDLES = ['Customer Supplied', 'Dummy', 'Passage', 'Privacy', 'Keyed'];
+function handleChoices(t){
+  if(!t) return null;
+  if(BIFOLD_TYPES.indexOf(t) >= 0) return ['Bifold Knob'];
+  if(/bypass/i.test(t)) return ['Finger Pull Round', 'Finger Pull Square', 'Customer Supplied'];
+  if(/barn/i.test(t)) return ['Barn Door'];
+  if(/pocket/i.test(t)) return ['Pocket', 'Customer Supplied'];
+  if(isSwingType(t)) return DOUBLE_TYPES.indexOf(t) >= 0 ? SWING_HANDLES.concat(['Passage/Dummy', 'Privacy/Dummy']) : SWING_HANDLES;
+  return null;
+}
+function syncHandles(job){
+  ((job && job.openings) || []).forEach(op => op.options.forEach(o => {
+    const c = handleChoices(o.v.doorType);
+    if(!c) return;
+    if(c.length === 1){ if(o.v.handleType !== c[0]){ o.v.handleType = c[0]; o.handleAuto = true; } }
+    else if(o.v.handleType && c.indexOf(o.v.handleType) < 0) o.v.handleType = '';
+  }));
+}
 function conditionFields(op){
   let h = '<div class="field cond"><label>Opening has</label><div class="chips">' +
     CONDITIONS.map(c => '<button type="button" class="chip' + (op.cond === c ? ' on' : '') + '" data-cond="' + c +
@@ -3795,8 +3826,8 @@ function reviewLines(job){
   job.openings.forEach(op => op.options.filter(o => o.include).forEach(o => lines.push({op, o})));
   return lines;
 }
-function reviewSelect(list, val, attrs){
-  const items = list === 'doorStyle' ? LISTS.doorStyle.map(d => d.n) : (LISTS[list] || []);
+function reviewSelect(list, val, attrs, only){
+  const items = only || (list === 'doorStyle' ? LISTS.doorStyle.map(d => d.n) : (LISTS[list] || []));
   const known = items.some(x => String(x) === String(val));
   return '<select ' + attrs + '><option value=""></option>' +
     (val && !known ? '<option selected>' + esc(val) + '</option>' : '') +
@@ -3833,6 +3864,10 @@ function reviewEditor(col, op, o){
   const sec = SECTIONS.find(s => s.fields.some(f => f.k === col.k));
   const val = (sec && !sec.always && o.skipped[sec.id]) ? '' : (o.v[col.k] || '');
   const shown = (col.k === 'reRail' && needsReRail(op)) ? 'YES' : val;
+  // 2.45: the door there now, small and red under the door type
+  if(col.k === 'doorType')
+    return reviewSelect(col.list, shown, at) + (op.existingType ? '<span class="rv-now">Now: ' + esc(op.existingType) + '</span>' : '');
+  if(col.k === 'handleType') return reviewSelect(col.list, shown, at, handleChoices(o.v.doorType));
   return reviewSelect(col.list, shown, at);
 }
 
@@ -3937,7 +3972,21 @@ function renderReview(){
   h += '</tbody></table></div>';
   // 2.20: add a door without leaving the review
   h += '<div class="rv-add"><button class="btn" data-revaddop="1"' +
-       (lines.length >= PAGE_ROWS.length ? ' disabled' : '') + '>+ Add door</button></div>';
+       (lines.length >= PAGE_ROWS.length ? ' disabled' : '') + '>+ Add door</button>' +
+       ' <button class="btn rv-defbtn" data-toggle="rvdefaults">' + (state.rvDefaults ? 'Hide defaults' : 'Select defaults') + '</button></div>';
+  /* 2.45, Andrew 19 Nov: the defaults on the review. Apply writes them over
+     every door already entered, after a warning. */
+  if(state.rvDefaults){
+    h += '<div class="rv-defs"><b>Select defaults</b><div class="rv-defgrid">';
+    DEFAULT_FIELDS.forEach(f => {
+      const dv = (job.defaults || {})[f.k];
+      h += '<div><label>' + f.label + '</label>' +
+           (isCombo(f.list) ? combo(f.list, dv, 'data-def="' + f.k + '"')
+                            : '<select data-def="' + f.k + '">' + opt(f.list, dv) + '</select>') + '</div>';
+    });
+    h += '</div><button class="btn btn-danger" data-rvapplydef="1"' + (defaultsSet(job) ? '' : ' disabled') +
+         '>Apply to every door</button> <span class="hint">New doors start with these too.</span></div>';
+  }
   const notes = [];
   // the supplier size check, one line per door that is not plain stock
   const sizeNotes = [];
@@ -4230,8 +4279,8 @@ function comboClose(except){
   });
 }
 
-function opt(list, val){
-  const items = list === 'doorStyle' ? LISTS.doorStyle.map(d => d.n) : LISTS[list];
+function opt(list, val, only){
+  const items = only || (list === 'doorStyle' ? LISTS.doorStyle.map(d => d.n) : LISTS[list]);
   return '<option value=""></option>' + items.map(x =>
     '<option' + (String(x) === String(val) ? ' selected' : '') + '>' + esc(x) + '</option>').join('');
 }
@@ -4420,7 +4469,7 @@ function sizeLine(o){
 
 function render(){
   document.body.classList.remove('reviewing');
-  if(state.job && state.view !== 'remote'){ syncPlans(state.job); syncConditions(state.job); }
+  if(state.job && state.view !== 'remote'){ syncPlans(state.job); syncConditions(state.job); syncHandles(state.job); }
   if(state.view === 'remote') return renderRemote();
   if(state.view === 'review') return renderReview();
   if(state.view === 'setup')  return renderSetup();
@@ -4736,6 +4785,8 @@ function renderJob(){
       /* On a phone these run down the screen in this order. On a tablet held
          sideways they sit in two columns, the door on the left and its size
          on the right, so a whole opening fits without scrolling (2.3). */
+      // 2.45, Andrew 19 Nov: Opening has comes first, with In-Home Measurement on or off
+      h += '<div class="o-c o-top">' + conditionFields(op) + '</div>';
       h += '<div class="op-grid"><div class="op-left">';
       h += '<div class="o-loc"><div class="field"><label>Location</label>' +
            (isCombo('location')
@@ -4766,7 +4817,6 @@ function renderJob(){
         });
       }
       h += '</div></div><div class="op-right">';
-      h += '<div class="o-c">' + conditionFields(op) + '</div>';
       if(sized(op)) h += '<div class="o-w">' + openingFields(op) + '</div>';
       else h += '<div class="o-w">' + sizeChips(op, 'width', widthsFor(op), 'Other width') + '</div>';
       h += '<div class="o-warn">';
@@ -4801,6 +4851,10 @@ function renderJob(){
         if(state.editOption === o.id && !inHome(job)){
           h += '<div class="opt-edit" style="padding:0 12px 12px">';
           SECTIONS.forEach(s => {
+            /* 2.45, Andrew 19 Nov: jamb, router and stop (and the re-rail and
+               re-stile worked out from the opening) are off the measurement
+               screen. Opening has decides them; the review can still change them. */
+            if(s.id === 'jamb') return;
             const skipped = !s.always && o.skipped[s.id];
             h += '<div class="sect s-' + s.id + (skipped ? ' skipped' : '') + '">' +
                  '<div class="sect-head"><b>' + s.name + '</b>' +
@@ -4821,7 +4875,7 @@ function renderJob(){
                   const at = 'data-v="' + f.k + '" data-o="' + o.id + '" data-op="' + op.id + '"';
                   h += isCombo(f.list)
                      ? combo(f.list, o.v[f.k], at)
-                     : '<select ' + at + '>' + opt(f.list, o.v[f.k]) + '</select>';
+                     : '<select ' + at + '>' + opt(f.list, o.v[f.k], f.k === 'handleType' ? handleChoices(o.v.doorType) : null) + '</select>';
                 } else {
                   h += '<input type="number" data-v="' + f.k + '" data-o="' + o.id +
                        '" data-op="' + op.id + '" value="' + esc(o.v[f.k] || '') + '">';
@@ -4867,6 +4921,9 @@ function renderJob(){
   }
 
   h += docsBox(job);
+  /* 2.45, Andrew 19 Nov: special materials and rework are added on the
+     review (the Special Materials and Rework box), not while measuring */
+  if(false){
   h += '<div class="card"><div class="card-head" data-toggle="materials">' +
        '<div class="n">+</div><div class="t"><b>Special materials and rework</b>' +
        '<span>' + (job.materials || []).filter(m => m.desc).length +
@@ -4888,6 +4945,7 @@ function renderJob(){
     h += '</div>';
   }
   h += '</div>';
+  }
 
   $('#app').innerHTML = h;
 
@@ -4908,7 +4966,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
-  'comboval','sure','jfclear','doc','custopen','revaddop','revrm','sign','signpdf','signmail',
+  'comboval','sure','jfclear','doc','custopen','revaddop','revrm','rvapplydef','sign','signpdf','signmail',
   'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote','cond','jambpick'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
@@ -5206,6 +5264,22 @@ document.addEventListener('click', async e => {
     state.repOpen = false;
     await saveChain;                    // 2.30: the list after the last save has landed
     state.jobs = await loadIndex(); return render(); }
+  if(d.toggle === 'rvdefaults'){ state.rvDefaults = !state.rvDefaults; return render(); }
+  if(d.rvapplydef !== undefined){
+    const dv = job.defaults || {}, set = DEFAULT_FIELDS.filter(f => dv[f.k]);
+    if(!set.length) return toast('Pick a default first');
+    const ok = await sure({
+      title: 'Overwrite every door?',
+      what: set.map(f => f.label + ': ' + dv[f.k]).join(', ') + '.',
+      why: 'This writes over what is already entered on every door of this job, on every option.',
+      final: 'What was entered on those fields before is replaced.',
+      go: 'Overwrite all'
+    });
+    if(!ok) return;
+    job.openings.forEach(o2 => o2.options.forEach(o3 => set.forEach(f => { o3.v[f.k] = dv[f.k]; })));
+    render(); persistBg();
+    return toast('Defaults applied to every door');
+  }
   if(d.toggle === 'materials' || d.toggle === 'defaults'){
     state.openOpening = state.openOpening === d.toggle ? null : d.toggle;
     state.editOption = null; return render(); }
@@ -5531,6 +5605,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.44 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.45 · 19 Nov 2026</div>
 </body>
 </html>
