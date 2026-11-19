@@ -1,0 +1,765 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Grinyer · Paint</title>
+
+<!-- gidc-guard
+     who: shop. Administrators and the production staff (manufacturing).
+     The database says the same thing underneath this page:
+     can_use_paint() in sql/paint.sql.
+
+     Andrew, 19 November: a paint use estimator and custom colour
+     forecaster. The server reads the production schedule out of Access
+     every hour (gidc-paint-sync.ps1) and this page turns it into gallons.
+
+       Every door gets one coat of primer and one of paint.
+       5 gallons of primer primes about 50 doors.
+       5 gallons of paint paints about 35 doors, custom colours too.
+       Primer is counted on the Scheduled Prime Date, paint on the
+         Scheduled Paint Date.
+       A door line whose colour says primer only gets no paint.
+       Stocked: primer, Extra White, Pure White, Alabaster, Pearly,
+         Chantilly Lace. Anything else is custom, bought per job.
+       Stock goes down as scheduled days pass; a count replaces it.
+       Warn when stock, with what is on order, will not cover the next
+         two weeks and still leave the warning level.
+       Orders are in 5 gallon or 1 gallon pails and go by email to
+         Ashley (the paint-order edge function).
+       The schedule shows a week, a month, or any range, and prints.
+
+     Coverage and warning levels are on the page under Settings, so a
+     change is an edit and never a change of code. -->
+<script>window.GIDC_TOOL = {who: 'shop'};</script>
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<style>
+:root{
+  --paper:#F6F6F7; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --rule-soft:#EFEFF2;
+  --brass:#C80000; --brass-soft:#FCECEC;
+  --ok:#2F6B3A; --ok-soft:#ECF5EE;
+  --warn:#9A4A12; --warn-soft:#FBF1E7;
+  --info:#2B5599; --info-soft:#EAF0FA;
+  --pad:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding:0 var(--pad) 60px;-webkit-text-size-adjust:100%}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:23px;margin:22px 0 4px;letter-spacing:-.01em}
+h2{font-size:17px;margin:26px 0 10px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 14px;max-width:72ch}
+.fresh{font-size:13px;color:var(--muted);margin:0 0 16px}
+.fresh.stale{color:var(--warn);font-weight:600}
+
+.msg{padding:11px 13px;border-radius:9px;font-size:14px;margin:0 0 14px}
+.msg.bad{background:var(--brass-soft);color:var(--brass)}
+.msg.good{background:var(--ok-soft);color:var(--ok)}
+.hide{display:none !important}
+.empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:14.5px}
+
+/* ---- stock cards ---- */
+.stock{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.sc{background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:13px 15px;display:flex;flex-direction:column}
+.sc.low{border-color:#E8B98F;box-shadow:inset 4px 0 0 #D9822B}
+.sc.short{border-color:#E9A3A3;box-shadow:inset 4px 0 0 var(--brass)}
+.sc .nm{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}
+.sc .sw{width:16px;height:16px;border-radius:50%;border:1px solid #CFCFD4;flex:none}
+.sc .big{font-size:26px;font-weight:700;letter-spacing:-.01em;margin:6px 0 0;font-variant-numeric:tabular-nums}
+.sc .big small{font-size:14px;font-weight:600;color:var(--muted)}
+.sc .how{font-size:12.5px;color:var(--muted);margin:0 0 8px}
+.sc dl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin:0 0 10px;font-size:13.5px}
+.sc dt{color:var(--muted)} .sc dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.sc .acts{display:flex;gap:8px;margin-top:auto}
+.chip{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.low{background:var(--warn-soft);color:var(--warn)}
+.chip.short{background:var(--brass-soft);color:var(--brass)}
+.chip.info{background:var(--info-soft);color:var(--info)}
+.chip.grey{background:var(--rule-soft);color:var(--ink)}
+.suggest{font-size:13px;color:var(--warn);margin:0 0 9px}
+
+button.save{border:0;border-radius:9px;background:var(--brass);color:#fff;
+  font:600 14px/1 inherit;padding:10px 16px;min-height:38px;cursor:pointer;white-space:nowrap}
+button.save:disabled{opacity:.55;cursor:default}
+button.plain{border:1px solid var(--rule);background:var(--card);color:var(--ink);
+  border-radius:9px;font:600 14px/1 inherit;padding:9px 13px;min-height:38px;cursor:pointer;white-space:nowrap}
+button.plain.on{background:var(--ink);border-color:var(--ink);color:#fff}
+button.small{min-height:32px;padding:6px 10px;font-size:13px}
+
+/* ---- the little forms ---- */
+.panel{background:var(--card);border:2px solid var(--ink);border-radius:12px;padding:14px 16px;margin:14px 0}
+.panel h3{margin:0 0 10px;font-size:16px}
+.form{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 12px;align-items:end}
+.form .wide{grid-column:1 / -1}
+.form label{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.05em;font-weight:600;margin-bottom:3px}
+.form input,.form select{width:100%;padding:9px 11px;border:1px solid var(--rule);border-radius:9px;
+  font:inherit;min-height:40px;background:var(--card);color:var(--ink)}
+.form input:focus,.form select:focus{outline:2px solid var(--brass);outline-offset:-1px;border-color:var(--brass)}
+.form .acts{display:flex;gap:8px;grid-column:1 / -1;flex-wrap:wrap;align-items:center}
+.form .total{font-size:14px;color:var(--muted)}
+
+/* ---- custom colours and orders lists ---- */
+.list{background:var(--card);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.row{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;border-bottom:1px solid var(--rule-soft);padding:11px 15px}
+.row:last-child{border-bottom:0}
+.row .what{flex:1 1 260px;min-width:0}
+.row .t{font-weight:600}
+.row .meta{color:var(--muted);font-size:13.5px}
+.row .acts{display:flex;gap:6px;flex:none;flex-wrap:wrap;align-items:center}
+.row.none{opacity:.6}
+
+/* ---- the schedule ---- */
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+.bar .range{font-weight:600;margin:0 6px}
+.bar input[type=date]{padding:7px 9px;border:1px solid var(--rule);border-radius:9px;font:inherit;min-height:38px;background:var(--card)}
+.bar .sp{flex:1}
+.tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--rule);border-radius:12px}
+table.sched{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+.sched th,.sched td{padding:7px 10px;border-bottom:1px solid var(--rule-soft);text-align:right;vertical-align:top;white-space:nowrap}
+.sched th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;background:#FAFAFB}
+.sched th:first-child,.sched td:first-child{text-align:left}
+.sched td.cust{text-align:left;white-space:normal;min-width:150px}
+.sched td small{display:block;color:var(--muted);font-size:12px}
+.sched tr.wk td{background:#FBFBFC;color:var(--muted)}
+.sched tr.today td:first-child{box-shadow:inset 3px 0 0 var(--brass)}
+.sched tr.tot td{font-weight:700;border-top:2px solid var(--ink);border-bottom:0}
+.sched tr.jobs td{text-align:left;white-space:normal;font-size:13px;color:var(--ink);padding-top:0;background:#FCFCFD}
+.sched .z{color:#C5C5CB}
+.jobs ul{margin:2px 0 4px;padding-left:18px}
+.nocol{color:var(--warn);font-weight:600}
+
+details.set{margin-top:26px}
+details.set summary{cursor:pointer;font-weight:600;font-size:15px}
+table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var(--card);border:1px solid var(--rule);border-radius:10px}
+.cov th,.cov td{padding:7px 10px;border-bottom:1px solid var(--rule-soft);text-align:left}
+.cov input{width:90px;padding:6px 8px;border:1px solid var(--rule);border-radius:8px;font:inherit}
+
+.gidc-build{position:fixed;right:10px;bottom:8px;z-index:60;font-size:11px;line-height:1;
+  color:#8E8E99;opacity:.7;pointer-events:none;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.printhead{display:none}
+
+/* ---- printing: the schedule alone, to post on the wall ---- */
+@media print{
+  @page{size:landscape;margin:12mm}
+  body{background:#fff;padding:0;font-size:12px}
+  #gidc-bar,.noprint,.gidc-build,#msg{display:none !important}
+  .wrap{max-width:none}
+  .printhead{display:block;margin:0 0 8px}
+  .printhead h1{font-size:20px;margin:0}
+  .printhead p{margin:2px 0 0;color:#444;font-size:12px}
+  .tablewrap{border:0;overflow:visible}
+  table.sched{font-size:12px}
+  .sched th,.sched td{padding:4px 6px;border-bottom:1px solid #bbb}
+  .sched th{background:#eee;color:#000}
+  .sched td small{color:#444}
+  .sched tr{page-break-inside:avoid}
+  .sched tr.today td:first-child{box-shadow:none}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="noprint">
+    <h1>Paint</h1>
+    <p class="sub">Primer and paint needed for the production schedule, what is in stock, and
+      what to order. Every door gets one coat of primer and one coat of paint.</p>
+    <p class="fresh" id="fresh"></p>
+    <div id="msg" class="hide"></div>
+    <div id="panel"></div>
+
+    <h2>Stock</h2>
+    <div class="stock" id="stock"><div class="empty">Loading&hellip;</div></div>
+
+    <h2>Custom colours coming up</h2>
+    <div class="list" id="custom"><div class="empty">Loading&hellip;</div></div>
+  </div>
+
+  <h2 class="noprint">Schedule</h2>
+  <div class="bar noprint">
+    <button class="plain" data-mode="week">Week</button>
+    <button class="plain" data-mode="month">Month</button>
+    <button class="plain" data-mode="custom">Pick dates</button>
+    <button class="plain small" id="prev" aria-label="Earlier">&lsaquo;</button>
+    <span class="range" id="rangetxt"></span>
+    <button class="plain small" id="next" aria-label="Later">&rsaquo;</button>
+    <span id="pick" class="hide"><input type="date" id="from"> to <input type="date" id="to"></span>
+    <span class="sp"></span>
+    <button class="plain" id="showjobs">Show jobs</button>
+    <button class="save" id="print">Print</button>
+  </div>
+  <div class="printhead" id="printhead"></div>
+  <div class="tablewrap"><table class="sched" id="sched"></table></div>
+
+  <div class="noprint">
+    <h2>Orders</h2>
+    <div class="list" id="orders"><div class="empty">Loading&hellip;</div></div>
+
+    <details class="set" id="settings">
+      <summary>Settings: coverage, warning levels, counts</summary>
+      <div id="setbody"></div>
+    </details>
+  </div>
+</div>
+<div class="gidc-build">Paint 1.0 &middot; 19 Nov 2026</div>
+
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; });
+}
+function norm(s){ return String(s == null ? '' : s).toLowerCase().replace(/[^a-z0-9]/g, ''); }
+
+/* ---- dates, as yyyy-mm-dd strings in local time ------------------------- */
+function iso(d){
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function parse(s){ var p = String(s).split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+function addDays(s, n){ var d = parse(s); d.setDate(d.getDate() + n); return iso(d); }
+var TODAY = iso(new Date());
+var DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function nice(s, withDay){
+  if(!s) return '';
+  var d = parse(s);
+  return (withDay ? DAYS[d.getDay()] + ' ' : '') + MONTHS[d.getMonth()] + ' ' + d.getDate();
+}
+function niceYear(s){ var d = parse(s); return MONTHS[d.getMonth()] + ' ' + d.getDate() + ', ' + d.getFullYear(); }
+function g1(n){ n = Number(n) || 0; return (Math.round(n * 10) / 10).toFixed(1); }
+function whole(n){ n = Number(n) || 0; return Math.round(n * 100) / 100; }
+
+/* ---- what was read ------------------------------------------------------ */
+var ME = null, COLOURS = [], BYNAME = {}, LINES = [], COUNTS = [], ORDERS = [];
+var EVENTS = [];           // one per line and coat: {day, item, kind, doors, gal, line}
+var panel = null;          // which little form is open
+var busy = false;
+
+var SWATCH = {'Primer':'#F2F2EE','Extra White':'#FBFBF8','Pure White':'#F7F6F1','Alabaster':'#EFEBDF',
+              'Pearly':'#ECE9E1','Chantilly Lace':'#F5F4EF'};
+
+function stocked(){ return COLOURS.filter(function(c){ return c.kind === 'primer' || c.kind === 'stock'; }); }
+function paints(){ return COLOURS.filter(function(c){ return c.kind === 'stock'; }); }
+function customRow(){ return COLOURS.filter(function(c){ return c.kind === 'custom'; })[0] || {doors_per_pail: 35}; }
+function primerRow(){ return COLOURS.filter(function(c){ return c.kind === 'primer'; })[0] || {name:'Primer', doors_per_pail: 50}; }
+/* Gallons for a number of doors. Coverage is doors per 5 gallon pail. */
+function galFor(doors, row){ return Number(doors) * 5 / (Number(row && row.doors_per_pail) || 35); }
+
+function message(kind, text){
+  var m = $('msg');
+  if(!kind){ m.className = 'hide'; m.textContent = ''; return; }
+  m.className = 'msg ' + kind; m.textContent = text;
+}
+function failText(r, what){
+  return r.json().catch(function(){ return {}; }).then(function(j){
+    if(r.status === 404 || /paint_/.test(j.message || '') && /exist|find/i.test(j.message || ''))
+      throw new Error('The paint tables are not set up in the database yet. Run paint.sql in Supabase first.');
+    throw new Error(j.message || j.error || (what + ' (' + r.status + ')'));
+  });
+}
+function get(path){
+  return GIDCAuth.api(path, {headers: GIDCAuth.headers()})
+    .then(function(r){ if(!r.ok) return failText(r, 'Could not read ' + path.split('?')[0]); return r.json(); });
+}
+/* Supabase hands back at most 1000 rows a time, so read until the end. */
+function getAll(path){
+  var out = [];
+  function page(from){
+    return get(path + '&offset=' + from + '&limit=1000').then(function(rows){
+      out = out.concat(rows || []);
+      return rows && rows.length === 1000 ? page(from + 1000) : out;
+    });
+  }
+  return page(0);
+}
+function send(method, path, body){
+  var h = GIDCAuth.headers(true); h.Prefer = 'return=representation';
+  return GIDCAuth.api(path, {method: method, headers: h, body: body ? JSON.stringify(body) : undefined})
+    .then(function(r){
+      if(!r.ok) return failText(r, 'The database would not take it');
+      return r.json().catch(function(){ return []; });
+    })
+    .then(function(rows){
+      if(!rows || !rows.length) throw new Error('The database would not allow that. Only the shop and administrators can change paint.');
+      return rows[0];
+    });
+}
+
+function load(){
+  return Promise.all([
+    get('/rest/v1/paint_colours?select=*&order=sort.asc'),
+    getAll('/rest/v1/paint_schedule_lines?select=*&order=access_order_id.asc'),
+    get('/rest/v1/paint_counts?select=*&order=counted_on.desc,created_at.desc&limit=500'),
+    get('/rest/v1/paint_orders?select=*&order=requested_at.desc&limit=500')
+  ]).then(function(r){
+    COLOURS = r[0] || []; LINES = r[1] || []; COUNTS = r[2] || []; ORDERS = r[3] || [];
+    BYNAME = {}; COLOURS.forEach(function(c){ BYNAME[c.name] = c; });
+    build(); draw();
+  }).catch(function(err){
+    message('bad', err.message);
+    ['stock','custom','orders'].forEach(function(id){ $(id).innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
+    $('sched').innerHTML = '';
+  });
+}
+
+/* ---- every coat as a dated event ----------------------------------------
+   Primer on the prime date, paint on the paint date. A primer only line
+   has no paint event. A line with no colour typed still needs paint, so
+   it is shown, flagged, and counted under "No colour yet". */
+function build(){
+  EVENTS = [];
+  var pr = primerRow(), cu = customRow();
+  LINES.forEach(function(l){
+    var doors = Number(l.doors) || 0;
+    if(l.prime_on) EVENTS.push({day: l.prime_on, item: pr.name, kind: 'primer', doors: doors, gal: galFor(doors, pr), line: l});
+    if(l.paint_on && l.kind !== 'primer_only'){
+      var row = l.kind === 'stock' ? BYNAME[l.colour] : cu;
+      EVENTS.push({day: l.paint_on, item: l.kind === 'stock' ? l.colour : (l.colour || 'No colour yet'),
+                   kind: l.kind, doors: doors, gal: galFor(doors, row), line: l});
+    }
+  });
+}
+function sum(list, f){ return list.reduce(function(a, x){ return a + (Number(f(x)) || 0); }, 0); }
+
+/* ---- stock ----------------------------------------------------------------
+   Stock now = the last count (the stock at the end of that day)
+             + stocked paint received after that day
+             - what the schedule used on every day after the count, up to
+               and including yesterday.
+   Today's work is still to come, so it counts as need, not as used. */
+function stockOf(c){
+  var counts = COUNTS.filter(function(x){ return x.colour === c.name; })
+    .sort(function(a, b){ return a.counted_on < b.counted_on ? 1 : a.counted_on > b.counted_on ? -1 : (a.created_at < b.created_at ? 1 : -1); });
+  var last = counts[0] || null;
+  var since = last ? last.counted_on : null;
+  var mine = EVENTS.filter(function(e){ return e.item === c.name; });
+  var received = sum(ORDERS.filter(function(o){ return o.colour === c.name && !o.custom && o.status === 'received' &&
+                                              (!since || o.received_on > since); }), function(o){ return o.gallons; });
+  var used = sum(mine.filter(function(e){ return (!since || e.day > since) && e.day < TODAY; }), function(e){ return e.gal; });
+  var onOrder = sum(ORDERS.filter(function(o){ return o.colour === c.name && !o.custom && o.status === 'requested'; }), function(o){ return o.gallons; });
+  var now = last ? Number(last.gallons) + received - used : null;
+
+  var two = addDays(TODAY, 13);
+  var next = mine.filter(function(e){ return e.day >= TODAY && e.day <= two; });
+  var need2 = sum(next, function(e){ return e.gal; }), doors2 = sum(next, function(e){ return e.doors; });
+
+  /* the first day the stock in hand runs out, walking forward */
+  var runsOut = null;
+  if(now != null){
+    var left = now, days = {};
+    mine.filter(function(e){ return e.day >= TODAY; }).forEach(function(e){ days[e.day] = (days[e.day] || 0) + e.gal; });
+    Object.keys(days).sort().some(function(d){ left -= days[d]; if(left < -0.05){ runsOut = d; return true; } return false; });
+  }
+
+  var warn = Number(c.warn_gallons) || 0;
+  var after = now == null ? null : now + onOrder - need2;
+  var state = now == null ? 'unknown' : after < 0 ? 'short' : after < warn ? 'low' : 'ok';
+  var suggest5 = state === 'short' || state === 'low' ? Math.max(1, Math.ceil((warn - after) / 5)) : 0;
+  return {last: last, now: now, received: received, used: used, onOrder: onOrder,
+          need2: need2, doors2: doors2, runsOut: runsOut, after: after, state: state, suggest5: suggest5};
+}
+
+function drawStock(){
+  var html = stocked().map(function(c){
+    var s = stockOf(c);
+    var chip = s.state === 'unknown' ? '<span class="chip grey">Not counted yet</span>'
+             : s.state === 'short' ? '<span class="chip short">Runs short' + (s.runsOut ? ' ' + esc(nice(s.runsOut, true)) : '') + '</span>'
+             : s.state === 'low' ? '<span class="chip low">Low</span>'
+             : '<span class="chip ok">OK</span>';
+    var how = s.last
+      ? 'Counted ' + g1(s.last.gallons) + ' gal on ' + esc(nice(s.last.counted_on)) +
+        (s.used ? ', less ' + g1(s.used) + ' used since' : '') +
+        (s.received ? ', plus ' + g1(s.received) + ' received' : '')
+      : 'Count it to start tracking.';
+    return '<div class="sc ' + s.state + '">' +
+      '<div class="nm"><span class="sw" style="background:' + (SWATCH[c.name] || '#eee') + '"></span>' + esc(c.name) +
+        '<span style="margin-left:auto">' + chip + '</span></div>' +
+      '<div class="big">' + (s.now == null ? '?' : g1(s.now)) + ' <small>gal in stock</small></div>' +
+      '<div class="how">' + how + '</div>' +
+      '<dl><dt>Next 2 weeks</dt><dd>' + g1(s.need2) + ' gal <span style="color:var(--muted)">(' + whole(s.doors2) + ' doors)</span></dd>' +
+          '<dt>On order</dt><dd>' + (s.onOrder ? g1(s.onOrder) + ' gal' : 'none') + '</dd>' +
+          (s.after == null ? '' : '<dt>Left after 2 weeks</dt><dd>' + g1(s.after) + ' gal</dd>') +
+          '<dt>Warn below</dt><dd>' + g1(c.warn_gallons) + ' gal</dd></dl>' +
+      (s.suggest5 ? '<div class="suggest">Suggest ordering ' + s.suggest5 + ' x 5 gal</div>' : '') +
+      '<div class="acts"><button class="plain small" data-count="' + esc(c.name) + '">Count</button>' +
+        '<button class="save small" data-order="' + esc(c.name) + '" data-p5="' + (s.suggest5 || 1) + '">Order</button></div>' +
+    '</div>';
+  }).join('');
+  $('stock').innerHTML = html || '<div class="empty">No colours set up.</div>';
+}
+
+/* ---- custom colours from today on ---------------------------------------
+   Bought per job, so the job and the date it is painted are what matter.
+   Lines with no colour typed are listed too: they need one before the
+   paint date. */
+function suggestPails(g){
+  var five = Math.floor(g / 5), rest = g - five * 5;
+  if(rest > 3) return {p5: five + 1, p1: 0};
+  return {p5: five, p1: Math.ceil(rest - 1e-9)};
+}
+function pailText(p){
+  var b = [];
+  if(p.p5) b.push(p.p5 + ' x 5 gal');
+  if(p.p1) b.push(p.p1 + ' x 1 gal');
+  return b.join(' and ') || 'nothing';
+}
+function orderFor(colour, job){
+  var k = norm(colour), j = norm(job);
+  return ORDERS.filter(function(o){
+    return o.custom && o.status !== 'cancelled' && norm(o.colour) === k && (!o.for_job || !j || norm(o.for_job) === j);
+  });
+}
+function drawCustom(){
+  var groups = {};
+  EVENTS.filter(function(e){ return (e.kind === 'custom' || e.kind === 'none') && e.day >= TODAY; }).forEach(function(e){
+    var key = e.kind === 'none' ? '~none' : norm(e.item);
+    var g = groups[key] = groups[key] || {name: e.item, none: e.kind === 'none', jobs: []};
+    var j = g.jobs.filter(function(x){ return x.id === e.line.access_order_id; })[0];
+    if(!j) g.jobs.push(j = {id: e.line.access_order_id, no: e.line.order_no, job: e.line.job, day: e.day, doors: 0, gal: 0});
+    j.doors += e.doors; j.gal += e.gal; if(e.day < j.day) j.day = e.day;
+  });
+  var keys = Object.keys(groups).sort(function(a, b){
+    var x = groups[a], y = groups[b];
+    if(x.none !== y.none) return x.none ? 1 : -1;
+    return x.jobs.reduce(function(m, j){ return j.day < m ? j.day : m; }, '9') < y.jobs.reduce(function(m, j){ return j.day < m ? j.day : m; }, '9') ? -1 : 1;
+  });
+  var rows = [];
+  keys.forEach(function(k){
+    var g = groups[k];
+    g.jobs.sort(function(a, b){ return a.day < b.day ? -1 : 1; }).forEach(function(j){
+      var label = (j.no ? '#' + j.no + ' ' : '') + (j.job || 'Order ' + j.id);
+      if(g.none){
+        rows.push('<div class="row"><div class="what"><div class="t nocol">No colour typed yet</div>' +
+          '<div class="meta">' + esc(label) + ', ' + whole(j.doors) + ' doors, painted ' + esc(nice(j.day, true)) + '</div></div></div>');
+        return;
+      }
+      var p = suggestPails(j.gal), got = orderFor(g.name, label);
+      var status = got.length
+        ? got.map(function(o){ return o.status === 'received'
+            ? '<span class="chip ok">Received ' + g1(o.gallons) + ' gal</span>'
+            : '<span class="chip info">Ordered ' + g1(o.gallons) + ' gal ' + esc(nice(o.requested_at.slice(0, 10))) + '</span>'; }).join(' ')
+        : '<span class="chip low">Not ordered</span>';
+      rows.push('<div class="row"><div class="what"><div class="t">' + esc(g.name) + '</div>' +
+        '<div class="meta">' + esc(label) + ', ' + whole(j.doors) + ' doors, painted ' + esc(nice(j.day, true)) +
+        '. Needs ' + g1(j.gal) + ' gal: ' + pailText(p) + '</div></div>' +
+        '<div class="acts">' + status +
+        (got.length ? '' : ' <button class="save small" data-corder="' + esc(g.name) + '" data-job="' + esc(label) +
+          '" data-day="' + esc(j.day) + '" data-p5="' + p.p5 + '" data-p1="' + p.p1 + '">Order</button>') +
+        '</div></div>');
+    });
+  });
+  $('custom').innerHTML = rows.join('') || '<div class="empty">No custom colours on the schedule from today on.</div>';
+}
+
+/* ---- the schedule ----------------------------------------------------------
+   Andrew, 19 November: a week, a month at a time, or any range, and
+   printable to post. Every weekday in the range is a row; a weekend day
+   only when something is on it. */
+var mode = 'week', from = null, to = null, showJobs = false;
+function setRange(m, anchor){
+  mode = m;
+  var d = parse(anchor || TODAY);
+  if(m === 'week'){ var back = (d.getDay() + 6) % 7; d.setDate(d.getDate() - back); from = iso(d); to = addDays(from, 6); }
+  else if(m === 'month'){ from = iso(new Date(d.getFullYear(), d.getMonth(), 1)); to = iso(new Date(d.getFullYear(), d.getMonth() + 1, 0)); }
+  if(m === 'custom'){ $('from').value = from; $('to').value = to; }
+}
+function shift(dir){
+  if(mode === 'week') setRange('week', addDays(from, 7 * dir));
+  else if(mode === 'month'){ var d = parse(from); setRange('month', iso(new Date(d.getFullYear(), d.getMonth() + dir, 1))); }
+  else { var n = Math.round((parse(to) - parse(from)) / 864e5) + 1; from = addDays(from, n * dir); to = addDays(to, n * dir); $('from').value = from; $('to').value = to; }
+  drawSchedule();
+}
+function cell(doors, gal){
+  if(!doors) return '<td class="z">&middot;</td>';
+  return '<td>' + whole(doors) + '<small>' + g1(gal) + ' gal</small></td>';
+}
+function drawSchedule(){
+  document.querySelectorAll('[data-mode]').forEach(function(b){ b.classList.toggle('on', b.dataset.mode === mode); });
+  $('pick').className = mode === 'custom' ? '' : 'hide';
+  $('showjobs').classList.toggle('on', showJobs);
+  $('rangetxt').textContent = nice(from, true) + ' to ' + nice(to, true);
+  var cols = [primerRow()].concat(paints());
+  var inRange = EVENTS.filter(function(e){ return e.day >= from && e.day <= to; });
+  var byDay = {};
+  inRange.forEach(function(e){ (byDay[e.day] = byDay[e.day] || []).push(e); });
+
+  var head = '<tr><th>Day</th>' + cols.map(function(c){ return '<th>' + esc(c.name) + '</th>'; }).join('') +
+             '<th style="text-align:left">Custom</th><th>Doors painted</th></tr>';
+  var body = [], tot = {}, totCustom = {}, totPainted = 0;
+  for(var d = from; d <= to; d = addDays(d, 1)){
+    var ev = byDay[d] || [], dow = parse(d).getDay(), weekend = dow === 0 || dow === 6;
+    if(weekend && !ev.length) continue;
+    var row = '<tr class="' + (weekend ? 'wk ' : '') + (d === TODAY ? 'today' : '') + '"><td>' + esc(nice(d, true)) + '</td>';
+    cols.forEach(function(c){
+      var mine = ev.filter(function(e){ return e.item === c.name; });
+      var n = sum(mine, function(e){ return e.doors; }), g = sum(mine, function(e){ return e.gal; });
+      tot[c.name] = tot[c.name] || {n: 0, g: 0}; tot[c.name].n += n; tot[c.name].g += g;
+      row += cell(n, g);
+    });
+    var cust = {};
+    ev.filter(function(e){ return e.kind === 'custom' || e.kind === 'none'; }).forEach(function(e){
+      var k = e.item; cust[k] = cust[k] || {n: 0, g: 0, none: e.kind === 'none'}; cust[k].n += e.doors; cust[k].g += e.gal;
+      totCustom[k] = totCustom[k] || {n: 0, g: 0, none: e.kind === 'none'}; totCustom[k].n += e.doors; totCustom[k].g += e.gal;
+    });
+    row += '<td class="cust">' + (Object.keys(cust).sort().map(function(k){
+      return '<div' + (cust[k].none ? ' class="nocol"' : '') + '>' + esc(k) + ': ' + whole(cust[k].n) + ' <small style="display:inline">(' + g1(cust[k].g) + ' gal)</small></div>';
+    }).join('') || '<span class="z">&middot;</span>') + '</td>';
+    var painted = sum(ev.filter(function(e){ return e.kind !== 'primer'; }), function(e){ return e.doors; });
+    totPainted += painted;
+    row += '<td>' + (painted ? '<b>' + whole(painted) + '</b>' : '<span class="z">&middot;</span>') + '</td></tr>';
+    body.push(row);
+    if(showJobs && ev.length) body.push('<tr class="jobs"><td colspan="' + (cols.length + 3) + '">' + jobsFor(ev) + '</td></tr>');
+  }
+  var total = '<tr class="tot"><td>Total</td>' + cols.map(function(c){ var t = tot[c.name] || {n: 0, g: 0}; return cell(t.n, t.g); }).join('') +
+    '<td class="cust">' + (Object.keys(totCustom).sort().map(function(k){
+      return '<div>' + esc(k) + ': ' + whole(totCustom[k].n) + ' <small style="display:inline">(' + g1(totCustom[k].g) + ' gal)</small></div>';
+    }).join('') || '') + '</td><td>' + whole(totPainted) + '</td></tr>';
+  $('sched').innerHTML = '<thead>' + head + '</thead><tbody>' +
+    (body.length ? body.join('') + total : '<tr><td colspan="' + (cols.length + 3) + '" class="empty">Nothing scheduled in these dates.</td></tr>') +
+    '</tbody>';
+  $('printhead').innerHTML = '<h1>Paint schedule, ' + esc(nice(from, true)) + ' to ' + esc(niceYear(to)) + '</h1>' +
+    '<p>Doors, with gallons underneath. Primer on the prime date, paint on the paint date. Printed ' +
+    esc(new Date().toLocaleString('en-CA', {month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}).replace(/\.$/, '')) + '.</p>';
+}
+function jobsFor(ev){
+  var jobs = {};
+  ev.forEach(function(e){
+    var l = e.line, k = l.access_order_id;
+    var j = jobs[k] = jobs[k] || {label: (l.order_no ? '#' + l.order_no + ' ' : '') + (l.job || 'Order ' + k), bits: {}};
+    var what = e.kind === 'primer' ? 'Primer' : e.item;
+    j.bits[what] = (j.bits[what] || 0) + e.doors;
+  });
+  return '<ul>' + Object.keys(jobs).map(function(k){
+    var j = jobs[k];
+    return '<li>' + esc(j.label) + ': ' + Object.keys(j.bits).map(function(b){ return esc(b) + ' ' + whole(j.bits[b]); }).join(', ') + '</li>';
+  }).join('') + '</ul>';
+}
+
+/* ---- orders ------------------------------------------------------------- */
+function drawOrders(){
+  var cut = addDays(TODAY, -60);
+  var list = ORDERS.filter(function(o){ return o.status === 'requested' || o.requested_at.slice(0, 10) >= cut; });
+  $('orders').innerHTML = list.map(function(o){
+    var p = [];
+    if(o.pails_5) p.push(o.pails_5 + ' x 5 gal'); if(o.pails_1) p.push(o.pails_1 + ' x 1 gal');
+    var chip = o.status === 'received' ? '<span class="chip ok">Received ' + esc(nice(o.received_on)) + '</span>'
+             : o.status === 'cancelled' ? '<span class="chip grey">Cancelled</span>'
+             : '<span class="chip info">On order</span>';
+    var mail = o.emailed_at ? 'Emailed to Ashley' : '<b style="color:var(--brass)">Email not sent</b>';
+    return '<div class="row' + (o.status === 'cancelled' ? ' none' : '') + '"><div class="what">' +
+      '<div class="t">' + esc(o.colour) + (o.custom ? ' <span class="chip grey">custom</span>' : '') + ', ' + p.join(' and ') + ' (' + g1(o.gallons) + ' gal)</div>' +
+      '<div class="meta">' + (o.for_job ? 'For ' + esc(o.for_job) + '. ' : '') +
+        (o.needed_by ? 'Needed by ' + esc(nice(o.needed_by, true)) + '. ' : '') +
+        'Asked by ' + esc(o.requested_by || 'someone') + ' ' + esc(nice(o.requested_at.slice(0, 10))) + '. ' + mail +
+        (o.note ? '. ' + esc(o.note) : '') + '</div></div>' +
+      '<div class="acts">' + chip +
+        (o.status === 'requested'
+          ? (o.emailed_at ? '' : ' <button class="plain small" data-resend="' + o.id + '">Send email</button>') +
+            ' <button class="save small" data-received="' + o.id + '">Received</button>' +
+            ' <button class="plain small" data-cancel="' + o.id + '">Cancel</button>'
+          : '') +
+      '</div></div>';
+  }).join('') || '<div class="empty">No orders yet.</div>';
+}
+
+/* ---- settings ----------------------------------------------------------- */
+function drawSettings(){
+  var rows = COLOURS.map(function(c){
+    return '<tr><td>' + esc(c.kind === 'custom' ? 'Custom colours' : c.name) + '</td>' +
+      '<td><input data-cov="' + esc(c.name) + '" inputmode="numeric" value="' + esc(c.doors_per_pail) + '"></td>' +
+      '<td>' + (c.kind === 'custom' ? '<span class="z">bought per job</span>'
+               : '<input data-warn="' + esc(c.name) + '" inputmode="decimal" value="' + esc(c.warn_gallons == null ? '' : c.warn_gallons) + '">') + '</td></tr>';
+  }).join('');
+  var counts = COUNTS.slice(0, 15).map(function(x){
+    return '<div class="row"><div class="what"><span class="t">' + esc(x.colour) + '</span> ' + g1(x.gallons) + ' gal on ' +
+      esc(nice(x.counted_on)) + '<div class="meta">By ' + esc(x.created_by || 'someone') + (x.note ? '. ' + esc(x.note) : '') + '</div></div>' +
+      '<div class="acts"><button class="plain small" data-uncount="' + x.id + '">Remove</button></div></div>';
+  }).join('');
+  $('setbody').innerHTML =
+    '<table class="cov"><thead><tr><th></th><th>Doors per 5 gal pail</th><th>Warn below (gal)</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<p><button class="save" id="savecov">Save coverage and warnings</button></p>' +
+    '<p class="sub">Stock is warned about when, after the next two weeks of the schedule and with what is on order, ' +
+    'it would fall below the warning level.</p>' +
+    '<h2>Recent counts</h2><div class="list">' + (counts || '<div class="empty">No counts yet.</div>') + '</div>';
+}
+
+function drawFresh(){
+  var last = LINES.reduce(function(m, l){ return l.pulled_at > m ? l.pulled_at : m; }, '');
+  var el = $('fresh');
+  if(!last){ el.className = 'fresh stale'; el.textContent = 'Nothing has come from Access yet. The server sync sends the schedule every hour once it is set up.'; return; }
+  var age = (Date.now() - new Date(last).getTime()) / 36e5;
+  el.className = 'fresh' + (age > 3 ? ' stale' : '');
+  el.textContent = 'Schedule from Access, last updated ' +
+    new Date(last).toLocaleString('en-CA', {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}).replace(/\.$/, '') +
+    (age > 3 ? '. That is over three hours ago: the server sync may have stopped.' : '.');
+}
+
+function draw(){ drawFresh(); drawStock(); drawCustom(); drawSchedule(); drawOrders(); drawSettings(); drawPanel(); }
+
+/* ---- the little forms: count and order ------------------------------------ */
+function drawPanel(){
+  var p = $('panel');
+  if(!panel){ p.innerHTML = ''; return; }
+  if(panel.type === 'count'){
+    p.innerHTML = '<div class="panel"><h3>Count ' + esc(panel.colour) + '</h3><div class="form">' +
+      '<div><label for="c-gal">Gallons on hand</label><input id="c-gal" inputmode="decimal" placeholder="e.g. 12.5"></div>' +
+      '<div><label for="c-day">Counted at the end of</label><input id="c-day" type="date" value="' + TODAY + '"></div>' +
+      '<div class="wide"><label for="c-note">Note</label><input id="c-note" placeholder="Optional"></div>' +
+      '<div class="acts"><button class="save" id="c-save">Save count</button><button class="plain" data-close>Cancel</button>' +
+      '<span class="total">Add up part pails as best you can: a half full 5 gal pail is 2.5.</span></div></div></div>';
+    $('c-gal').focus();
+    return;
+  }
+  p.innerHTML = '<div class="panel"><h3>Order ' + esc(panel.colour) + (panel.custom ? ' (custom)' : '') + '</h3><div class="form">' +
+    (panel.custom && !panel.fixed ? '<div><label for="o-col">Colour</label><input id="o-col" value="' + esc(panel.colour) + '"></div>' : '') +
+    '<div><label for="o-5">5 gal pails</label><input id="o-5" inputmode="numeric" value="' + esc(panel.p5 || 0) + '"></div>' +
+    '<div><label for="o-1">1 gal pails</label><input id="o-1" inputmode="numeric" value="' + esc(panel.p1 || 0) + '"></div>' +
+    '<div><label for="o-job">For job</label><input id="o-job" value="' + esc(panel.job || '') + '" placeholder="' + (panel.custom ? 'Job' : 'Optional') + '"></div>' +
+    '<div><label for="o-by">Needed by</label><input id="o-by" type="date" value="' + esc(panel.day || '') + '"></div>' +
+    '<div class="wide"><label for="o-note">Note for Ashley</label><input id="o-note" placeholder="Optional: brand, sheen, supplier"></div>' +
+    '<div class="acts"><button class="save" id="o-save">Send order request</button><button class="plain" data-close>Cancel</button>' +
+    '<span class="total" id="o-total"></span></div></div></div>';
+  orderTotal();
+}
+function num(id){ var v = Number(String($(id) && $(id).value || '').replace(',', '.')); return isFinite(v) ? v : NaN; }
+function orderTotal(){
+  var a = num('o-5'), b = num('o-1');
+  if($('o-total')) $('o-total').textContent = (a >= 0 && b >= 0) ? 'Total ' + (a * 5 + b) + ' gallons. Goes to Ashley by email.' : '';
+}
+
+function saveCount(){
+  var g = num('c-gal'), day = $('c-day').value;
+  if(!(g >= 0) || $('c-gal').value.trim() === '') return message('bad', 'Type how many gallons are on hand.');
+  if(!day || day > TODAY) return message('bad', 'Pick the day it was counted, today or earlier.');
+  busy = true;
+  send('POST', '/rest/v1/paint_counts', {colour: panel.colour, gallons: Math.round(g * 100) / 100, counted_on: day, note: $('c-note').value.trim() || null})
+    .then(function(row){ COUNTS.unshift(row); message('good', 'Counted ' + row.colour + ': ' + g1(row.gallons) + ' gal.'); panel = null; draw(); })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function saveOrder(){
+  var p5 = num('o-5'), p1 = num('o-1');
+  var colour = panel.custom && $('o-col') ? $('o-col').value.trim() : panel.colour;
+  if(!colour) return message('bad', 'Type the colour.');
+  if(!(Number.isInteger(p5) && p5 >= 0 && Number.isInteger(p1) && p1 >= 0) || p5 + p1 === 0)
+    return message('bad', 'Order at least one pail, in whole pails.');
+  busy = true; $('o-save').disabled = true;
+  var row = {colour: colour, custom: !!panel.custom, pails_5: p5, pails_1: p1,
+             for_job: $('o-job').value.trim() || null, needed_by: $('o-by').value || null,
+             note: $('o-note').value.trim() || null};
+  send('POST', '/rest/v1/paint_orders', row)
+    .then(function(saved){
+      ORDERS.unshift(saved); panel = null; draw();
+      return email(saved);
+    })
+    .catch(function(err){ message('bad', err.message); if($('o-save')) $('o-save').disabled = false; })
+    .then(function(){ busy = false; });
+}
+/* The order is on record first; then the email. A failed email leaves the
+   order showing "Email not sent" with a button to try again. */
+function email(o){
+  return GIDCAuth.api('/functions/v1/paint-order', {method: 'POST', headers: GIDCAuth.headers(true), body: JSON.stringify({id: o.id})})
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){
+      if(!r.ok) throw new Error(j.error || ('The email would not send (' + r.status + ')'));
+      return j;
+    }); })
+    .then(function(){
+      o.emailed_at = new Date().toISOString(); draw();
+      message('good', 'Order for ' + o.colour + ', ' + g1(o.gallons) + ' gal, sent to Ashley.');
+    })
+    .catch(function(err){
+      console.log('paint-order: ' + err.message);
+      draw(); message('bad', 'The order is saved, but the email to Ashley did not go. Use Send email on it under Orders, or tell Ashley.');
+    });
+}
+function setStatus(id, status){
+  busy = true;
+  send('PATCH', '/rest/v1/paint_orders?id=eq.' + encodeURIComponent(id), {status: status})
+    .then(function(row){
+      ORDERS = ORDERS.map(function(o){ return o.id === row.id ? row : o; }); build(); draw();
+      message('good', status === 'received' ? row.colour + ' received: ' + g1(row.gallons) + ' gal added to stock.' : 'Order cancelled.');
+    })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function saveCoverage(){
+  var jobs = [];
+  COLOURS.forEach(function(c){
+    var cov = Number($$('[data-cov="' + c.name + '"]').value), w = $$('[data-warn="' + c.name + '"]');
+    var warn = w ? (w.value.trim() === '' ? 0 : Number(w.value)) : c.warn_gallons;
+    if(!(Number.isInteger(cov) && cov > 0) || !(warn == null || warn >= 0)){ jobs.push(Promise.reject(new Error(c.name + ': coverage must be a whole number of doors, and the warning a number of gallons.'))); return; }
+    if(cov === Number(c.doors_per_pail) && warn == c.warn_gallons) return;
+    jobs.push(send('PATCH', '/rest/v1/paint_colours?name=eq.' + encodeURIComponent(c.name), {doors_per_pail: cov, warn_gallons: warn}));
+  });
+  Promise.all(jobs).then(function(){ message('good', 'Saved.'); return load(); }).catch(function(err){ message('bad', err.message); });
+}
+function $$(sel){ return document.querySelector(sel); }
+
+/* ---- what the page responds to ------------------------------------------ */
+document.addEventListener('click', function(e){
+  var t = e.target, el;
+  if(!t.closest || busy) return;
+  if((el = t.closest('[data-mode]'))){
+    if(el.dataset.mode === 'custom'){ mode = 'custom'; $('from').value = from; $('to').value = to; }
+    else setRange(el.dataset.mode, from <= TODAY && TODAY <= to ? TODAY : from);
+    drawSchedule(); return;
+  }
+  if(t.closest('#prev')){ shift(-1); return; }
+  if(t.closest('#next')){ shift(1); return; }
+  if(t.closest('#showjobs')){ showJobs = !showJobs; drawSchedule(); return; }
+  if(t.closest('#print')){ window.print(); return; }
+  if((el = t.closest('[data-count]'))){ panel = {type: 'count', colour: el.dataset.count}; message(null); drawPanel(); scrollTo(0, 0); return; }
+  if((el = t.closest('[data-order]'))){ panel = {type: 'order', colour: el.dataset.order, p5: el.dataset.p5}; message(null); drawPanel(); scrollTo(0, 0); return; }
+  if((el = t.closest('[data-corder]'))){
+    panel = {type: 'order', custom: true, fixed: true, colour: el.dataset.corder, job: el.dataset.job,
+             day: addDays(el.dataset.day, -2) < TODAY ? TODAY : addDays(el.dataset.day, -2),
+             p5: el.dataset.p5, p1: el.dataset.p1};
+    message(null); drawPanel(); scrollTo(0, 0); return;
+  }
+  if(t.closest('[data-close]')){ panel = null; drawPanel(); return; }
+  if(t.closest('#c-save')){ saveCount(); return; }
+  if(t.closest('#o-save')){ saveOrder(); return; }
+  if((el = t.closest('[data-received]'))){ setStatus(el.dataset.received, 'received'); return; }
+  if((el = t.closest('[data-cancel]'))){ setStatus(el.dataset.cancel, 'cancelled'); return; }
+  if((el = t.closest('[data-resend]'))){ var o = ORDERS.filter(function(x){ return x.id === el.dataset.resend; })[0]; if(o) email(o); return; }
+  if((el = t.closest('[data-uncount]'))){
+    busy = true;
+    send('DELETE', '/rest/v1/paint_counts?id=eq.' + encodeURIComponent(el.dataset.uncount))
+      .then(function(row){ COUNTS = COUNTS.filter(function(x){ return x.id !== row.id; }); draw(); message('good', 'Count removed.'); })
+      .catch(function(err){ message('bad', err.message); })
+      .then(function(){ busy = false; });
+    return;
+  }
+  if(t.closest('#savecov')){ saveCoverage(); return; }
+});
+document.addEventListener('input', function(e){
+  if(e.target.id === 'o-5' || e.target.id === 'o-1') orderTotal();
+});
+document.addEventListener('change', function(e){
+  if(e.target.id === 'from' || e.target.id === 'to'){
+    var a = $('from').value, b = $('to').value;
+    if(a && b){ if(a > b){ var x = a; a = b; b = x; } from = a; to = b; drawSchedule(); }
+  }
+});
+
+/* ---- start ------------------------------------------------------------------ */
+setRange('week', TODAY);
+GIDCAuth.load();
+GIDCAuth.whoami().then(function(me){
+  ME = me;
+  if(!me) return;              /* the guard is already holding the page */
+  load();
+});
+})();
+</script>
+</body>
+</html>
