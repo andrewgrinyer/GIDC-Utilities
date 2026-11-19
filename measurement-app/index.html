@@ -289,6 +289,24 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
   .rv-box table.rv{font-size:8px}
   .rv-box table.rv td, .rv-box table.rv th{padding:1px 4px}
   .print-forms{display:block!important}
+  /* 2.52: the door jamb take-off sheet, upright, after the door selections */
+  .print-jambs{display:block!important;break-before:page;page:form;font-size:8.5pt;color:#2A2A2A}
+  .print-jambs h2{font-size:18pt;margin:0 0 2px}
+  .pj-who{margin:0 0 4px;font-size:8pt;color:#6B6B6B}
+  .pj-casing{margin:0 0 6px;font-size:8pt;font-weight:700}
+  .pj-match{margin:4px 0 8px;padding:8px 10px;border:2px solid #B5121B;color:#B5121B;font-size:13pt;font-weight:800;text-align:center}
+  .pj-match span{display:block;font-size:8pt;font-weight:600;color:#2A2A2A}
+  table.pj{width:100%;border-collapse:collapse;font-size:8pt}
+  table.pj th{background:#2A2A2A;color:#fff;font-weight:700;padding:4px 4px;text-align:left;font-size:7.5pt}
+  table.pj th small{font-weight:400}
+  table.pj td{border-bottom:0.6px solid #C8C8C8;padding:3px 4px;vertical-align:middle}
+  table.pj tr:nth-child(even) td{background:#F2F2F2}
+  td.pj-n{font-size:14pt;font-weight:800;text-align:center;width:34px}
+  td.pj-sw{display:flex;align-items:center;gap:5px}
+  td.pj-sw small{font-size:7pt;line-height:1.1}
+  .pj-ic{width:24px;height:32px;flex:none;color:#2A2A2A}
+  .pj-red{color:#B5121B}
+  .pj-detail{width:100%;max-width:6.4in;height:auto;display:block;margin:2px 0 6px}
   /* 2.21: the signature lines, as on the workbook */
   .print-sig{display:flex!important;gap:.5in;align-items:flex-end;margin:10px 0 0;padding-bottom:14px;break-inside:avoid;
     font-family:Arial,Helvetica,sans-serif;font-size:9pt;color:#000}
@@ -431,6 +449,19 @@ body.padding{overflow:hidden}
 .op-left, .op-right{display:contents}
 .o-c{order:1} .o-qty{order:2} .o-type{order:3} .o-w{order:4} .o-warn{order:5} .o-h{order:6} .o-prod{order:7}
 .o-warn .warn{margin-top:0}
+/* 2.52: swing direction and the condo tick */
+.swing-dirs{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:2px 0 8px}
+.chip.sw-btn{border-radius:12px;flex-direction:column;height:auto;min-height:0;padding:6px 2px;gap:2px;justify-content:center;display:flex;align-items:center}
+.sw-btn .sw-ic{width:34px;height:46px;color:var(--ink)}
+.sw-btn.on .sw-ic{color:#fff}
+.sw-btn span{font-size:12px;line-height:1.1}
+.chip.hm-btn{font-size:13px;margin:0 0 6px}
+.jf-condo{display:flex;align-items:flex-start;gap:10px;cursor:pointer}
+.jf-condo input{width:22px;height:22px;margin-top:2px;flex:none}
+.jf-condo span{display:flex;flex-direction:column;font-weight:600}
+.jf-condo small{font-weight:400;font-size:12px;color:var(--muted)}
+.jobcard .jf-condo{grid-column:1 / -1;order:2}
+.print-jambs{display:none}
 .o-top{margin-bottom:4px}
 .rv-now{display:block;font-size:10.5px;line-height:1.2;color:var(--brass);margin-top:2px;white-space:nowrap}
 .rv-defs{margin:10px 0 4px;padding:10px 12px;border:1px solid var(--line, #C8C8C8);border-radius:8px}
@@ -726,9 +757,11 @@ td.rv-typed input{background:#FFF7D6;border-color:#C9A227;font-weight:600}
   .jobcard .jf-customer{order:1;grid-column:span 5}
   .jobcard .jf-phone{order:2;grid-column:span 4}
   .jobcard .jf-status{order:3;grid-column:span 3}
-  .jobcard .jf-address{order:4;grid-column:span 5}
-  .jobcard .jf-city{order:5;grid-column:span 4}
+  .jobcard .jf-address{order:4;grid-column:span 4}
+  .jobcard .jf-city{order:5;grid-column:span 3}
   .jobcard .jf-date{order:6;grid-column:span 3}
+  .jobcard .jf-condo{order:6;grid-column:span 2;align-self:end;padding-bottom:12px}
+  .jobcard .jf-condo small{display:none}
   .jobcard .jf-email{order:7;grid-column:span 5}
   .jobcard .jf-salesRep{order:8;grid-column:span 7}
   .jobcard .jf-leadTime{order:9;grid-column:span 5}
@@ -849,7 +882,15 @@ const JOB_DOCS = [
   {id:'bifold', title:'Bifold Door Fit Guide', file:'bifold-door-fit-guide.pdf',
    png:'bifold-door-fit-guide.png', stamp:'corner', sign:{x:96, y:752, dx:445},
    why:'a bifold door', needs:o => BIFOLD_TYPES.indexOf(o.v.doorType) >= 0},
+  /* 2.52, Andrew 19 Nov: a customer in a condo building signs the
+     Condominium Installation Details & Agreement (his form, redrawn in the
+     print colours). It goes with the job, not with a door. */
+  {id:'condo', title:'Condominium Installation Details & Agreement', file:'condo-installation-agreement.pdf',
+   png:'condo-installation-agreement.png', stamp:'condo', sign:{x:341, y:627, dx:112, dateY:649},
+   why:'a condo building', jobNeeds:job => !!job.condo, needs:() => false},
 ];
+// what a document is for, in words: the openings it covers, or the job
+const docFor = d => 'For ' + d.why + (d.jobNeeds ? '' : ': opening' + (d.openings.length > 1 ? 's ' : ' ') + [...new Set(d.openings)].join(', '));
 /* 2.12: the customer goes onto each form. Positions are in PDF points on a
    letter page (612 x 792), measured down from the top. The handle form has
    Customer name and Job address lines; the two guides have no such line, so
@@ -859,6 +900,10 @@ function docStamps(d, job){
   const name = String(job.customer || '').trim(), addr = docAddress(job);
   if(d.stamp === 'fields') return [
     {text:name, x:44, y:534, size:11}, {text:addr, x:318, y:534, size:11}];
+  // 2.52: the condo form, contact for the day and the customer's name
+  if(d.stamp === 'condo') return [
+    {text:name, x:116, y:539, size:11}, {text:String(job.phone || '').trim(), x:414, y:539, size:11},
+    {text:name, x:116, y:625, size:11}];
   return [{text:name ? 'Customer: ' + name : '', x:569, y:108, size:11, right:true, bold:true},
           {text:addr, x:569, y:123, size:10, right:true}];
 }
@@ -877,7 +922,7 @@ function formMark(d, job){
   return '<svg x="' + d.sign.x + '" y="' + (d.sign.y - 18) + '" width="300" height="17" viewBox="0 0 ' + m.w + ' ' + m.h +
     '" preserveAspectRatio="xMidYMid meet"><path d="' + m.d + '" fill="none" stroke="#14213D" stroke-width="' + (m.sw || 3) +
     '" stroke-linecap="round" stroke-linejoin="round"/></svg>' +
-    '<text x="' + d.sign.dx + '" y="' + (d.sign.y - 5) + '" font-size="9" font-family="Helvetica, Arial, sans-serif" fill="#1F1F24">' +
+    '<text x="' + d.sign.dx + '" y="' + ((d.sign.dateY || d.sign.y) - 5) + '" font-size="9" font-family="Helvetica, Arial, sans-serif" fill="#1F1F24">' +
     esc(signDay(m.at)) + '</text>';
 }
 /* the saved PDF with the customer written on it (pdf-lib, loaded on first use) */
@@ -1127,8 +1172,9 @@ const SIGN_VERSION = 1;
 const signDay = iso => { const d = new Date(iso);
   return isNaN(d) ? '' : d.toLocaleDateString('en-CA', {year:'numeric', month:'long', day:'numeric'}); };
 function signFp(job){
+  const jr = jambRows(job).map(r => [r.n, r.type, r.dir, r.jamb, r.w, r.h, r.match]);
   const s = JSON.stringify([sheetInputs(job), job.docType || '', jobDocs(job).map(d => d.id),
-                            doorPicks(job).map(p => [p.style, p.qty])]);
+                            doorPicks(job).map(p => [p.style, p.qty])].concat(jr.length ? [jr] : []));
   let h = 5381; for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36) + '.' + s.length.toString(36);
 }
@@ -1185,8 +1231,11 @@ function signFields(job){
   if(doorPicks(job).length) f.push({id:'doors', kind:'sign',
     title:handlePicks(job).length ? 'Sign your door and handle selections' : 'Sign your door selections',
     note:doorPicks(job).map(p => styleName(p.style)).concat(handlePicks(job).map(h => h.title + ' in ' + h.colour)).join(', ')});
-  jobDocs(job).forEach(d => f.push({id:'form-' + d.id, kind:'sign', title:'Sign the ' + d.title,
-    note:'For ' + d.why + ': opening' + (d.openings.length > 1 ? 's ' : ' ') + d.openings.join(', ') + '.'}));
+  // 2.52: the door jamb take-off sheet, when any opening needs jambs
+  const jr = jambRows(job);
+  if(jr.length) f.push({id:'jambs', kind:'sign', title:'Sign the door jamb take-off sheet',
+    note:'Opening' + (jr.length > 1 ? 's ' : ' ') + jr.map(r => r.n).join(', ') + ': jamb widths, swing directions and door sizes.'});
+  jobDocs(job).forEach(d => f.push({id:'form-' + d.id, kind:'sign', title:'Sign the ' + d.title, note:docFor(d) + '.'}));
   return f;
 }
 
@@ -1677,6 +1726,74 @@ async function contractPdf(job, opts){
     sigLines(pg, 'doors', 176, 64); foot(pg, LW);
   }
 
+  /* 3b. 2.52: the door jamb take-off sheet, upright */
+  const jrows = jambRows(job);
+  if(jrows.length){
+    const W = 612, H = 792, pg = pdf.addPage([W, H]);
+    let y = head(pg, W, H, 'Door Jamb Take-Off Work Sheet');
+    text(pg, fitText([job.customer, docAddress(job), job.phone, job.email, job.date, job.salesRep].filter(Boolean).join('  -  '), F, 8, W - 56), 28, y, {size:8, color:GREY});
+    y -= 12;
+    text(pg, 'Casing (trim) must be installed prior to digital measurement. GIDC does not guarantee fit if casing has not been installed.', 28, y, {size:7.5, font:FB});
+    y -= 10;
+    const match = jrows.filter(r => r.match);
+    if(match.length){
+      pg.drawRectangle({x:28, y:y - 34, width:W - 56, height:32, borderColor:RED, borderWidth:2});
+      text(pg, HINGE_NOTE, W / 2, y - 17, {size:12.5, font:FB, color:RED, center:true});
+      text(pg, 'Matching the hinges in the home: opening' + (match.length > 1 ? 's ' : ' ') + match.map(r => r.n).join(', '), W / 2, y - 28, {size:7.5, center:true});
+      y -= 42;
+    }
+    const cols = [['Door #', 34], ['Door name', 70], ['Type of door', 92], ['Swing, looking into the room', 112], ['Jambs', 62],
+                  ['Door width', 42], ['Door height', 42], ['Hinge size', 70], ['Qnty', 32]];
+    const tw = cols.reduce((a, c) => a + c[1], 0), x0 = 28 + (W - 56 - tw) / 2;
+    pg.drawRectangle({x:x0, y:y - 18, width:tw, height:18, color:CHAR});
+    let x = x0; cols.forEach(([l, w]) => { text(pg, fitText(l, FB, 6.5, w - 4), x + 3, y - 12, {size:6.5, font:FB, color:WHITE}); x += w; });
+    y -= 18;
+    const rh = 36;
+    jrows.forEach((r, i) => {
+      if(y - rh < 230) return;                       // room for the detail and the signature
+      if(i % 2) pg.drawRectangle({x:x0, y:y - rh, width:tw, height:rh, color:PANEL});
+      pg.drawLine({start:{x:x0, y:y - rh}, end:{x:x0 + tw, y:y - rh}, thickness:0.5, color:RULE});
+      const cells = [String(r.n), r.name, r.type, '', jambText(r.jamb),
+        r.w === '' ? '' : sizeText(r.w) + '"', r.h === '' ? '' : sizeText(r.h) + '"', r.hinge ? r.hinge.size : '',
+        r.hinge ? String(r.hinge.qty) : ''];
+      let cx = x0;
+      cells.forEach((c, k) => {
+        const w = cols[k][1];
+        if(k === 0) text(pg, c, cx + w / 2, y - rh / 2 - 5, {size:14, font:FB, center:true});
+        else if(k === 3 && r.dir){
+          const p = swingPaths(r.dir), sc = 0.48, ix = cx + 3, iy = y - 4;
+          pg.drawSvgPath(p.frame, {x:ix, y:iy, scale:sc, borderColor:CHAR, borderWidth:1.6});
+          pg.drawSvgPath(p.door, {x:ix, y:iy, scale:sc, color:WHITE, borderColor:CHAR, borderWidth:1.3});
+          pg.drawCircle({x:ix + p.knob[0] * sc, y:iy - p.knob[1] * sc, size:0.9, color:CHAR});
+          const words = SWING_WORDS[r.dir].split(', ');
+          words.forEach((wd, j) => text(pg, wd, cx + 28, y - 15 - j * 9, {size:6.8}));
+        }
+        else if(k !== 3) text(pg, fitText(c, F, 7.2, w - 5), cx + 3, y - rh / 2 - 2, {size:7.2});
+        if(k === 7 && r.match) text(pg, 'match existing', cx + 3, y - rh / 2 - 11, {size:6.5, font:FB, color:RED});
+        if(k === 8 && r.hinge && r.per > 1) text(pg, r.hinge.each + ' each', cx + 3, y - rh / 2 - 11, {size:6, color:GREY});
+        cx += w;
+      });
+      y -= rh;
+    });
+    if(jrows.length && y - rh < 230 && jrows.length > 1) text(pg, 'More openings than fit: see the printed sheet.', x0, y - 10, {size:7, color:RED});
+    // the hinge placement detail
+    y = Math.min(y - 18, 220);
+    text(pg, 'HINGE PLACEMENT', 28, y, {size:7, font:FB, color:RED});
+    const dy = y - 10, jx = 40, jh = 110;
+    pg.drawRectangle({x:jx, y:dy - jh, width:20, height:jh, color:PANEL, borderColor:CHAR, borderWidth:1});
+    pg.drawRectangle({x:jx + 20, y:dy - jh, width:50, height:jh, borderColor:RULE, borderWidth:0.8, borderDashArray:[3, 3]});
+    [12, 52, 84].forEach(t => pg.drawRectangle({x:jx + 15, y:dy - t - 11, width:7, height:11, color:RED}));
+    const tx = 128;
+    pg.drawLine({start:{x:118, y:dy}, end:{x:118, y:dy - 12}, thickness:0.8, color:CHAR});
+    text(pg, '7" from the top of the jamb to the top of the top hinge', tx, dy - 9, {size:8});
+    text(pg, 'Any other hinges evenly spaced between the top and bottom hinge', tx, dy - 52, {size:8});
+    text(pg, 'Backset 1/4" on all GIDC machined jambs', tx, dy - 64, {size:8, color:GREY});
+    pg.drawLine({start:{x:118, y:dy - 84}, end:{x:118, y:dy - jh}, thickness:0.8, color:CHAR});
+    text(pg, '11" from the bottom of the jamb to the top of the bottom hinge', tx, dy - 98, {size:8});
+    text(pg, 'Hinges: 80 or 84 tall, hollow 2, solid 3; 96 tall, hollow 3, solid 4. Size 3" x 1/4" radius; thicker than 1 3/8 takes 3 1/2".', 28, dy - jh - 14, {size:7, color:GREY});
+    sigLines(pg, 'jambs', 90, 64); foot(pg, W);
+  }
+
   /* 4. the forms, each with its own signature and date */
   for(const d of jobDocs(job)){
     const src = await PDFDocument.load(await stampedDoc(d, job));
@@ -1685,7 +1802,7 @@ async function contractPdf(job, opts){
     if(d.sign) spot(pg, 'form-' + d.id, d.sign.x - 4, H - d.sign.y - 3, 308, 22);
     if(rnote) text(pg, fitText(rnote, F, 6.5, 400), pg.getWidth() - 20, H - 12, {size:6.5, color:RED, right:true});
     if(m && d.sign){ mark(pg, m, d.sign.x, H - d.sign.y + 1, 300, 17);
-      text(pg, signDay(m.at), d.sign.dx, H - d.sign.y + 5, {size:9});
+      text(pg, signDay(m.at), d.sign.dx, H - (d.sign.dateY || d.sign.y) + 5, {size:9});
       if(remoteLine(job.signed)) text(pg, remoteLine(job.signed), pg.getWidth() / 2, 6, {size:6, color:GREY, center:true}); }
   }
 
@@ -2086,7 +2203,7 @@ function termsPage(job){
 function jobDocs(job){
   const opts = [];
   (job.openings || []).forEach(op => op.options.filter(o => o.include).forEach(o => opts.push({op, o})));
-  return JOB_DOCS.map(d => ({...d, openings: opts.filter(x => d.needs(x.o)).map(x => x.op.number)}))
+  return JOB_DOCS.map(d => ({...d, openings: d.jobNeeds ? (d.jobNeeds(job) ? ['job'] : []) : opts.filter(x => d.needs(x.o)).map(x => x.op.number)}))
                  .filter(d => d.openings.length);
 }
 function docsBox(job){
@@ -2095,8 +2212,7 @@ function docsBox(job){
   return '<div class="docs-box"><h3>Documents for this order</h3>' +
     '<p class="hint">These go to the customer with the order and save with the workbook.</p><ul>' +
     docs.map(d => '<li><a class="btn btn-sm" href="' + d.file + '" target="_blank" rel="noopener" data-doc="' + d.id + '">' +
-      esc(d.title) + '</a><span>' + esc('For ' + d.why + ': opening' + (d.openings.length > 1 ? 's ' : ' ') +
-      [...new Set(d.openings)].join(', ')) + '</span></li>').join('') + '</ul></div>';
+      esc(d.title) + '</a><span>' + esc(docFor(d)) + '</span></li>').join('') + '</ul></div>';
 }
 /* 2.29, Andrew 18 Nov: a bifold opening can be up to 72 1/2" wide. A bifold
    is made narrower than its opening (the Bifold Fit Guide), so a 72" unit
@@ -2420,6 +2536,88 @@ function syncHandles(job){
     else if(o.v.handleType && c.indexOf(o.v.handleType) < 0) o.v.handleType = '';
   }));
 }
+/* 2.52, Andrew 19 Nov: SWING DIRECTION AND THE DOOR JAMB TAKE-OFF SHEET
+ *
+ * A rough opening gets a new jamb, so a swing door there needs its swing:
+ * four buttons, as the pictures on his take-off sheet, looking into the room.
+ * Every opening that needs a jamb goes on the Door Jamb Take-Off Work Sheet
+ * (the others are left off), filled in from the job, with the hinges worked
+ * out by his rules:
+ *   quantity  80 or 84 tall: hollow 2, solid 3. 96 tall: hollow 3, solid 4.
+ *   size      3" x 1/4" radius; a door thicker than 1 3/8 takes 3 1/2".
+ *   backset   1/4" on every GIDC machined jamb.
+ *   placement top hinge 7" down from the top of the jamb to its top, bottom
+ *             hinge 11" up from the bottom of the jamb to its top, any more
+ *             evenly between.
+ * Matching hinges already in the home (op.hingeMatch): the quantity stays as
+ * worked out and the sheet says, large, to confirm the existing hinge size
+ * and radius before starting. */
+const SWING_DIRS = [['LO', 'Left out'], ['LI', 'Left in'], ['RI', 'Right in'], ['RO', 'Right out']];
+const SWING_WORDS = {LO:'Hinges left, swings out', LI:'Hinges left, swings in', RI:'Hinges right, swings in', RO:'Hinges right, swings out'};
+// the picture of a swing, as path strings on a 44 x 60 box (y down)
+function swingPaths(k){
+  const right = k[0] === 'R', out = k[1] === 'O', X = x => right ? 44 - x : x;
+  const pts = out ? [[12, 6], [3, 2], [3, 59], [12, 56]] : [[12.5, 6.5], [25, 11.5], [25, 51.5], [12.5, 55.5]];
+  return {frame:'M' + X(12) + ' 58 L' + X(12) + ' 5 L' + X(33) + ' 5 L' + X(33) + ' 58',
+          door:'M' + pts.map(p => X(p[0]) + ' ' + p[1]).join(' L') + ' Z', knob:out ? [X(5.5), 33] : [X(22.5), 32]};
+}
+function swingIcon(k, cls){
+  const p = swingPaths(k);
+  return '<svg class="' + (cls || 'sw-ic') + '" viewBox="0 0 44 60" xmlns="http://www.w3.org/2000/svg"><path d="' + p.frame +
+    '" fill="none" stroke="currentColor" stroke-width="2"/><path d="' + p.door + '" fill="#fff" stroke="currentColor" stroke-width="1.6"/>' +
+    '<circle cx="' + p.knob[0] + '" cy="' + p.knob[1] + '" r="1.6" fill="currentColor"/></svg>';
+}
+const needsSwing = op => needsJamb(op) && op.options.some(o => o.include && isSwingType(o.v.doorType));
+function hingeSpec(o, P){
+  const nom = (P && P.blankH) || 80, solid = !hollowCore(o);
+  const each = nom > 84 ? (solid ? 4 : 3) : (solid ? 3 : 2);
+  const thick = /1\.75|thick/i.test(o.v.productType || '');
+  return {each, doors:(P && P.per) || 1, qty:each * ((P && P.per) || 1), size:thick ? '3 1/2"' : '3" x 1/4" radius'};
+}
+function jambRows(job){
+  return ((job && job.openings) || []).filter(op => needsJamb(op)).map(op => {
+    const o = op.options.find(x => x.include) || op.options[0] || {v:{}};
+    const t = o.v.doorType || quoteType(op), P = (o.v && sized(op) ? openPlan(op, o) : null) || {};
+    const sw = isSwingType(t);
+    return {op, o, n:op.number, name:op.location || '', type:t, swing:sw, dir:sw ? (op.swingDir || '') : '',
+            jamb:op.jambW ? Number(op.jambW) : '', w:P.finW || '', h:P.finH || '', per:P.per || 1,
+            hinge:sw ? hingeSpec(o, P) : null, match:sw && !!op.hingeMatch};
+  });
+}
+const jambText = j => j === '' ? '' : JAMB_PICKS.indexOf(j) >= 0 ? sizeText(j) + '"' : 'Custom ' + sizeText(j) + '"';
+const HINGE_NOTE = 'CONFIRM EXISTING HINGE SIZE AND RADIUS PRIOR TO STARTING WORK';
+// the hinge placement detail, as an SVG (also drawn into the contract PDF)
+function hingeDetail(){
+  return '<svg class="pj-detail" viewBox="0 0 520 150" xmlns="http://www.w3.org/2000/svg" font-family="Helvetica, Arial, sans-serif">' +
+    '<rect x="20" y="10" width="26" height="130" fill="#F2F2F2" stroke="#2A2A2A" stroke-width="1.2"/>' +
+    '<rect x="46" y="10" width="64" height="130" fill="none" stroke="#C8C8C8" stroke-width="1" stroke-dasharray="3 3"/>' +
+    [24, 75, 112].map(y => '<rect x="40" y="' + y + '" width="9" height="14" fill="#B5121B"/>').join('') +
+    '<line x1="125" y1="10" x2="125" y2="24" stroke="#2A2A2A"/><line x1="120" y1="10" x2="130" y2="10" stroke="#2A2A2A"/>' +
+    '<line x1="120" y1="24" x2="130" y2="24" stroke="#2A2A2A"/><text x="136" y="21" font-size="10" fill="#2A2A2A">7" top of jamb to top of the top hinge</text>' +
+    '<line x1="125" y1="112" x2="125" y2="140" stroke="#2A2A2A"/><line x1="120" y1="112" x2="130" y2="112" stroke="#2A2A2A"/>' +
+    '<line x1="120" y1="140" x2="130" y2="140" stroke="#2A2A2A"/><text x="136" y="130" font-size="10" fill="#2A2A2A">11" bottom of jamb to top of the bottom hinge</text>' +
+    '<text x="136" y="84" font-size="10" fill="#2A2A2A">Any other hinges evenly spaced between the top and bottom hinge</text>' +
+    '<text x="136" y="98" font-size="10" fill="#6B6B6B">Backset 1/4" on all GIDC machined jambs</text>' +
+    '<text x="20" y="150" font-size="8" fill="#6B6B6B">Jamb</text><text x="58" y="150" font-size="8" fill="#6B6B6B">Door</text></svg>';
+}
+function jambPage(job){
+  const rows = jambRows(job);
+  if(!rows.length) return '';
+  const match = rows.filter(r => r.match);
+  return '<div class="print-jambs">' + letterhead() + '<div class="print-kick">Jambs</div><h2>Door Jamb Take-Off Work Sheet</h2>' +
+    '<p class="pj-who">' + esc([job.customer, docAddress(job), job.phone, job.email, job.date, job.salesRep].filter(Boolean).join('  \u00b7  ')) + '</p>' +
+    '<p class="pj-casing">Casing (trim) must be installed prior to digital measurement. GIDC does not guarantee fit if casing has not been installed.</p>' +
+    (match.length ? '<p class="pj-match">' + HINGE_NOTE + '<span>Matching the hinges in the home: opening' +
+      (match.length > 1 ? 's ' : ' ') + match.map(r => r.n).join(', ') + '</span></p>' : '') +
+    '<table class="pj"><thead><tr><th>Door #</th><th>Door name</th><th>Type of door</th><th>Swing direction<br><small>looking into the room</small></th>' +
+    '<th>Jambs</th><th>Door width</th><th>Door height</th><th>Hinge size</th><th>Hinge qnty</th></tr></thead><tbody>' +
+    rows.map(r => '<tr><td class="pj-n">' + r.n + '</td><td>' + esc(r.name) + '</td><td>' + esc(r.type) + (r.per > 1 ? '<br><small>' + r.per + ' doors</small>' : '') + '</td>' +
+      '<td class="pj-sw">' + (r.dir ? swingIcon(r.dir, 'pj-ic') + '<small>' + esc(SWING_WORDS[r.dir]) + '</small>' : '') + '</td>' +
+      '<td>' + esc(jambText(r.jamb)) + '</td><td>' + esc(r.w === '' ? '' : sizeText(r.w) + '"') + '</td><td>' + esc(r.h === '' ? '' : sizeText(r.h) + '"') + '</td>' +
+      '<td>' + (r.hinge ? esc(r.hinge.size) + (r.match ? '<br><b class="pj-red">match existing</b>' : '') : '') + '</td>' +
+      '<td>' + (r.hinge ? r.hinge.qty + (r.per > 1 ? '<br><small>' + r.hinge.each + ' each door</small>' : '') : '') + '</td></tr>').join('') +
+    '</tbody></table><div class="print-kick">Hinge placement</div>' + hingeDetail() + sigBlock(job, 'jambs') + '</div>';
+}
 function conditionFields(op){
   let h = '<div class="field cond"><label>Opening has</label><div class="chips">' +
     CONDITIONS.map(c => '<button type="button" class="chip' + (op.cond === c ? ' on' : '') + '" data-cond="' + c +
@@ -2436,6 +2634,14 @@ function conditionFields(op){
         '" data-op="' + op.id + '">' + sizeText(j) + '</button>').join('') +
       '<button type="button" class="chip' + (typed ? ' on' : '') + '" data-padof="jambW" data-op="' + op.id + '">' +
       (typed ? esc(sizeText(op.jambW)) + '"' : 'Other') + '</button></div>';
+    // 2.52: the swing, looking into the room, for a swing door
+    const sw = op.options.some(o => isSwingType(o.v.doorType)), anyType = op.options.some(o => o.v.doorType);
+    if(sw || !anyType){
+      h += '<label class="cond-jl">Swing direction, looking into the room' + (op.swingDir ? '' : ' <b class="req">needed</b>') + '</label>' +
+        '<div class="swing-dirs">' + SWING_DIRS.map(([k, l]) => '<button type="button" class="chip sw-btn' + (op.swingDir === k ? ' on' : '') +
+          '" data-swingdir="' + k + '" data-op="' + op.id + '" title="' + SWING_WORDS[k] + '">' + swingIcon(k) + '<span>' + l + '</span></button>').join('') + '</div>' +
+        '<button type="button" class="chip hm-btn' + (op.hingeMatch ? ' on' : '') + '" data-hingematch="1" data-op="' + op.id + '">Match the hinges already in the home</button>';
+    }
   }
   return h + '</div>';
 }
@@ -2912,6 +3118,8 @@ function missing(job){
       out.push('Opening ' + op.number + ': pick the door type to quote');
     } else if(on.length === 1 && needsJamb(op) && !op.jambW){
       out.push('Opening ' + op.number + ': jamb width (' + op.cond.toLowerCase() + ')');
+    } else if(on.length === 1 && needsSwing(op) && !op.swingDir){
+      out.push('Opening ' + op.number + ': swing direction');
     } else if(on.length > 1){
       out.push('Opening ' + op.number + ': ' + on.length +
                ' door types ticked, only one can be quoted');
@@ -4104,6 +4312,7 @@ function renderReview(){
   h += '</td></tr></tbody></table>';
   h += termsPage(job);
   h += doorsPage(job);
+  h += jambPage(job);                 // 2.52
   if(formsToPrint.length) h += '<div class="print-forms">' + formsToPrint.map(d => docPage(d, job)).join('') + '</div>';
   $('#app').innerHTML = h;
 
@@ -4744,7 +4953,7 @@ function renderJob(){
      shows the customer as one line until Edit is tapped. */
   if(state.custOpen === false && job.customer){
     h += '<div class="card custline"><div class="cl-t"><b>' + esc(job.customer) + '</b>' +
-         '<span>' + esc([docAddress(job), job.phone, job.email, (STATUSES.find(x => x[0] === statusOf(job)) || [])[1]]
+         '<span>' + esc([docAddress(job), job.condo ? 'Condo' : '', job.phone, job.email, (STATUSES.find(x => x[0] === statusOf(job)) || [])[1]]
            .filter(Boolean).join('  \u00b7  ')) + '</span></div>' +
          '<button class="btn btn-ghost btn-sm" data-custopen="1">Edit customer</button></div>';
   } else {
@@ -4783,6 +4992,9 @@ function renderJob(){
     }
     h += '</div>';
   });
+  // 2.52, Andrew 19 Nov: a condo building brings the condo form for signing
+  h += '<label class="field jf-condo"><input type="checkbox" data-jcondo="1"' + (job.condo ? ' checked' : '') +
+       '><span>Condo building<small>Adds the Condominium Installation Details &amp; Agreement for signing</small></span></label>';
   /* what is put away, said once so nothing feels lost */
   if(inHome(job))
     h += '<div class="field awaynote">Lead time, document type and the sales ' +
@@ -5027,7 +5239,7 @@ const CLICK_KEYS = ['open','del','new','back','toggle','inc','edit','skip','done
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','rvapplydef','sign','signpdf','signmail',
-  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote','cond','jambpick'];
+  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote','cond','jambpick','swingdir','hingematch'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 /* 2.30, Andrew 18 Nov: "the door type buttons stick and won't let us click
@@ -5369,6 +5581,8 @@ document.addEventListener('click', async e => {
     op.jambW = Number(op.jambW) === Number(d.jambpick) ? '' : d.jambpick;
     render(); return persistBg();
   }
+  if(d.swingdir){ op.swingDir = d.swingdir; render(); return persistBg(); }      // 2.52
+  if(d.hingematch){ op.hingeMatch = !op.hingeMatch; render(); return persistBg(); }
   if(d.pickqty){
     op.qty = Number(d.pickqty); applyQtyRule(op);
     render(); return persistBg();
@@ -5514,6 +5728,7 @@ document.addEventListener('change', async e => {
     job.defaults[d.def] = t.value;
     render(); return persistBg(); }
   if(d.m){ job.materials[+d.mi][d.m] = t.value; render(); return persistBg(); }
+  if(d.jcondo !== undefined){ job.condo = !!t.checked; render(); return persistBg(); }
   if(d.j){ job[d.j] = t.value; persistBg();
            return (d.j === 'customer') ? renderJob() : renderJob(); }
   const op = d.op && job.openings.find(o => o.id === d.op);
@@ -5665,6 +5880,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.51 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.52 · 19 Nov 2026</div>
 </body>
 </html>

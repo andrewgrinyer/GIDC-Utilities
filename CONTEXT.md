@@ -255,3 +255,8 @@ not an error, which hid two silent failures. An RPC without
   history of patches and whichever ran last is what is live.
 - Tests go in both directions: that the thing now works, and that
   everybody who had access yesterday still has exactly what they had.
+
+### Measurement app 2.52: jambs, swing direction, condo form
+- A Rough Opening is the only opening that "needs a jamb" (needsJamb). A swing door there needs op.swingDir (LO, LI, RI, RO: hinge side and in/out, looking into the room) and may have op.hingeMatch (matching hinges already in the home).
+- The Door Jamb Take-Off Work Sheet (jambPage for print, section 3b of contractPdf) lists only openings that need a jamb. Hinges by Andrew's rules (hingeSpec): 80/84 tall hollow 2, solid 3; 96 hollow 3, solid 4; 3" x 1/4" radius, 3 1/2" for doors thicker than 1 3/8; backset 1/4"; top hinge 7" down, bottom hinge 11" up (tops), others evenly between. hingeMatch keeps the worked out quantity and prints CONFIRM EXISTING HINGE SIZE AND RADIUS PRIOR TO STARTING WORK. The sheet is signed (sign field 'jambs').
+- job.condo adds the Condominium Installation Details & Agreement (condo-installation-agreement.pdf/.png, built by scripts/condo-form.js) as a job level JOB_DOCS entry (jobNeeds), signed like the other forms.
