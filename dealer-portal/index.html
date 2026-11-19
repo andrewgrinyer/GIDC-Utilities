@@ -963,7 +963,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.04 · 12 Nov 2026";
+const BUILD  = "Dealer portal 2.05 · 19 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -7152,6 +7152,37 @@ function vlook(vals, needle, firstCol, offset, lastRow){
   }
   return null;
 }
+/* LOOKING A NAME UP THE WAY A PERSON WOULD
+ *
+ * VLOOKUP wants the name exactly as the table spells it, and the tables in
+ * the template do not always spell it the way the portal's lists do. Door
+ * Styles has "4 Panel Ture Shaker", so every 4 Panel True Shaker went to the
+ * database with style 0 and product type 0, which is an order with no door
+ * in it. So the exact match is tried first, as Excel would, and then the
+ * same name ignoring case, spaces and punctuation, with Ture read as True.
+ * Names the database spells differently altogether are listed below. */
+const loose = v => String(v == null ? "" : v).toLowerCase()
+  .replace(/\bture\b/g, "true").replace(/[^a-z0-9]/g, "");
+/* a pre hung is the same door in a jamb: the jamb goes out on its own flag */
+const TYPE_ALIAS  = { singleprehung: "Single Swing", doubleprehung: "Double Swing AST" };
+const PAINT_ALIAS = { pearlywhite: "Pearly" };
+function lookUp(vals, needle, firstCol, offset, lastRow, alias){
+  const got = vlook(vals, needle, firstCol, offset, lastRow);
+  if(got != null) return got;
+  const n = String(needle == null ? "" : needle);
+  const want = loose((alias && alias[loose(n)]) || n);
+  if(!want) return null;
+  const c0 = colLetter(firstCol), c1 = colLetter(firstCol + offset - 1);
+  for(let r = 1; r <= (lastRow || 400); r++){
+    const v = vals[c0 + r];
+    if(v != null && loose(v) === want){
+      const x = vals[c1 + r];
+      return x == null || x === "" ? null : x;
+    }
+  }
+  return null;
+}
+
 const colLetter = n => { let s = ""; while(n > 0){ const m = (n-1)%26;
   s = String.fromCharCode(65+m) + s; n = (n-m-1)/26; } return s; };
 
@@ -7180,6 +7211,10 @@ function fillUpload(xml, order){
       if(k === "width" && leafCount(r) > 1 && num(v)) v = r4(num(v) * leafCount(r));
       if(k === "paintColour") v = paintOf(r, order);
       if(k === "doorStyle") v = styleOf(r);
+      /* Column B is the line number. It mirrored Pricing Sheet column A,
+         which the portal never names, so it went out blank. It says what
+         the upload block below says for the same line. */
+      if(up === "B") v = i + 1;
       put(up + row, v === "" || v == null ? "" : v);
     });
     put(UPLOAD_CUSTOMER + row, i === 0 ? (order.customer_name || "") : "");
@@ -7222,18 +7257,19 @@ function fillUploadDb(xml, order, zip){
     if(leafCount(r) > 1 && num(w)) w = r4(num(w) * leafCount(r));
 
     /* Data!C:F keyed on the product type */
-    const core   = vlook(data, r.productType, 3, 3, 300);
-    const thick  = vlook(data, r.productType, 3, 4, 300);
+    const core   = lookUp(data, r.productType, 3, 3, 300);
+    const thick  = lookUp(data, r.productType, 3, 4, 300);
     /* Data!H:J keyed on the door type */
-    const typeId = numOr0(vlook(data, r.doorType, 8, 3, 300));
+    const typeId = numOr0(lookUp(data, r.doorType, 8, 3, 300, TYPE_ALIAS));
     /* Door Styles!B:K keyed on the style */
-    const styleId = numOr0(vlook(styles, r.doorStyle, 2, 7, 300));
-    const prodId  = numOr0(vlook(styles, r.doorStyle, 2, 9, 300));
-    const model   = vlook(styles, r.doorStyle, 2, 10, 300);
+    const styleId = numOr0(lookUp(styles, r.doorStyle, 2, 7, 300));
+    const prodId  = numOr0(lookUp(styles, r.doorStyle, 2, 9, 300));
+    const model   = lookUp(styles, r.doorStyle, 2, 10, 300);
     /* def_DoorColours keyed on productTypeId_paint. A custom colour is not in
        that list by definition, so it resolves to nothing, which is correct:
        the code and the name on the form are what the sprayer works from. */
-    const paintId = numOr0(vlook(cols, prodId + "_" + (paintOf(r, order) || ""), 1, 2, 200));
+    const paint_  = String(paintOf(r, order) || "");
+    const paintId = numOr0(lookUp(cols, prodId + "_" + (PAINT_ALIAS[loose(paint_)] || paint_), 1, 2, 200));
 
     const f = {
       B: i + 1,
