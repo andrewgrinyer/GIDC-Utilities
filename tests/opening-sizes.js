@@ -52,6 +52,9 @@ const CASES = [
     {blankW:24, blankH:80, per:2, reStile:false, exportW:48.5, exportH:80}],
   ['bifold single unit 30', 'Bifold', '1.375 Hollow', 'Kingston', 30.5, 81.5, 1,
     {blankW:30, blankH:80, per:1, exportW:30.5}],
+  ['pocket 30 1/4: no deduction, up to a 32, not re-stiled', 'Pocket', '1.375 Hollow', 'Kingston', 30.25, 80, 1,
+    {blankW:32, blankH:80, reStile:false}],
+  ['pocket 30: a 30', 'Pocket', '1.375 Hollow', 'Kingston', 30, 80, 1, {blankW:30, blankH:80}],
   ['bypass 96 on 3 panels: each 32', 'Bypass', '1.375 Hollow', 'Kingston', 96, 82.5, 3,
     {blankW:32, blankH:80, per:3, reStile:false, exportW:96, exportH:80}],
   ['bypass 96 on 2 panels: over 36 each', 'Bypass', '1.375 Hollow', 'Kingston', 96, 82.5, 2,
@@ -90,6 +93,20 @@ const CASES = [
                                          : k === 'exportH' ? g.ls.height !== e.exportH : P[k] !== e[k]);
     check(c[0], !P.so && !bad.length && g.sc.status !== 'so', {bad, P, ls:g.ls, sc:g.sc});
   });
+
+  // Andrew 19 Nov: bifold and bypass warnings
+  const warn = await page.evaluate(() => {
+    const w = (type, W) => { const op = newOpening(1, null, state.job); op.openW = String(W); op.openH = '80';
+      op.options[0].v.doorType = type; op.options[0].include = true; return sizeWarnings(op).join(' '); };
+    return {b22:w('Bifold', 22), b24:w('Bifold', 24), b26:w('Bifold', 26), b30:w('Bifold', 30), b36:w('Bifold', 36),
+            b40:w('Bifold', 40), b59:w('Bifold', 59), b72:w('Bifold', 72), b72q:w('Bifold', 72.375),
+            y30:w('Bypass', 30), y60:w('Bypass', 60), s20:w('Single Swing', 20)};
+  });
+  const confirmText = 'Please confirm with the office with respect to options and availability';
+  check('bifold warnings on the in between sizes', [warn.b22, warn.b26, warn.b40, warn.b72q].every(x => x.includes(confirmText)), warn);
+  check('no bifold warning on 24, 30, 36, 59, 72', [warn.b24, warn.b30, warn.b36, warn.b59, warn.b72].every(x => x === ''), warn);
+  check('bypass under 36 is not recommended, 60 is fine, swings untouched',
+        /not recommended/.test(warn.y30) && warn.y60 === '' && warn.s20 === '', warn);
 
   // the job's reveal and floor gap are used when set
   const gap = await page.evaluate(() => {
