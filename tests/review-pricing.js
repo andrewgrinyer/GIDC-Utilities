@@ -159,7 +159,7 @@ const check = (name, ok, got) => {
   const so = await page.evaluate(() => [cv('R9'), document.querySelector('#dock').textContent,
                                         document.querySelector('#app').textContent.includes('special order')]);
   check('unpriced door shows S/O and explains the missing total',
-        so[0] === 'S/O' && so[1].includes('No grand total') && so[2], so);
+        so[0] === 'S/O' && /no grand total/i.test(so[1]) && so[2], so);
   await page.evaluate(() => { state.job.openings[0].options[0].v.doorStyle = 'Columbia';
     state.job.openings[0].options[0].v.doorType = 'Single Swing'; applyQtyRule(state.job.openings[0]);
     calcJob(state.job); render(); });

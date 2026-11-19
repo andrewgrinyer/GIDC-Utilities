@@ -2441,10 +2441,14 @@ function sizeText(v){
 /* Andrew 19 Nov: size warnings. A bifold opening that falls between the
    unit sizes, and a bypass under 36" wide. Warnings only: they show on the
    card and the review, and nothing is blocked. */
-const BIFOLD_WARN = [[0, 23, true], [24.5, 29], [30.25, 35], [36.25, 46], [46.25, 58], [60.25, 70], [72.25, Infinity, true]];
+/* 2.49: 48.25 to 58 (Andrew wrote 46.25, which would make a 48 opening, a
+   pair of 24s, special order; every other gap starts just over a unit, so
+   48 1/4 is taken as meant. Asked him to confirm.) */
+const BIFOLD_WARN = [[0, 23, true], [24.5, 29], [30.25, 35], [36.25, 46], [48.25, 58], [60.25, 70], [72.25, Infinity, true]];
 const OFFICE = 'Please confirm with the office with respect to options and availability.';
 function sizeWarnings(op){
-  const w = widthNum(op), out = [];
+  // 2.49: a rough opening is judged by the opening its door gets (1 3/4 less)
+  const w = widthNum(op) - (op.cond === 'Rough Opening' && sized(op) && !/barn/i.test(quoteType(op)) ? ROUGH_W : 0), out = [];
   if(!(w > 0)) return out;
   const t = quoteType(op);
   if(BIFOLD_TYPES.indexOf(t) >= 0 && BIFOLD_WARN.some(([a, b, open]) => open ? (a === 0 ? w < b : w > a) : w >= a && w <= b))
@@ -3537,8 +3541,18 @@ const SIZE_WORD = {ok:'Stock', check:'Check', so:'Special order', none:'Not chec
    option (o.sizeOk). Changing the door or its size undoes it. */
 const sizeFp = (op, o) => JSON.stringify([o.v.doorStyle || '', o.v.productType || '', o.v.doorType || '',
   String(op.width), String(op.height), String(op.openW || ''), String(op.openH || ''), String(op.qty), String(op.doorW || ''), String(op.doorH || '')]);
+/* 2.49, Andrew 19 Nov: a bifold opening in one of the warning ranges fails
+   the size check: special order, so its price is pulled (S/O), and the
+   warning still shows. A Door MSRP typed on the review still wins. */
+const bifoldOffSize = (op, o) => BIFOLD_TYPES.indexOf(o.v.doorType || quoteType(op)) >= 0 &&
+  sizeWarnings(op).some(x => /^Bifold opening/.test(x));
 function sizeCheck(op, o, msrp){
   const res = sizeCheckRaw(op, o, msrp), c = o.sizeOk;
+  if(bifoldOffSize(op, o)){
+    res.status = 'so'; delete res.keepPrice; delete res.confirmed;
+    res.why.unshift(sizeWarnings(op).find(x => /^Bifold opening/.test(x)).replace(OFFICE, 'It is between the stock bifold sizes, so it is special order. ' + OFFICE));
+    return res;
+  }
   if(res.status !== 'check') return res;
   if(!c || c.fp !== sizeFp(op, o)) return res;
   res.confirmed = c;
@@ -5631,6 +5645,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.48 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.49 · 19 Nov 2026</div>
 </body>
 </html>
