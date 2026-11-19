@@ -98,3 +98,41 @@ set role authenticated; select pg_temp.as_who('manufacturing');
 insert into paint_orders(colour, custom, pails_1, for_job) values ('Sea Salt', true, 1, '   ');
 insert into paint_orders(colour, pails_1) values ('Pearly', 1) returning po_no;
 reset role;
+
+\echo -- OTHER COLOURS: the earlier Hale Navy order put Hale Navy on the shelf (want: Hale Navy other, Hale Navy)
+select name, kind, match_words, doors_per_pail from paint_colours where kind = 'other';
+select po_no, colour, stock_colour from paint_orders where custom;
+
+\echo -- the shop adds one with the New paint colour button; the same name again is refused; a standard one cannot be added
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into paint_colours(name, kind) values ('  Oxford   White ', 'other') returning name, kind, match_words, sort;
+insert into paint_colours(name, kind) values ('oxford white', 'other');
+insert into paint_colours(name, kind) values ('Navy', 'stock');
+insert into paint_counts(colour, gallons) values ('Oxford White', 3);
+\echo -- sales may not add one (want: refused)
+select pg_temp.as_who('sales');
+insert into paint_colours(name, kind) values ('Sea Salt', 'other');
+reset role;
+
+\echo -- the schedule draws on it: want Oxford White other, Hale Navy other, Extra White stock, Sea Salt custom
+select paint_colour_of('Oxford White (OC 17)'), paint_colour_of('HALE NAVY HC-154'), paint_colour_of('Extra White'), paint_colour_of('Sea Salt');
+set role service_role;
+select paint_schedule_load('[{"order_id":6001,"order_no":"6000","job":"Ox","colour":"Oxford White (OC 17)","doors":7,"prime_on":"2026-11-30","paint_on":"2026-11-30"}]'::jsonb, '2026-11-05');
+reset role;
+select job, colour, kind from paint_schedule_lines where job = 'Ox';
+
+\echo -- an order for Oxford White (OC 17) adds to Oxford White, keeps its own name for Ashley, adds no new colour
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into paint_orders(colour, custom, pails_1, for_job) values ('Oxford White (OC 17)', true, 2, 'Ox') returning po_no, colour, stock_colour;
+\echo -- a page cannot change which colour it adds to
+update paint_orders set stock_colour = 'Pearly', status = 'received' where colour = 'Oxford White (OC 17)' returning stock_colour, status;
+reset role;
+select count(*) as other_colours from paint_colours where kind = 'other';
+
+\echo -- used up: removing it takes its counts; the five cannot be removed (want: 1 row, 0 counts, then 0 rows)
+set role authenticated; select pg_temp.as_who('manufacturing');
+delete from paint_colours where name = 'Oxford White' returning name;
+delete from paint_colours where name = 'Pearly' returning name;
+update paint_colours set kind = 'other' where name = 'Pearly' returning kind;
+reset role;
+select count(*) as oxford_counts from paint_counts where colour = 'Oxford White';

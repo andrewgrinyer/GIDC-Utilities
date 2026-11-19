@@ -103,7 +103,7 @@ create table if not exists public.paint_colours (
 );
 alter table public.paint_colours drop constraint if exists paint_colours_kind_ok;
 alter table public.paint_colours add constraint paint_colours_kind_ok
-  check (kind in ('primer', 'stock', 'custom'));
+  check (kind in ('primer', 'stock', 'custom', 'other'));
 alter table public.paint_colours drop constraint if exists paint_colours_cover_ok;
 alter table public.paint_colours add constraint paint_colours_cover_ok
   check (doors_per_pail > 0 and doors_per_pail < 1000
@@ -129,6 +129,19 @@ on conflict (name) do nothing;
 
 -- Only one primer row and one custom row, whatever is edited later.
 create unique index if not exists paint_colours_one_primer on public.paint_colours ((kind)) where kind in ('primer', 'custom');
+
+-- OTHER COLOURS IN STOCK
+-- Andrew, 19 November, later: track stock of colours other than the five
+-- as well, in their own section, and draw on it when the schedule needs
+-- that colour. kind 'other' is such a colour. One is added by the New
+-- paint colour button, or by itself when a custom colour is ordered, and
+-- removed from the page when it is used up. The five, primer and the
+-- Custom row cannot be added or removed from a page.
+--
+-- Two names that differ only in case, spaces or punctuation are the same
+-- colour, so they cannot both be on the list.
+create unique index if not exists paint_colours_same_name
+  on public.paint_colours (lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')));
 
 -- ---------- 3. the schedule from Access ----------------------------------
 create table if not exists public.paint_schedule (
@@ -156,7 +169,9 @@ comment on table public.paint_schedule is
 
 -- What a colour typed in Access is. Lower case, letters and digits only,
 -- the same idea as gidc_pnorm(), then checked against each stocked
--- colour's match words.
+-- colour's match words, the five first, then the other colours in
+-- stock, the longest match winning, so "Oxford White (OC 17)" finds an
+-- Oxford White on the shelf.
 create or replace function public.paint_colour_of(raw text)
 returns text language sql stable set search_path = public as $$
   with n as (select lower(regexp_replace(coalesce(raw, ''), '[^A-Za-z0-9]', '', 'g')) as k)
@@ -166,10 +181,9 @@ returns text language sql stable set search_path = public as $$
     -- "Prime only" and "PRIMER ONLY" are both typed (probe, 19 November).
     when (select k from n) ~ '(primeronly|primedonly|primeonly)' then 'Primer only'
     else coalesce(
-      (select c.name from public.paint_colours c, n
-        where c.kind = 'stock'
-          and exists (select 1 from unnest(c.match_words) w where w <> '' and n.k like '%' || w || '%')
-        order by c.sort limit 1),
+      (select c.name from public.paint_colours c, n, unnest(c.match_words) w
+        where c.kind in ('stock', 'other') and w <> '' and n.k like '%' || w || '%'
+        order by (c.kind = 'stock') desc, length(w) desc, c.sort limit 1),
       btrim(raw))
   end
 $$;
@@ -190,6 +204,8 @@ create view public.paint_schedule_lines with (security_invoker = true) as
            when public.paint_colour_of(s.colour_raw) = 'Primer only' then 'primer_only'
            when exists (select 1 from public.paint_colours c
                          where c.kind = 'stock' and c.name = public.paint_colour_of(s.colour_raw)) then 'stock'
+           when exists (select 1 from public.paint_colours c
+                         where c.kind = 'other' and c.name = public.paint_colour_of(s.colour_raw)) then 'other'
            else 'custom'
          end as kind
     from public.paint_schedule s;
@@ -235,6 +251,10 @@ create table if not exists public.paint_counts (
   created_at  timestamptz not null default now(),
   created_by  text
 );
+-- A count goes with its colour when an other colour is removed.
+alter table public.paint_counts drop constraint if exists paint_counts_colour_fkey;
+alter table public.paint_counts add constraint paint_counts_colour_fkey
+  foreign key (colour) references public.paint_colours(name) on update cascade on delete cascade;
 alter table public.paint_counts drop constraint if exists paint_counts_ok;
 alter table public.paint_counts add constraint paint_counts_ok check (gallons >= 0 and gallons < 10000);
 comment on table public.paint_counts is
@@ -280,6 +300,9 @@ alter table public.paint_orders add column if not exists needed_by date;
 -- (no customer on a custom colour, say) leaves no gap: its number is
 -- given back with it. Past 99999 it simply carries on with six digits.
 alter table public.paint_orders add column if not exists po_no text;
+-- The colour on the shelf an order adds to when it arrives: one of the
+-- five, or an other colour. Set by the database.
+alter table public.paint_orders add column if not exists stock_colour text;
 create or replace function public.paint_next_po()
 returns text language plpgsql volatile security definer set search_path = public as $$
 declare n bigint;
@@ -321,12 +344,50 @@ begin
     from public.profiles p where p.id = auth.uid();
   if tg_table_name = 'paint_colours' then
     new.updated_at := now(); new.updated_by := who;
+    if tg_op = 'INSERT' then
+      new.name := btrim(regexp_replace(coalesce(new.name, ''), '\s+', ' ', 'g'));
+      if new.name = '' then raise exception 'A colour needs a name.'; end if;
+      -- Recognised in Access by its own name. Coverage as for custom.
+      if new.kind = 'other' then
+        if coalesce(array_length(new.match_words, 1), 0) = 0 then
+          new.match_words := array[lower(regexp_replace(new.name, '[^A-Za-z0-9]', '', 'g'))];
+        end if;
+        if new.doors_per_pail is null then
+          select c.doors_per_pail into new.doors_per_pail from public.paint_colours c where c.kind = 'custom';
+          new.doors_per_pail := coalesce(new.doors_per_pail, 35);
+        end if;
+        new.sort := 200;
+      end if;
+    else
+      -- What a colour is, and its name, stay as they were.
+      new.kind := old.kind; new.name := old.name;
+    end if;
   elsif tg_table_name = 'paint_counts' then
     if tg_op = 'INSERT' then new.created_at := now(); new.created_by := who; end if;
   elsif tg_table_name = 'paint_orders' then
     if tg_op = 'INSERT' then
       new.requested_at := now(); new.requested_by := who;
       new.po_no := public.paint_next_po();
+      -- Which colour on the shelf this adds to when it arrives. A custom
+      -- colour not on the shelf yet is put there now, with nothing in
+      -- stock, so it shows as on order (Andrew, 19 November).
+      new.colour := btrim(new.colour);
+      if not new.custom then
+        new.stock_colour := new.colour;
+      else
+        new.stock_colour := public.paint_colour_of(new.colour);
+        if new.stock_colour is not null and exists (select 1 from public.paint_colours c
+                                                     where c.name = new.stock_colour and c.kind = 'stock') then
+          new.custom := false;
+        elsif new.stock_colour is null or new.stock_colour = 'Primer only'
+              or not exists (select 1 from public.paint_colours c where c.name = new.stock_colour) then
+          insert into public.paint_colours (name, kind) values (new.colour, 'other')
+            on conflict do nothing;
+          select c.name into new.stock_colour from public.paint_colours c
+           where lower(regexp_replace(c.name, '[^A-Za-z0-9]', '', 'g'))
+               = lower(regexp_replace(new.colour, '[^A-Za-z0-9]', '', 'g'));
+        end if;
+      end if;
       new.for_job := nullif(btrim(coalesce(new.for_job, '')), '');
       new.status := 'requested'; new.emailed_at := null;
       new.received_on := null; new.received_by := null;
@@ -337,6 +398,8 @@ begin
       new.pails_5 := old.pails_5; new.pails_1 := old.pails_1;
       new.for_job := old.for_job; new.needed_by := old.needed_by;
       new.po_no := old.po_no;
+      -- Kept from a page. This file sets it once for older orders.
+      if auth.uid() is not null then new.stock_colour := old.stock_colour; end if;
       new.requested_at := old.requested_at;
       new.requested_by := old.requested_by;
       if auth.uid() is not null then new.emailed_at := old.emailed_at; end if;
@@ -370,10 +433,16 @@ drop policy if exists paint_colours_read   on public.paint_colours;
 drop policy if exists paint_colours_change on public.paint_colours;
 create policy paint_colours_read on public.paint_colours
   for select to authenticated using (public.can_use_paint());
--- Coverage and warning levels may be changed; colours are not added or
--- removed from a page, so there is no insert or delete rule.
+-- Coverage and warning levels may be changed. Only an other colour may
+-- be added or removed from a page; the five, primer and Custom stay.
 create policy paint_colours_change on public.paint_colours
   for update to authenticated using (public.can_use_paint()) with check (public.can_use_paint());
+drop policy if exists paint_colours_add    on public.paint_colours;
+drop policy if exists paint_colours_remove on public.paint_colours;
+create policy paint_colours_add on public.paint_colours
+  for insert to authenticated with check (public.can_use_paint() and kind = 'other');
+create policy paint_colours_remove on public.paint_colours
+  for delete to authenticated using (public.can_use_paint() and kind = 'other');
 
 drop policy if exists paint_schedule_read on public.paint_schedule;
 create policy paint_schedule_read on public.paint_schedule
@@ -403,7 +472,7 @@ create policy paint_orders_change on public.paint_orders
 revoke all on public.paint_colours, public.paint_schedule, public.paint_counts, public.paint_orders
   from anon, public;
 revoke all on public.paint_schedule_lines from anon, public;
-grant select, update                 on public.paint_colours  to authenticated;
+grant select, insert, update, delete on public.paint_colours  to authenticated;
 grant select                         on public.paint_schedule to authenticated;
 grant select                         on public.paint_schedule_lines to authenticated;
 grant select, insert, delete         on public.paint_counts   to authenticated;
@@ -415,6 +484,25 @@ do $$ begin
   execute 'grant select on public.paint_schedule_lines to service_role';
   execute 'grant execute on function public.paint_colour_of(text) to service_role';
 exception when undefined_object then null;
+end $$;
+
+-- ---------- 7. orders made before other colours were tracked -----------
+-- Each gets the colour on the shelf it adds to, and a custom colour
+-- ordered before now is put on the shelf too, as the page now does.
+do $$
+declare r record; got text;
+begin
+  for r in select id, colour, custom from public.paint_orders where stock_colour is null loop
+    got := case when r.custom then public.paint_colour_of(r.colour) else r.colour end;
+    if r.custom and (got is null or got = 'Primer only'
+                     or not exists (select 1 from public.paint_colours c where c.name = got)) then
+      insert into public.paint_colours (name, kind) values (btrim(r.colour), 'other') on conflict do nothing;
+      select c.name into got from public.paint_colours c
+       where lower(regexp_replace(c.name, '[^A-Za-z0-9]', '', 'g'))
+           = lower(regexp_replace(r.colour, '[^A-Za-z0-9]', '', 'g'));
+    end if;
+    update public.paint_orders set stock_colour = got where id = r.id;
+  end loop;
 end $$;
 
 notify pgrst, 'reload schema';

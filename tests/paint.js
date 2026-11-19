@@ -26,6 +26,7 @@ const COLOURS = [
   {name:'Pearly', kind:'stock', doors_per_pail:35, warn_gallons:'5.00', sort:40},
   {name:'Chantilly Lace', kind:'stock', doors_per_pail:35, warn_gallons:'5.00', sort:50},
   {name:'Custom', kind:'custom', doors_per_pail:35, warn_gallons:null, sort:90},
+  {name:'Oxford White', kind:'other', doors_per_pail:35, warn_gallons:null, sort:200},
 ];
 const L = (id, no, job, colour, kind, doors, prime, paint) =>
   ({access_order_id:id, order_no:no, job, colour_raw:colour || '', colour, kind, doors:String(doors), prime_on:prime, paint_on:paint,
@@ -37,13 +38,16 @@ const LINES = [
   L(5072, '5070', 'Old job', 'Primer only', 'primer_only', 3, '2026-11-20', null),
   L(5073, '5071', 'No colour', null, 'none', 2, '2026-11-26', '2026-11-27'),
   L(5074, '5072', 'Big job', 'Pearly', 'stock', 70, '2026-11-30', '2026-12-01'),
+  L(5075, '5073', 'Oxley', 'Oxford White', 'other', 7, null, '2026-11-30'),
 ];
+const nrm = x => String(x || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 let COUNTS, ORDERS, n = 0, ROLE = 'manufacturing', MAIL_OK = true, EXPIRED = false;
 const calls = [], posted = [];
 function reset(){
   COUNTS = [{id:'c1', colour:'Chantilly Lace', gallons:'10.00', counted_on:'2026-11-16', created_at:'2026-11-16T22:00:00Z', created_by:'Nick'},
             {id:'c2', colour:'Extra White', gallons:'4.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
-            {id:'c3', colour:'Primer', gallons:'20.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'}];
+            {id:'c3', colour:'Primer', gallons:'20.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
+            {id:'c4', colour:'Oxford White', gallons:'3.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'}];
   ORDERS = [{id:'00000000-0000-0000-0000-00000000000a', colour:'Pearly', custom:false, pails_5:2, pails_1:0, gallons:'10.00', for_job:null, needed_by:null,
              note:null, status:'requested', requested_at:'2026-11-17T15:00:00Z', requested_by:'Andrew', emailed_at:'2026-11-17T15:00:01Z', received_on:null}];
 }
@@ -65,6 +69,16 @@ async function mock(page){
     if(p === '/rest/v1/paint_colours'){
       if(m === 'PATCH'){ const nm = decodeURIComponent(u.searchParams.get('name').replace('eq.', ''));
         const c = COLOURS.find(x => x.name === nm); Object.assign(c, body); posted.push(['colour', nm, body]); return jw([c]); }
+      if(m === 'POST'){
+        if(COLOURS.some(c => nrm(c.name) === nrm(body.name))) return j({message:'duplicate key value violates unique constraint "paint_colours_same_name"'}, 409);
+        const c = {name: body.name, kind: 'other', doors_per_pail: 35, warn_gallons: null, sort: 200};
+        COLOURS.push(c); posted.push(['newcolour', body]); return jw([c], 201);
+      }
+      if(m === 'DELETE'){
+        const nm = decodeURIComponent(u.searchParams.get('name').replace('eq.', ''));
+        const i = COLOURS.findIndex(x => x.name === nm && x.kind === 'other'); if(i < 0) return jw([]);
+        COUNTS = COUNTS.filter(x => x.colour !== nm); posted.push(['removed', nm]); return jw(COLOURS.splice(i, 1));
+      }
       return j(COLOURS);
     }
     if(p === '/rest/v1/paint_schedule_lines') return j(+(u.searchParams.get('offset') || 0) ? [] : LINES);
@@ -78,7 +92,13 @@ async function mock(page){
         const id = '00000000-0000-0000-0000-0000000000' + String(++n).padStart(2, '0');
         if(body.custom && !(body.for_job || '').trim()) return j({message:'new row violates check constraint "paint_orders_customer_ok"'}, 400);
         const po = 'PD' + String(ORDERS.length + 1).padStart(5, '0');
-        const row = Object.assign({id, po_no: po, status:'requested', requested_at:'2026-11-19T16:00:00Z', requested_by:'Nick', emailed_at:null, received_on:null},
+        // as the database does: a custom colour goes on the Other colours list
+        let shelf = body.colour;
+        if(body.custom){
+          const hit = COLOURS.find(c => (c.kind === 'other' || c.kind === 'stock') && nrm(body.colour).includes(nrm(c.name)));
+          if(hit) shelf = hit.name; else COLOURS.push({name: body.colour, kind: 'other', doors_per_pail: 35, warn_gallons: null, sort: 200});
+        }
+        const row = Object.assign({id, po_no: po, stock_colour: shelf, status:'requested', requested_at:'2026-11-19T16:00:00Z', requested_by:'Nick', emailed_at:null, received_on:null},
           body, {gallons: String(body.pails_5 * 5 + body.pails_1)});
         ORDERS.unshift(row); posted.push(['order', body]); return jw([row], 201);
       }
@@ -92,6 +112,7 @@ async function mock(page){
     if(p === '/functions/v1/paint-order'){
       posted.push(['email', body]);
       if(!MAIL_OK) return j({error:'The order is saved but the email would not send. Tell Ashley directly.'}, 502);
+      const sent = ORDERS.find(o => o.id === body.id); if(sent) sent.emailed_at = '2026-11-19T16:00:05Z';   // stamped, as the function does
       return j({ok:true, to:['ashley@grinyer.ca']});
     }
     return j([]);
@@ -249,6 +270,41 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   await page.click('[data-count="Pearly"]'); await page.fill('#c-gal', ''); await page.click('#c-save');
   check(/how many gallons/.test(await text(page, '#msg')), 'a blank count is refused');
   await page.click('[data-close]');
+
+  // other colours in stock
+  c = await card(page, 'Oxford White');
+  check(/3\.0 gal in stock/.test(c) && /Next 2 weeks 1\.0 gal \(7 doors\)/.test(c) && /Used up/.test(c),
+    'Oxford White is in its own section: 3 counted, 7 doors on the schedule need 1.0 (' + c + ')');
+  check(await page.$eval('#others', e => /Oxford White/.test(e.innerText)) && await page.$eval('#stock', e => !/Oxford White/.test(e.innerText)),
+    'other colours are not mixed in with the five');
+  check(/Oxford White #5073 Oxley, 7 doors, painted Mon Nov 30.*From stock, 3\.0 gal on hand/.test(await text(page, '#custom')),
+    'a job in Oxford White draws on the shelf instead of asking for an order');
+  check(await page.$eval('#others', e => /Hale Navy/.test(e.innerText)), 'the custom Hale Navy ordered earlier is now on the Other colours list');
+  c = await card(page, 'Hale Navy');
+  check(/On order 1\.0 gal/.test(c), 'Hale Navy shows 1 gallon on order (' + c + ')');
+
+  await page.click('#newcolour');
+  await page.fill('#n-name', 'Sea Salt SW 6204'); await page.fill('#n-gal', '2'); await page.click('#n-save'); await page.waitForTimeout(400);
+  c = await card(page, 'Sea Salt SW 6204');
+  check(/2\.0 gal in stock/.test(c), 'New paint colour adds Sea Salt with 2 gallons (' + c + ')');
+  await page.click('#newcolour'); await page.fill('#n-name', 'oxford white'); await page.click('#n-save');
+  check(/already on the list/.test(await text(page, '#msg')), 'the same colour twice is refused');
+  await page.click('[data-close]');
+
+  await page.click('[data-remove="Sea Salt SW 6204"]');
+  check(/Remove Sea Salt SW 6204 and its counts for good/.test(await text(page, '#others')), 'Used up asks first');
+  await page.click('[data-removeyes="Sea Salt SW 6204"]'); await page.waitForTimeout(400);
+  check(!/Sea Salt/.test(await text(page, '#others')) && posted.some(x => x[0] === 'removed' && x[1] === 'Sea Salt SW 6204'), 'Yes removes it');
+
+  const hn = ORDERS.find(o => o.colour === 'Hale Navy');
+  await page.click('[data-received="' + hn.id + '"]'); await page.waitForTimeout(250);
+  c = await card(page, 'Hale Navy');
+  check(/1\.0 gal in stock/.test(c) && /Received 1\.0 gal/.test(c), 'Hale Navy received: 1 gallon on the shelf (' + c + ')');
+
+  await page.click('[data-xorder="Oxford White"]'); await page.fill('#o-job', 'Oxley'); await page.click('#o-save'); await page.waitForTimeout(400);
+  const ox = posted.filter(x => x[0] === 'order').pop();
+  check(ox[1].colour === 'Oxford White' && ox[1].custom === true, 'Order on an other colour orders that colour');
+  if(SHOTS) await page.screenshot({path: SHOTS + '/paint-others.png', fullPage: true});
 
   // settings
   await page.click('#settings summary');
