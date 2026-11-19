@@ -215,6 +215,7 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .rv-sizes li{margin:4px 0;font-size:14px}
 .rv-sizes li.rv-so b{color:var(--brass)} .rv-sizes li.rv-check b{color:#8A5A00}
 .cond .chips{margin-bottom:4px}.cond-jl{display:block;margin-top:8px}.cond .req{color:var(--brass);font-weight:600}
+.field .req{color:#B5121B;font-weight:600;font-size:11px}
 .cond-note{color:var(--brass)}
 .door-sz{margin:10px 0 4px;padding:8px 10px;border:1px solid var(--rule);border-radius:10px}
 .door-sz-h{font-weight:600;font-size:14px;margin-bottom:4px}
@@ -743,7 +744,7 @@ td.rv-typed input{background:#FFF7D6;border-color:#C9A227;font-weight:600}
 .note-in{width:100%;min-height:40px;padding:6px 8px;border:1px solid var(--rule);border-radius:8px;font-size:13px;resize:vertical;background:#fff}
 .note-in.set{border-color:#B5121B;color:#B5121B}
 .op-note{margin:10px 0 4px}
-.op-noteadd{display:block;margin:8px 0 2px;font-size:13px;color:#B5121B}
+.op-noteadd{display:inline-block;margin:8px 0 2px;color:#B5121B;border-color:#E3B5B8}
 .op-note label{font-size:12px;color:var(--muted)}
 table.rv-two tr.rv-l3 td{padding:2px 6px 7px;border-top:0}
 table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
@@ -757,6 +758,18 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
   table.rv-two tr.rv-l3.empty, .rv-notes.empty{display:none!important}
   table.rv-two tr.rv-l3 td{padding:0 4px 3px!important}
 }
+/* 2.57: the quote bar on the review */
+.qbar{background:#FFF;border:1px solid var(--rule);border-left:4px solid #B5121B;border-radius:10px;padding:8px 12px;margin:0 0 10px;font-size:13px}
+.qbar-top{display:flex;flex-wrap:wrap;align-items:center;gap:6px 12px}
+.qref{font-size:15px;color:#B5121B}
+.qstate{color:var(--muted);flex:1;min-width:140px}
+.qbtns{display:flex;gap:6px;flex-wrap:wrap}
+.qopts{display:flex;flex-wrap:wrap;gap:6px;margin-top:8px;align-items:center}
+.qopts .chip i{font-style:normal;font-size:11px;opacity:.8;margin-left:4px}
+.qrm{border:0;background:none;color:#B3261E;font-size:16px;cursor:pointer;margin-left:-4px;padding:0 4px}
+.qhist{margin:8px 0 0;padding-left:18px}
+.qhist li{margin:3px 0}
+@media print{.qbar{display:none!important}}
 /* 2.20: Add door under the review table */
 .rv-add{margin:8px 0 14px}
 @media print{.rv-add, .rv-rm{display:none!important}}
@@ -1207,7 +1220,7 @@ function signFp(job){
   let h = 5381; for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36) + '.' + s.length.toString(36);
 }
-const signedOk = job => !!(job && job.signed && job.signed.at && job.signed.fp === signFp(job));
+const signedOk = job => !!(job && job.signed && job.signed.at && (job.signed.opt || 'A') === activeOpt(job) && job.signed.fp === signFp(job));
 const markOf = (job, id) => signedOk(job) ? ((job.signed.marks || {})[id] || null) : null;
 /* REVISIONS (2.28, Andrew 18 Nov)
  *
@@ -1217,7 +1230,8 @@ const markOf = (job, id) => signedOk(job) ? ((job.signed.marks || {})[id] || nul
  * and by which revision), with where its PDF is stored. That stored PDF
  * also gets a copy stamped SUPERSEDED beside it (stampSuperseded). The
  * first contract has no revision number, as before. */
-const revLabel = r => 'Rev ' + String(r).padStart(3, '0');
+/* 2.57: a contract signed again after a change is a change order */
+const revLabel = r => 'Change Order ' + String(r).padStart(3, '0');
 function nextRev(job){
   const r = (job.contracts || []).map(c => c.rev || 0);
   if(job.signed && job.signed.at) r.push(job.signed.rev || 0);
@@ -1238,6 +1252,148 @@ function supersede(job, rev){
   const s = job.signed; if(!s || !s.at) return;
   job.contracts = (job.contracts || []).concat([{rev:s.rev || 0, at:s.at, name:s.name || '', where:s.where || 'in person',
     ip:s.ip || '', request:s.request || '', path:s.path || '', fp:s.fp || '', supersededAt:new Date().toISOString(), supersededBy:rev}]);
+}
+/* QUOTES (2.57, Andrew 19 Nov: "Yes, let's do this")
+ *
+ * One measurement per job, several quotes on it. The openings, sizes, notes
+ * and photos are the measurement, entered once. A quote is the door choices
+ * and prices on top: each opening's options, quantity and typed door size,
+ * and the job's special materials, fees and price list (QUOTE_OP, QUOTE_JOB).
+ *
+ * Options (A, B, ...) sit side by side for good, better, best. The option
+ * being worked on lives in the job's own fields, exactly as before, so the
+ * rest of the app is unchanged; the others wait in job.qt.opts[k].data and
+ * swap in when picked.
+ *
+ * Revisions are numbered per option. Whatever goes to the customer (an
+ * estimate, a contract) is locked as that revision: its choices are kept
+ * (revs[].data), with its fingerprint (signFp). Change anything after that
+ * and the quote is the next revision. Revise quote locks the current one by
+ * hand and starts the next. A locked revision is never edited: its PDF is
+ * made again from its own choices.
+ *
+ * Signing one option makes it the contract; the other options are marked
+ * superseded. Signing again after a change is a change order (revLabel).
+ * The quote number and revision print on every estimate and contract. */
+const QUOTE_OP = ['options', 'qty', 'doorW', 'doorH'], QUOTE_JOB = ['materials', 'fees', 'docType'];
+const OPT_KEYS = 'ABCDEFGHIJ';
+const deep = x => x === undefined ? undefined : JSON.parse(JSON.stringify(x));
+function ensureQuotes(job){
+  if(!job.qt || !job.qt.opts) job.qt = {active:'A', opts:{A:{revs:[]}}};
+  if(!job.qt.opts[job.qt.active]) job.qt.opts[job.qt.active] = {revs:[]};
+  return job.qt;
+}
+const activeOpt = job => (job && job.qt && job.qt.active) || 'A';
+const optCount = job => job && job.qt ? Object.keys(job.qt.opts).length : 1;
+function choicesOf(job){
+  const ops = {}, j = {};
+  job.openings.forEach(op => { const o = {}; QUOTE_OP.forEach(k => { if(op[k] !== undefined) o[k] = deep(op[k]); }); ops[op.id] = o; });
+  QUOTE_JOB.forEach(k => { if(job[k] !== undefined) j[k] = deep(job[k]); });
+  return {ops, job:j};
+}
+function applyChoices(job, c){
+  if(!c) return;
+  job.openings.forEach(op => { const o = c.ops[op.id]; if(!o) return;     // an opening added since keeps what it has
+    QUOTE_OP.forEach(k => { if(o[k] === undefined) delete op[k]; else op[k] = deep(o[k]); }); });
+  QUOTE_JOB.forEach(k => { if(c.job[k] === undefined) delete job[k]; else job[k] = deep(c.job[k]); });
+}
+const quoteNo = job => job.quoteNo || ('Q' + String(job.id || '').replace(/[^a-z0-9]/gi, '').slice(-6).toUpperCase());
+function quoteRev(job){
+  const O = ensureQuotes(job).opts[activeOpt(job)], last = O.revs[O.revs.length - 1];
+  if(!last) return 1;
+  return O.next || last.fp !== signFp(job) ? last.rev + 1 : last.rev;
+}
+const optLabel = job => optCount(job) > 1 ? ' Option ' + activeOpt(job) : '';
+const quoteRef = job => quoteNo(job) + optLabel(job) + ' Rev ' + quoteRev(job);
+const liveTotal = () => calc && typeof cv('U54') === 'number' ? cv('U54') : null;
+// what the customer was given is locked as this revision
+function lockRev(job, kind, extra){
+  const O = ensureQuotes(job).opts[activeOpt(job)], fp = signFp(job), last = O.revs[O.revs.length - 1];
+  let r = last && last.fp === fp && !O.next ? last : null;
+  if(!r){ r = {rev:quoteRev(job), at:new Date().toISOString(), fp, data:choicesOf(job), total:liveTotal(), events:[]}; O.revs.push(r); }
+  delete O.next;
+  r.events.push(Object.assign({kind, at:new Date().toISOString()}, extra || {}));
+  return r;
+}
+function reviseQuote(job){
+  const O = ensureQuotes(job).opts[activeOpt(job)];
+  if(O.next) return;
+  const was = quoteRev(job);
+  lockRev(job, 'revised');
+  O.next = true;
+  return was;
+}
+// the signed option is the contract; the others are superseded
+function markSigned(job){
+  const s = job.signed; if(!s || !s.at) return;
+  const Q = ensureQuotes(job), k = s.opt || 'A';
+  if(!Q.opts[k]) Q.opts[k] = {revs:[]};
+  const O = Q.opts[k];
+  if(!O.revs.some(r => (r.events || []).some(e => e.kind === 'contract' && e.signedAt === s.at))){
+    if(k === Q.active && s.fp === signFp(job)) lockRev(job, 'contract', {signedAt:s.at, name:s.name || ''});
+    else { const last = O.revs[O.revs.length - 1];
+      const r = last && last.fp === s.fp ? last : {rev:s.qrev || (last ? last.rev + 1 : 1), at:s.at, fp:s.fp, data:k === Q.active ? choicesOf(job) : deep(O.data), total:null, events:[]};
+      if(r !== last) O.revs.push(r);
+      r.events.push({kind:'contract', at:s.at, signedAt:s.at, name:s.name || ''}); }
+  }
+  Object.keys(Q.opts).forEach(x => { if(x !== k && !Q.opts[x].superseded) Q.opts[x].superseded = {at:s.at, by:k}; });
+  delete O.superseded;
+}
+function switchOpt(job, k){
+  const Q = ensureQuotes(job);
+  if(k === Q.active || !Q.opts[k]) return;
+  Q.opts[Q.active].data = choicesOf(job);
+  applyChoices(job, Q.opts[k].data);
+  delete Q.opts[k].data;
+  Q.active = k;
+}
+function newOpt(job){
+  const Q = ensureQuotes(job), k = OPT_KEYS.split('').find(x => !Q.opts[x]);
+  if(!k) return null;
+  Q.opts[Q.active].data = choicesOf(job);       // the new option starts as a copy of this one
+  Q.opts[k] = {revs:[]};
+  Q.active = k;
+  return k;
+}
+function removeOpt(job, k){
+  const Q = ensureQuotes(job);
+  if(k === Q.active || !Q.opts[k] || optCount(job) < 2) return false;
+  delete Q.opts[k];
+  return true;
+}
+// a locked revision's estimate, made again from its own choices
+async function revPdf(job, k, rev){
+  const Q = ensureQuotes(job), O = Q.opts[k], r = O && O.revs.find(x => x.rev === rev);
+  if(!r) return toast('That revision is not here');
+  const live = choicesOf(job), was = Q.active, wasNext = O.next;
+  try{
+    applyChoices(job, r.data); Q.active = k; O.next = false;
+    const keep = O.revs; O.revs = keep.filter(x => x.rev <= rev);      // so it prints as its own revision
+    try{ saveBytes(await contractPdf(job, {quote:true, blank:true}), quoteName(job).replace(/\.pdf$/, ' ' + quoteRef(job).replace(/^Q\w+ /, '') + '.pdf'), 'application/pdf'); }
+    finally{ O.revs = keep; }
+  }catch(err){ toast('The PDF could not be made: ' + (err.message || err)); }
+  finally{ applyChoices(job, live); Q.active = was; if(wasNext) O.next = wasNext; else delete O.next; calcJob(job); }
+}
+const EVENT_WORD = {estimate:'estimate sent', contract:'signed', revised:'locked', 'send-sign':'sent to sign'};
+function quoteBar(job){
+  if(!canSeePrices() || state.remote) return '';
+  const Q = ensureQuotes(job), keys = Object.keys(Q.opts).sort(), signedK = job.signed && job.signed.at ? (job.signed.opt || 'A') : '';
+  let h = '<div class="qbar"><div class="qbar-top"><b class="qref">' + esc(quoteRef(job)) + '</b>';
+  const O = Q.opts[Q.active], last = O.revs[O.revs.length - 1];
+  h += '<span class="qstate">' + (!last ? 'Not sent yet' : O.next ? 'New revision, from Rev ' + last.rev
+        : last.fp === signFp(job) ? 'Same as ' + (last.events || []).map(e => EVENT_WORD[e.kind] || e.kind).slice(-1)[0] + ' ' + signDay(last.at)
+        : 'Changed since Rev ' + last.rev) + '</span>';
+  h += '<span class="qbtns"><button class="btn btn-sm" data-qrevise="1"' + (O.next || !last && false ? ' disabled' : '') + '>Revise quote</button>' +
+       '<button class="btn btn-sm" data-qnew="1">+ Option</button>' +
+       (keys.some(k => Q.opts[k].revs.length) ? '<button class="btn btn-sm" data-toggle="qhist">' + (state.qHist ? 'Hide history' : 'History') + '</button>' : '') + '</span></div>';
+  if(keys.length > 1) h += '<div class="qopts">' + keys.map(k => '<button class="chip' + (k === Q.active ? ' on' : '') + '" data-qopt="' + k + '">Option ' + k +
+      (k === signedK ? ' <i>signed</i>' : Q.opts[k].superseded ? ' <i>superseded</i>' : '') + '</button>' +
+      (k !== Q.active && k !== signedK ? '<button class="qrm" data-qrm="' + k + '" title="Remove option ' + k + '" aria-label="Remove option ' + k + '">×</button>' : '')).join('') + '</div>';
+  if(state.qHist) h += '<ul class="qhist">' + keys.flatMap(k => Q.opts[k].revs.slice().reverse().map(r => '<li>' +
+      esc((keys.length > 1 ? 'Option ' + k + ' ' : '') + 'Rev ' + r.rev + ', ' + (r.events || []).map(e => (EVENT_WORD[e.kind] || e.kind) + ' ' + signDay(e.at) + (e.to ? ' to ' + e.to : '')).join(', ') +
+        (typeof r.total === 'number' ? ', total ' + money(r.total) : '')) +
+      ' <button class="btn btn-sm" data-qpdf="' + k + ':' + r.rev + '">Estimate PDF</button></li>')).join('') + '</ul>';
+  return h + '</div>';
 }
 const markSvg = (m, cls) => !m ? '' :
   '<svg class="' + cls + '" viewBox="0 0 ' + m.w + ' ' + m.h + '" preserveAspectRatio="xMidYMid meet" xmlns="http://www.w3.org/2000/svg">' +
@@ -1514,7 +1670,7 @@ async function contractPdf(job, opts){
     return H - 104;
   };
   const kicker = (pg, s, x, y) => text(pg, s.toUpperCase(), x, y, {size:7, font:FB, color:RED});
-  const who = [job.customer, docAddress(job), job.date].filter(Boolean).join('  -  ');
+  const who = [quoteRef(job), job.customer, docAddress(job), job.date].filter(Boolean).join('  -  ');
   const prices = canSeePrices();
 
   /* 2.35, Andrew 18 Nov: the Summary Estimate, one page in the same style:
@@ -1944,7 +2100,9 @@ async function sendToSign(job, again){
   try{ await persist(); }catch(e){ return; }
   try{
     const res = await remoteCall({action:'send', id:job.id, fp:signFp(job), again:!!again}, true);
-    job.remoteSign = res.request; await persist().catch(() => {}); render();
+    job.remoteSign = res.request;
+    lockRev(job, 'send-sign', {to});           // 2.57: what went to sign is this revision
+    await persist().catch(() => {}); render();
     toast('Sent to ' + to);
   }catch(err){
     if(err.info && err.info.already && await sure({title:'Send ' + revLabel(nr || 1) + ' to sign?', what:err.message,
@@ -1958,6 +2116,7 @@ async function remoteCheck(job, quiet){
     if(res.request && res.request.status === 'done'){
       const fresh = await loadJob(job.id);          // the server wrote the signatures onto it
       Object.assign(job, {signed:fresh.signed, contracts:fresh.contracts || job.contracts, remoteSign:fresh.remoteSign || res.request});
+      markSigned(job); persistBg();
       setTimeout(() => stampSuperseded(job), 0);
     } else job.remoteSign = res.request;
     render();
@@ -1999,6 +2158,7 @@ function remoteSignNow(){
     if(!signed) return;
     state.remote.phase = 'saving'; render();
     try{
+      signed.opt = activeOpt(state.job); signed.qrev = quoteRev(state.job);     // 2.57: which quote was signed
       const res = await remoteCall({action:'sign', token:state.remote.token, signed});
       state.remote.req = res.request;
       await remoteFinish(signed);
@@ -2153,7 +2313,7 @@ function quoteFigures(job){
     .concat([{label:'Total', amount:grand.v, grand:true},
              {label:(dep.k.match(/\d+%/) || ['50%'])[0] + ' deposit', amount:dep.v, soft:true},
              {label:'Balance at installation', amount:bal.v, soft:true}]);
-  const no = job.quoteNo || ('E' + String(job.id || '').replace(/[^a-z0-9]/gi, '').slice(-6).toUpperCase());
+  const no = quoteRef(job);                 // 2.57: the quote number, option and revision
   return {cats, sums, grand:grand.v, dep:dep.v, bal:bal.v, depPct:(dep.k.match(/\d+%/) || ['50%'])[0], no,
           dateText:day(at), validText:day(valid), at:at.toISOString()};
 }
@@ -2188,6 +2348,7 @@ async function sendQuote(job){
     }catch(err){ toast((err.message || err) + '. The PDF is saved on this device.'); }
   }
   job.quotes = (job.quotes || []).concat([rec]);
+  lockRev(job, 'estimate', rec.to ? {to:rec.to.join(', ')} : {});      // 2.57: what was sent is this revision
   render(); persistBg();
 }
 const contractName = job => ((job.customer || 'Customer') + ' signed contract ' +
@@ -2227,7 +2388,9 @@ async function signContract(job){
     const rev = nextRev(job);
     if(job.signed && job.signed.at) supersede(job, rev);
     signed.rev = rev;
+    signed.opt = activeOpt(job); signed.qrev = quoteRev(job);     // 2.57: which quote was signed
     job.signed = signed;
+    markSigned(job);
     try{ await persist(); }catch(e){ /* toast said so; the PDF below still keeps the signatures */ }
     render();
     let bytes;
@@ -2675,7 +2838,7 @@ function jambPage(job){
     '</tbody></table><div class="print-kick">Hinge placement</div>' + hingeDetail() + sigBlock(job, 'jambs') + '</div>';
 }
 function conditionFields(op){
-  let h = '<div class="field cond"><label>Opening has</label><div class="chips">' +
+  let h = '<div class="field cond"><label>Opening has' + (op.cond || !sized(op) ? '' : ' <b class="req">needed</b>') + '</label><div class="chips">' +
     CONDITIONS.map(c => '<button type="button" class="chip' + (op.cond === c ? ' on' : '') + '" data-cond="' + c +
       '" data-op="' + op.id + '">' + c + '</button>').join('') + '</div>';
   const swingIn = op.options.some(o => isSwingType(o.v.doorType));
@@ -3185,6 +3348,9 @@ function missing(job){
     // 2.50, Andrew 19 Nov: every opening has a door there now
     if(sized(op) && on.length && !op.existingType)
       out.push('Opening ' + op.number + ': door there now (double tap its type)');
+    // 2.57, Andrew 19 Nov: what the opening has (jamb, drywall, rough opening) is required, like its width and height
+    if(sized(op) && on.length && !op.cond)
+      out.push('Opening ' + op.number + ': opening has (jamb, drywall or rough opening)');
     // 2.31: a job measured by its door opening needs both
     if(sized(op) && on.length && (!op.openW || !op.openH))
       out.push('Opening ' + op.number + ': door opening ' + (!op.openW ? 'width' : 'height'));
@@ -4232,7 +4398,7 @@ function renderReview(){
   let h = '<table class="pw"><tfoot class="pw-foot"><tr><td>' + sigBlock(job, 'contract') + '</td></tr></tfoot><tbody><tr><td>';
   // 2.23: the printed order opens like Andrew's forms: letterhead, then the document as a title
   h += '<div class="print-top">' + letterhead() + '<div class="pt-title"><h1>' + esc((job.docType || 'Order').replace(/ - .*/, '')) +
-       (revOf(job) ? ' <b class="pt-rev">' + revLabel(revOf(job)) + '</b>' : '') + '</h1><span>' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  \u00b7  ')) + '</span></div></div>';
+       (revOf(job) ? ' <b class="pt-rev">' + revLabel(revOf(job)) + '</b>' : '') + '</h1><span>' + esc([quoteRef(job), job.customer, docAddress(job), job.date].filter(Boolean).join('  \u00b7  ')) + '</span></div></div>';
   const rv = job.signed && job.signed.rev ? ' (' + revLabel(job.signed.rev) + ')' : '';
   if(job.signed && job.signed.at)
     h += signedOk(job)
@@ -4241,11 +4407,15 @@ function renderReview(){
          job.signed.emailError ? '. Not emailed: ' + esc(job.signed.emailError) : '.') +
         ' <button class="btn btn-sm" data-signpdf="1">Download signed PDF</button>' +
         (job.signed.emailed ? '' : ' <button class="btn btn-sm" data-signmail="1">Email it</button>') + '</p>'
+      : (job.signed.opt || 'A') !== activeOpt(job)
+      ? '<p class="warn stop">Option ' + esc(job.signed.opt || 'A') + ' was signed' + rv + ' by ' + esc(job.signed.name) + ' on ' + esc(signDay(job.signed.at)) +
+        '. This is Option ' + esc(activeOpt(job)) + '. Signing it makes ' + revLabel(nextRev(job)) + ' and supersedes the signed one.</p>'
       : '<p class="warn stop">This order was signed' + rv + ' by ' + esc(job.signed.name) + ' on ' + esc(signDay(job.signed.at)) +
         ' and has changed since. The signatures no longer show. Sign it again here or with Send to Sign: the new contract is ' +
         revLabel(nextRev(job)) + ', and the signed one is kept, marked superseded.</p>';
   h += historyBanner(job);
   h += remoteBanner(job);
+  h += quoteBar(job);
 
   // the head of the contract: who, where, and which price list
   const H = [['Customer', job.customer], ['Address', job.address], ['City', job.city],
@@ -4816,7 +4986,7 @@ const floorGapText = g => 'Estimated floor gap ' + sizeText(g) + '"';
 
 /* 2.31: the door opening, typed on the pad, and the door worked out from it */
 function openingFields(op){
-  const box = (f, label) => '<div class="field"><label>' + label + '</label>' +
+  const box = (f, label) => '<div class="field"><label>' + label + (op[f] ? '' : ' <b class="req">needed</b>') + '</label>' +
     '<button type="button" class="padbox' + (op[f] ? ' set' : '') + '" data-padof="' + f + '" data-op="' + op.id + '">' +
     (op[f] ? esc(sizeText(op[f])) + '"' : 'Tap to type the opening') + '</button></div>';
   let h = '<div class="open-sz">' + box('openW', 'Door opening width (in)') + box('openH', 'Door opening height (in)') + '</div>' +
@@ -5216,7 +5386,7 @@ function renderJob(){
       h += (op.note || state.noteOpen === op.id)
         ? '<div class="field op-note"><label>Note for this door (prints on the contract in red)</label>' +
           noteBox('data-opnote="' + op.id + '"', op.note, 'e.g. keep the existing stop, customer to paint') + '</div>'
-        : '<button type="button" class="linkbtn op-noteadd" data-opnoteadd="' + op.id + '">+ Note for this door</button>';
+        : '<button type="button" class="btn btn-sm op-noteadd" data-opnoteadd="' + op.id + '">+ Add note</button>';
       h += '</div></div><div class="op-right">';
       if(sized(op)) h += '<div class="o-w">' + openingFields(op) + '</div>';
       else h += '<div class="o-w">' + sizeChips(op, 'width', widthsFor(op), 'Other width') + '</div>';
@@ -5368,7 +5538,7 @@ function renderJob(){
    Every data attribute the click handler answers to. It is one list rather than
    a hand-written selector because the selector fell out of step with the
    handler once already, and the buttons it left out simply did nothing. */
-const CLICK_KEYS = ['opnoteadd','open','del','new','back','toggle','inc','edit','skip','done',
+const CLICK_KEYS = ['qrevise','qnew','qopt','qrm','qpdf','opnoteadd','open','del','new','back','toggle','inc','edit','skip','done',
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
@@ -5427,6 +5597,26 @@ document.addEventListener('click', async e => {
   /* 2.26: remote signing */
   { const act = Object.keys(REVIEW_ACTS).find(k => d[k] !== undefined);
     if(act && !await confirmReviewed(REVIEW_ACTS[act])) return; }
+  /* 2.57: quotes, options and revisions */
+  if(d.qrevise !== undefined){
+    const was = quoteRev(job);
+    if(!await sure({title:'Revise quote?', what:'Rev ' + was + ' is locked as it is now, and your changes from here are Rev ' + (was + 1) + '.',
+        why:'Rev ' + was + ' stays in History, with its own estimate PDF.', final:'You can still send Rev ' + was + ' from History.', go:'Revise', goClass:'btn-primary'})) return;
+    reviseQuote(job); render(); return persistBg();
+  }
+  if(d.qnew !== undefined){
+    const from = activeOpt(job), k = newOpt(job);
+    if(!k) return toast('There are already ' + OPT_KEYS.length + ' options');
+    if(calc && state.view === 'review') calcJob(job);
+    render(); toast('Option ' + k + ' started as a copy of Option ' + from); return persistBg();
+  }
+  if(d.qopt){ switchOpt(job, d.qopt); if(calc && state.view === 'review') calcJob(job); render(); return persistBg(); }
+  if(d.qrm){
+    if(!await sure({title:'Remove Option ' + d.qrm + '?', what:'Its door choices and its history go.', go:'Remove'})) return;
+    if(removeOpt(job, d.qrm)){ render(); persistBg(); }
+    return;
+  }
+  if(d.qpdf){ const [k, r] = d.qpdf.split(':'); return revPdf(job, k, Number(r)); }
   if(d.opnoteadd){ state.noteOpen = d.opnoteadd; render();
     const ta = document.querySelector('textarea[data-opnote="' + d.opnoteadd + '"]'); if(ta) ta.focus(); return; }
   if(d.sendsign !== undefined) return sendToSign(job);
@@ -5675,6 +5865,7 @@ document.addEventListener('click', async e => {
     await saveChain;                    // 2.30: the list after the last save has landed
     state.jobs = await loadIndex(); return render(); }
   if(d.toggle === 'rvdefaults'){ state.rvDefaults = !state.rvDefaults; return render(); }
+  if(d.toggle === 'qhist'){ state.qHist = !state.qHist; return render(); }
   if(d.rvapplydef !== undefined){
     const dv = job.defaults || {}, set = DEFAULT_FIELDS.filter(f => dv[f.k]);
     if(!set.length) return toast('Pick a default first');
@@ -5816,6 +6007,10 @@ document.addEventListener('click', async e => {
     const miss = missing(job);
     if(miss.length){ toast('Still needed: ' + miss.slice(0,2).join('; ') +
       (miss.length > 2 ? ' and ' + (miss.length - 2) + ' more' : '')); return; }
+    // 2.57: only the signed option goes on to the order
+    if(job.signed && job.signed.at && (job.signed.opt || 'A') !== activeOpt(job) &&
+       !await sure({title:'This is not the signed option', what:'Option ' + (job.signed.opt || 'A') + ' was signed. This is Option ' + activeOpt(job) + '.',
+         why:'Pick Option ' + (job.signed.opt || 'A') + ' first to order what the customer signed.', final:'Download this option anyway?', go:'Download anyway'})) return;
     await download(job);
   }
 });
@@ -6029,6 +6224,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.56 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.57 · 19 Nov 2026</div>
 </body>
 </html>

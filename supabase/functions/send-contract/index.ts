@@ -90,7 +90,7 @@ type Job = {
   contracts?: { at?: string; supersededBy?: number }[];
   specialOrder?: unknown[];
 };
-const revLabel = (r: number) => "Rev " + String(r).padStart(3, "0");
+const revLabel = (r: number) => "Change Order " + String(r).padStart(3, "0");   // 2.57: a contract signed again after a change
 
 /* 2.35: the email that carries a Summary Estimate */
 function quoteEmailFor(j: Job, repName: string, total: string, valid: string) {

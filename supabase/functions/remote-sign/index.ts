@@ -109,7 +109,7 @@ const nextRev = (j: { signed?: Signed; contracts?: Contract[] } | null) => {
   if (j?.signed?.at) r.push(Number(j.signed.rev ?? 0) || 0);
   return r.length ? Math.max(...r) + 1 : 0;
 };
-const revLabel = (r: number) => "Rev " + String(r).padStart(3, "0");
+const revLabel = (r: number) => "Change Order " + String(r).padStart(3, "0");   // 2.57: a contract signed again after a change
 
 /* where the customer's request came from: Supabase puts the caller first in
    x-forwarded-for; cf-connecting-ip when Cloudflare is in front */
