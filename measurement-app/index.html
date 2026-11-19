@@ -2219,6 +2219,9 @@ function openPlan(op, o){
        narrower, never re-stiled. 2.39: a barn door the same (it hangs over
        the opening, so it is at least as wide). */
     per = q; finW = W / q; finH = H; limit = null; P.pocket = true;
+    /* 2.40, Andrew 19 Nov: only the width goes up. A pocket door's height is
+       worked out as a swing door's: under the head with the floor gap. */
+    if(/pocket/i.test(t)) finH = H - rv - gap;
   } else {
     per = q; finW = W / q; finH = H; limit = 1;
   }
@@ -2234,7 +2237,7 @@ function openPlan(op, o){
      A stock height that leaves a floor gap of up to 1 1/4" (the terms'
      range, so up to 3/4" over the 1/2" gap) is used as it is, uncut;
      otherwise the next height up, cut down. */
-  const under = swing && !P.typedH ? hs.filter(h => h <= finH + CUT_TOL).pop() : undefined;
+  const under = (swing || /pocket/i.test(t)) && !P.typedH ? hs.filter(h => h <= finH + CUT_TOL).pop() : undefined;
   const fits = under !== undefined && finH - under <= GAP_EXTRA + CUT_TOL;
   if(fits) finH = under;
   P.finH = r4(finH);
@@ -5441,6 +5444,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.39 · 18 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.40 · 18 Nov 2026</div>
 </body>
 </html>
