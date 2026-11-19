@@ -1,4 +1,4 @@
-// Measurement app 2.59: the GDL line. Frame and insert colours, bypass or bifold only,
+// Measurement app 2.59 and 2.60: the GDL line, install Yes/No (Free on GDL). Frame and insert colours, bypass or bifold only,
 // frame and insert on the review, the contract and the door selections, not in the workbook.
 //
 //   node tests/gdl.js
@@ -98,7 +98,8 @@ const check = (name, ok, got) => {
   check('the workbook line has GDL ByPass and no handle, paint or re-rail', s.r9.E9 === 'GDL ByPass' && !s.r9.N9 && !s.r9.Q9 && !s.r9.K9 && !s.r9.I9, s.r9);
   check('frame and insert are not in the workbook or the XML', !/Lacobel|Frosted|Chocolate/.test(s.sheet) && !/Lacobel|Frosted|Chocolate|Frame/.test(s.xml), s.xml.slice(0, 600));
   check('door picks carry frame and insert, with the style photo', s.picks.length === 3 && s.picks[0].sub === 'Frame: Black, Insert: White Lacobel' &&
-    s.picks[0].photo === 'glissade-style-3.jpg' && s.picks[1].photo === 'glissade-style-2.jpg', s.picks);
+    s.picks[0].photo === 'glissade-style-3.jpg' && s.picks[1].photo === 'glissade-bifold-style-2.jpg' &&
+    s.picks[0].edge.photo === 'glissade-edge-square.jpg' && s.picks[1].edge.name === 'Inspira frame edge' && !s.picks[2].edge, s.picks);
   check('frame and insert are part of what is signed', s.fp !== fp0);
   const photo = await page.evaluate(async () => (await fetch('glissade-style-3.jpg')).status);
   check('the Glissade style photo is there', photo === 200, photo);
@@ -132,6 +133,20 @@ const check = (name, ok, got) => {
   check('contract PDF has frame and insert', /Frame: Silver/.test(txt) && /Insert: White Lacobel/.test(txt) && /Frame: Chocolate/.test(txt), txt.slice(0, 1500));
   check('door selections page names frame and insert', /Frame: Silver, Insert: White Lacobel/.test(txt.replace(/\s+/g, ' ')), txt.slice(-1500));
   if(process.env.PDF) fs.writeFileSync(process.env.PDF, Buffer.from(bytes));
+
+  // 2.60: install is Yes or No, Free only on GDL
+  const ins = await page.evaluate(() => {
+    const [a, b] = state.job.openings; a.options[0].v.install = 'FREE'; b.options[0].v.install = '';
+    const plain = newOpening(4, null, state.job); Object.assign(plain.options[0].v, {doorType:'Single Swing', productType:'1.375 Hollow', install:'FREE'});
+    state.job.openings.push(plain); render();
+    const sel = [...document.querySelectorAll('select[data-rv="install"]')].map(x => [...x.options].map(o => o.value).filter(Boolean).join());
+    const out = {a:a.options[0].v.install, b:b.options[0].v.install, plain:plain.options[0].v.install, sel};
+    state.job.openings.pop(); render(); return out;
+  });
+  check('install: Free stays on GDL, blank becomes YES, Free on a plain door becomes YES', ins.a === 'FREE' && ins.b === 'YES' && ins.plain === 'YES', ins);
+  check('install: review offers YES,NO,FREE on GDL and YES,NO on others', ins.sel[0] === 'YES,NO,FREE' && ins.sel[3] === 'YES,NO', ins.sel);
+  const edges = await page.evaluate(async () => Promise.all(['glissade-edge-square.jpg', 'glissade-edge-swept.jpg', 'glissade-edge-bifold.jpg', 'glissade-bifold-style-9.jpg'].map(async f => (await fetch(f)).status)));
+  check('edge close ups and bifold pictures are there', edges.every(x => x === 200), edges);
 
   // back to a plain door: Bypass again, paint default back, frame and insert gone
   const back = await page.evaluate(() => {

@@ -360,6 +360,8 @@ tr.rv-total td{font-weight:700;border-top:2px solid var(--ink)}
      cut to that shape around the closet door in the files themselves. */
   .pd-card img, .pd-nophoto{width:1.55in!important;height:4.13in!important;max-width:none;object-fit:fill}
   .pd-card img.room{object-fit:cover;object-position:center}
+  .pd-ph{position:relative}
+  .pd-card .pd-ph img.pd-edge{position:absolute;right:-.12in;bottom:6px;width:48%!important;height:auto!important;aspect-ratio:1;margin:0;object-fit:contain;border-radius:50%}
   .print-doors.many .pd-card img, .print-doors.many .pd-nophoto{width:.83in!important;height:2.2in!important}
   /* 2.25: the handles under the doors; the doors shrink a little to make room */
   .print-doors.with-h .pd-card{width:1.25in}
@@ -686,6 +688,7 @@ body.remote .print-kick{display:block;color:#B5121B;font-size:11px;font-weight:8
 .rs-picks b{display:block;margin-top:4px}
 .rs-picks span{display:block;color:#6B6B6B;font-size:11px}
 .rs-door{width:62px;height:165px;object-fit:fill;display:block;margin:0 auto}
+.rs-edge{width:56px;height:56px;display:block;margin:-40px -6px 0 auto;position:relative;border-radius:50%}
 .rs-handle{width:90px;height:90px;object-fit:contain;display:block;margin:0 auto}
 .rs-picks > div.rs-pair{width:160px}
 .rs-pair .rs-handle{display:inline-block;width:76px;height:76px}
@@ -1083,15 +1086,15 @@ const DOOR_PHOTOS = {
   "Glissade Swept Style 7":"glissade-style-7.jpg",
   "Glissade Swept Style 8":"glissade-style-8.jpg",
   "Glissade Swept Style 9":"glissade-style-9.jpg",
-  "Glissade Bifold Style 1":"glissade-style-1.jpg",
-  "Glissade Bifold Style 2":"glissade-style-2.jpg",
-  "Glissade Bifold Style 3":"glissade-style-3.jpg",
-  "Glissade Bifold Style 4":"glissade-style-4.jpg",
-  "Glissade Bifold Style 5":"glissade-style-5.jpg",
-  "Glissade Bifold Style 6":"glissade-style-6.jpg",
-  "Glissade Bifold Style 7":"glissade-style-7.jpg",
-  "Glissade Bifold Style 8":"glissade-style-8.jpg",
-  "Glissade Bifold Style 9":"glissade-style-9.jpg",
+  "Glissade Bifold Style 1":"glissade-bifold-style-1.jpg",
+  "Glissade Bifold Style 2":"glissade-bifold-style-2.jpg",
+  "Glissade Bifold Style 3":"glissade-bifold-style-3.jpg",
+  "Glissade Bifold Style 4":"glissade-bifold-style-4.jpg",
+  "Glissade Bifold Style 5":"glissade-bifold-style-5.jpg",
+  "Glissade Bifold Style 6":"glissade-bifold-style-6.jpg",
+  "Glissade Bifold Style 7":"glissade-bifold-style-7.jpg",
+  "Glissade Bifold Style 8":"glissade-bifold-style-8.jpg",
+  "Glissade Bifold Style 9":"glissade-bifold-style-9.jpg",
   "Economy (No Warranty)":"gdl-economy-glass.jpg",
   "Malai":"gdl-malai.jpg",
   "Madori":"gdl-midori.jpg",
@@ -1107,7 +1110,7 @@ function doorPicks(job){
     // 2.59: a GDL door is told apart by its frame and insert colours too
     const g = gdlWords(o), sub = g ? [g.frame, g.insert].filter(Boolean).join(', ') : '';
     const k = o.v.doorStyle + (sub ? '|' + sub : '');
-    if(!by.has(k)) by.set(k, {style:o.v.doorStyle, sub, photo:DOOR_PHOTOS[o.v.doorStyle] || '', where:[], qty:0});
+    if(!by.has(k)) by.set(k, {style:o.v.doorStyle, sub, photo:DOOR_PHOTOS[o.v.doorStyle] || '', edge:gdlEdge(o.v.doorStyle), where:[], qty:0});
     const e = by.get(k);
     e.where.push((op.location || 'Opening ' + op.number)); e.qty += Number(op.qty) || 1;
   }));
@@ -1169,7 +1172,9 @@ function doorsPage(job){
   return '<div class="print-doors' + many + (hp.length ? ' with-h' : '') + '">' + letterhead() +
     '<h2>' + (hp.length ? 'Your door and handle selections' : 'Your door selections') + '</h2><p class="pd-who">' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  ·  ')) + '</p>' +
     '<div class="pd-grid">' + picks.map(p => '<div class="pd-card">' +
-      (p.photo ? '<img src="' + p.photo + '" alt=""' + (WIDE_PHOTO(p.photo) ? ' class="room"' : '') + '>' : '<div class="pd-nophoto">Photo to come</div>') +
+      (p.photo ? '<div class="pd-ph"><img src="' + p.photo + '" alt=""' + (WIDE_PHOTO(p.photo) ? ' class="room"' : '') + '>' +
+        (p.edge ? '<img class="pd-edge" src="' + p.edge.photo + '" alt="' + esc(p.edge.name) + '">' : '') + '</div>' : '<div class="pd-nophoto">Photo to come</div>') +
+      (p.edge ? '<span class="pd-sub">' + esc(p.edge.name) + ' shown</span>' : '') +
       '<b>' + esc(styleName(p.style)) + '</b>' + (p.sub ? '<span class="pd-sub">' + esc(p.sub) + '</span>' : '') +
       '<span>' + esc(p.qty + (p.qty === 1 ? ' door' : ' doors')) +
       '</span></div>').join('') + '</div>' +
@@ -1912,11 +1917,14 @@ async function contractPdf(job, opts){
       const w = ch * 0.375, ix = x0 + (cw - w) / 2;
       if(p.photo){ try{ const img = await pdf.embedJpg(await (await fetch(p.photo)).arrayBuffer());
           pg.drawImage(img, {x:ix, y:y0 - ch, width:w, height:ch}); }catch(e){ } }
-      else { pg.drawRectangle({x:ix, y:y0 - ch, width:w, height:ch, borderColor:RULE, borderWidth:0.6});
+      if(p.photo && p.edge){ try{ const img = await pdf.embedJpg(await (await fetch(p.edge.photo)).arrayBuffer()), es = Math.min(cw * 0.5, 56);
+          pg.drawImage(img, {x:x0 + cw - es + 6, y:y0 - ch, width:es, height:es}); }catch(e){ } }
+      if(!p.photo){ pg.drawRectangle({x:ix, y:y0 - ch, width:w, height:ch, borderColor:RULE, borderWidth:0.6});
         text(pg, 'Photo to come', x0 + cw / 2, y0 - ch / 2, {size:6.5, color:GREY, center:true}); }
       text(pg, fitText(styleName(p.style), FB, 7.5, cw + 14), x0 + cw / 2, y0 - ch - 10, {size:7.5, font:FB, center:true});
       text(pg, fitText((p.sub ? p.sub + ', ' : '') + p.qty + (p.qty === 1 ? ' door' : ' doors'), F, 6, cw + 14),
            x0 + cw / 2, y0 - ch - 18, {size:6, color:GREY, center:true});
+      if(p.edge) text(pg, fitText(p.edge.name + ' shown', F, 5.5, cw + 14), x0 + cw / 2, y0 - ch - 25, {size:5.5, color:GREY, center:true});
     }
     // 2.25: the handles, in their finish, in a row under the doors
     if(hp.length){
@@ -2238,7 +2246,8 @@ function renderRemote(){
       '</tbody></table></div>').join('') + '</div>';
     const picks = doorPicks(job), hp = handlePicks(job);
     if(picks.length) h += '<div class="print-kick rs-kick">Your door' + (hp.length ? ' and handle' : '') + ' selections</div><div class="rs-picks">' +
-      picks.map(p => '<div>' + (p.photo ? '<img class="rs-door" src="' + p.photo + '" alt="">' : '') + '<b>' + esc(styleName(p.style)) + '</b><span>' +
+      picks.map(p => '<div>' + (p.photo ? '<img class="rs-door" src="' + p.photo + '" alt="">' : '') +
+        (p.edge ? '<img class="rs-edge" src="' + p.edge.photo + '" alt="' + esc(p.edge.name) + '" title="' + esc(p.edge.name) + '">' : '') + '<b>' + esc(styleName(p.style)) + '</b><span>' +
         esc((p.sub ? p.sub + ', ' : '') + p.qty + (p.qty === 1 ? ' door' : ' doors')) + '</span></div>').join('') +
       hp.map(x => '<div' + (x.rosePhoto ? ' class="rs-pair"' : '') + '><img class="rs-handle" src="' + x.photo + '" alt="">' +
         (x.rosePhoto ? '<img class="rs-handle" src="' + x.rosePhoto + '" alt="">' : '') + '<b>' + esc(x.title) + '</b><span>' + esc(x.rose + ', ' + x.colour) + '</span></div>').join('') + '</div>';
@@ -2768,6 +2777,7 @@ function syncHandles(job){
     else if(o.v.handleType && c.indexOf(o.v.handleType) < 0) o.v.handleType = '';
   }));
   syncGdl(job);
+  syncInstall(job);
 }
 /* 2.59, Andrew 19 Nov: THE GDL LINE
  *
@@ -2836,6 +2846,19 @@ function syncGdl(job){
       if(v.frameColour) delete v.frameColour;
       if(v.insertColour) delete v.insertColour;
     }
+  }));
+}
+/* 2.60, Andrew 19 Nov: the Glissade frames by their supplier names, Futura
+   (Glissade Square), Moderna (Glissade Swept) and Inspira (Glissade Bifold),
+   with a close up of the frame edge on the door selections page */
+const GDL_EDGES = [[/^Glissade Square/, 'Futura', 'glissade-edge-square.jpg'],
+  [/^Glissade Swept/, 'Moderna', 'glissade-edge-swept.jpg'], [/^Glissade Bifold/, 'Inspira', 'glissade-edge-bifold.jpg']];
+const gdlEdge = style => { const e = GDL_EDGES.find(x => x[0].test(style || '')); return e ? {name:e[1] + ' frame edge', photo:e[2]} : null; };
+/* 2.60, Andrew 19 Nov: install is Yes or No on every door; only a GDL door can also be Free */
+const installChoices = o => isGdl(o) ? ['YES', 'NO', 'FREE'] : ['YES', 'NO'];
+function syncInstall(job){
+  ((job && job.openings) || []).forEach(op => op.options.forEach(o => {
+    if(installChoices(o).indexOf(o.v.install) < 0) o.v.install = 'YES';
   }));
 }
 // the frame and insert words, for the contract and the signing page
@@ -4478,6 +4501,7 @@ function reviewEditor(col, op, o){
   if(col.k === 'doorType')
     return reviewSelect(col.list, shown, at, isGdl(o) ? GDL_TYPES : null) + (op.existingType ? '<span class="rv-now">Now: ' + esc(op.existingType) + '</span>' : '');
   if(col.k === 'handleType') return reviewSelect(col.list, shown, at, handleChoices(o.v.doorType));
+  if(col.k === 'install') return reviewSelect(col.list, shown, at, installChoices(o));      // 2.60
   if(col.k === 'handleStyle' && noHandleStyle(o.v.doorType)) return '<span class="rv-fixed" title="A bifold or bypass has no handle style">None</span>';
   return reviewSelect(col.list, shown, at);
 }
@@ -5568,7 +5592,7 @@ function renderJob(){
                   const at = 'data-v="' + f.k + '" data-o="' + o.id + '" data-op="' + op.id + '"';
                   h += isCombo(f.list)
                      ? combo(f.list, o.v[f.k], at + (f.k === 'doorStyle' && isGdl(o) ? ' data-only="' + esc(gdlStyles(o.v.doorType).join('|')) + '"' : ''))
-                     : '<select ' + at + '>' + opt(f.list, o.v[f.k], f.k === 'handleType' ? handleChoices(o.v.doorType) : null) + '</select>';
+                     : '<select ' + at + '>' + opt(f.list, o.v[f.k], f.k === 'handleType' ? handleChoices(o.v.doorType) : f.k === 'install' ? installChoices(o) : null) + '</select>';
                 } else {
                   h += '<input type="number" data-v="' + f.k + '" data-o="' + o.id +
                        '" data-op="' + op.id + '" value="' + esc(o.v[f.k] || '') + '">';
@@ -6346,6 +6370,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.59 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.60 · 19 Nov 2026</div>
 </body>
 </html>
