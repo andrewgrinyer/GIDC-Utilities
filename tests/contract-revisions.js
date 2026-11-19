@@ -29,6 +29,8 @@ const server = http.createServer((q, r) => {
   r.end(body);
 });
 
+// 2.55: Print, Sign, Send to Sign and Send Estimate ask first whether the order was fully reviewed
+const reviewed = async p => { if(await p.locator('#sure .reviewed').count()){ await p.click('#sure .reviewed'); await p.waitForTimeout(200); } };
 let fails = 0;
 const check = (name, ok, got) => {
   console.log((ok ? 'PASS ' : 'FAIL ') + name + (ok ? '' : '  got: ' + String(JSON.stringify(got)).slice(0, 400)));
@@ -92,7 +94,7 @@ const check = (name, ok, got) => {
 
   // 1. the first signing: no revision number
   await setup('sales'); await review();
-  await page.click('[data-sign]'); await page.waitForTimeout(200);
+  await page.click('[data-sign]'); await page.waitForTimeout(200); await reviewed(page);
   await signAll();
   let j = await page.evaluate(() => ({rev:state.job.signed.rev, ok:signedOk(state.job), n:(state.job.contracts || []).length,
     name:contractName(state.job)}));
@@ -108,7 +110,7 @@ const check = (name, ok, got) => {
   const firstAt = await page.evaluate(() => state.job.signed.at);
 
   // 3. signing again asks, then makes Rev 001
-  await page.click('[data-sign]'); await page.waitForTimeout(200);
+  await page.click('[data-sign]'); await page.waitForTimeout(200); await reviewed(page);
   const ask = await page.locator('#sure').innerText();
   check('signing again asks to sign Rev 001', /Sign Rev 001/.test(ask) && /superseded/.test(ask), ask);
   await page.click('[data-sure="yes"]'); await page.waitForTimeout(200);
@@ -131,14 +133,14 @@ const check = (name, ok, got) => {
 
   // 4. and again: Rev 002, two kept
   await changePrice('344');
-  await page.click('[data-sign]'); await page.waitForTimeout(200);
+  await page.click('[data-sign]'); await page.waitForTimeout(200); await reviewed(page);
   check('the next one asks for Rev 002', /Rev 002/.test(await page.locator('#sure').innerText()));
   await page.click('[data-sure="yes"]'); await page.waitForTimeout(200);
   await signAll();
   j = await page.evaluate(() => ({rev:state.job.signed.rev, cs:state.job.contracts.map(c => [c.rev, c.supersededBy])}));
   check('Rev 002, with the original and Rev 001 both kept', j.rev === 2 && JSON.stringify(j.cs) === '[[0,1],[1,2]]', j);
   // signing Rev 002 again unchanged is still a new revision
-  await page.click('[data-sign]'); await page.waitForTimeout(200);
+  await page.click('[data-sign]'); await page.waitForTimeout(200); await reviewed(page);
   check('signing an unchanged order again would be Rev 003', /Rev 003/.test(await page.locator('#sure').innerText()));
   await page.click('[data-sure="no"]'); await page.waitForTimeout(200);
 

@@ -465,6 +465,7 @@ body.padding{overflow:hidden}
 .jobcard .jf-condo{grid-column:1 / -1;order:2}
 .print-jambs{display:none}
 .o-top{margin-bottom:4px}
+.gap-note{margin:4px 0 0;font-size:12px;color:var(--muted)}
 .rv-now{display:block;font-size:10.5px;line-height:1.2;color:var(--brass);margin-top:2px;white-space:nowrap}
 .rv-defs{margin:10px 0 4px;padding:10px 12px;border:1px solid var(--line, #C8C8C8);border-radius:8px}
 .rv-defs .rv-defgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 12px;margin:8px 0}
@@ -4135,7 +4136,8 @@ function reviewEditor(col, op, o){
   if((col.k === 'height' || col.k === 'width') && sized(op)){
     const ls = lineSize(op, o), f = col.k === 'height' ? 'openH' : 'openW';
     return '<span class="rv-fixed">' + esc(ls[col.k] === '' ? '' : sizeText(ls[col.k])) + '</span>' +
-      (op[f] ? '<span class="rv-note">opening ' + esc(sizeText(op[f])) + '</span>' : '');
+      (op[f] ? '<span class="rv-note">opening ' + esc(sizeText(op[f])) + '</span>' : '') +
+      (col.k === 'height' && floorGap(op, o) != null ? '<span class="rv-note rv-gap">floor gap ' + esc(sizeText(floorGap(op, o))) + '"</span>' : '');
   }
   if(col.k === 'height'){
     const opts = HEIGHTS.map(String).concat(HEIGHT_RANGES.map(x => x.label));
@@ -4187,7 +4189,7 @@ function renderReview(){
         ' <button class="btn btn-sm" data-signpdf="1">Download signed PDF</button>' +
         (job.signed.emailed ? '' : ' <button class="btn btn-sm" data-signmail="1">Email it</button>') + '</p>'
       : '<p class="warn stop">This order was signed' + rv + ' by ' + esc(job.signed.name) + ' on ' + esc(signDay(job.signed.at)) +
-        ' and has changed since. The signatures no longer show. Sign it again here or with Send to sign: the new contract is ' +
+        ' and has changed since. The signatures no longer show. Sign it again here or with Send to Sign: the new contract is ' +
         revLabel(nextRev(job)) + ', and the signed one is kept, marked superseded.</p>';
   h += historyBanner(job);
   h += remoteBanner(job);
@@ -4357,8 +4359,8 @@ function renderReview(){
     '<button class="btn" data-revprint="1">Print</button>' +
     (prices ? '<button class="btn btn-sign" data-sign="1"' + (lines.length ? '' : ' disabled') + '>' +
       (signedOk(job) ? 'Signed' : 'Sign') + '</button>' : '') +
-    (prices && SB ? '<button class="btn" data-sendsign="1"' + (lines.length ? '' : ' disabled') + '>Send to sign</button>' : '') +
-    (prices ? '<button class="btn" data-quote="1"' + (lines.length ? '' : ' disabled') + '>Send estimate</button>' : '') +
+    (prices && SB ? '<button class="btn" data-sendsign="1"' + (lines.length ? '' : ' disabled') + '>Send to Sign</button>' : '') +
+    (prices ? '<button class="btn" data-quote="1"' + (lines.length ? '' : ' disabled') + '>Send Estimate</button>' : '') +
     '<button class="btn btn-primary" data-xml="1"' + (lines.length ? '' : ' disabled') + '>Download workbook</button>';
 }
 
@@ -4442,6 +4444,17 @@ const $ = s => document.querySelector(s);
  *
  * sure({...}) returns a promise for true or false. */
 let sureGo = null;
+/* 2.55, Andrew 19 Nov: before Print, Sign, Send to Sign and Send Estimate the
+   salesperson confirms the order has been fully reviewed, and that they are
+   responsible for errors or omissions. Asked every time, first. */
+const REVIEW_ACTS = {revprint:'print this order', sign:'have the customer sign',
+  sendsign:'send this order to sign', quote:'send the estimate'};
+function confirmReviewed(act){
+  return sure({title:'Have you fully reviewed this order?',
+    what:'Before you ' + act + ', check every opening, size, door style, handle, option and price, and the customer\'s details.',
+    why:'By continuing you confirm the order is complete and correct. The salesperson is responsible for any errors or omissions on this order.',
+    final:'Not sure? Cancel and check it again.', go:'Yes, I have reviewed it', goClass:'btn-primary reviewed'});
+}
 function sure(o){
   const box = $('#sure');
   box.style.display = '';
@@ -4452,7 +4465,7 @@ function sure(o){
     '<p class="sure-final">' + esc(o.final || 'This cannot be undone.') + '</p>' +
     '<div class="sure-row">' +
       '<button class="btn" data-sure="no">Cancel</button>' +
-      '<button class="btn btn-danger" data-sure="yes">' + esc(o.go || 'Delete') + '</button>' +
+      '<button class="btn ' + (o.goClass || 'btn-danger') + '" data-sure="yes">' + esc(o.go || 'Delete') + '</button>' +
     '</div></div></div>';
   const cancel = box.querySelector('[data-sure="no"]');
   if(cancel) cancel.focus();          // the key under your finger backs out
@@ -4718,6 +4731,23 @@ function doorPlan(op){
   const o = op.options.find(x => x.include && x.v.doorType) || op.options.find(x => x.v.doorType);
   return o ? openPlan(op, o) : null;
 }
+/* 2.55, Andrew 19 Nov: the estimated floor gap under a swing door, opening
+   height less door height, never under 1/2". The door height is the one
+   typed, or the one worked out (an uncut stock door, or the cut height).
+   Andrew, 19 Nov: where we put in the jamb (a rough opening) the gap is 1/2". */
+const MIN_FLOOR_GAP = 0.5;
+function floorGap(op, o){
+  if(!o || !sized(op)) return null;
+  const P = openPlan(op, o);
+  if(!P || !P.swing) return null;
+  if(op.cond === 'Rough Opening') return MIN_FLOOR_GAP;
+  if(P.so && !P.typedH) return null;
+  const dh = P.typedH ? parseFloat(op.doorH) : P.finH;
+  if(!(dh > 0)) return null;
+  return Math.max(MIN_FLOOR_GAP, Math.round((P.H - dh) * 8) / 8);
+}
+const floorGapText = g => 'Estimated floor gap ' + sizeText(g) + '"';
+
 /* 2.31: the door opening, typed on the pad, and the door worked out from it */
 function openingFields(op){
   const box = (f, label) => '<div class="field"><label>' + label + '</label>' +
@@ -4731,7 +4761,9 @@ function openingFields(op){
     if(!opts.length) h += '<p class="hint">Pick the door type to work out the door.</p>';
     opts.forEach(o => { const P = openPlan(op, o); if(!P) return;
       h += '<p class="plan' + (P.so ? ' plan-so' : '') + '">' + (opts.length > 1 ? '<b>' + esc(o.v.doorType) + ':</b> ' : '') +
-        esc(planText(P)) + '</p>'; });
+        esc(planText(P)) + '</p>';
+      const g = floorGap(op, o);
+      if(g != null) h += '<p class="gap-note">' + (opts.length > 1 ? esc(o.v.doorType) + ': ' : '') + esc(floorGapText(g)) + '</p>'; });
     /* 2.33, Andrew 18 Nov: the second pair of fields, the size of each door
        that will be ordered. Filled from the opening; tap to change it. */
     const D = doorPlan(op);
@@ -5318,6 +5350,8 @@ document.addEventListener('click', async e => {
   /* 2.20, Andrew 18 Nov: a door added straight from the review. It is a new
      opening with the job's defaults, and its line is filled in right here. */
   /* 2.26: remote signing */
+  { const act = Object.keys(REVIEW_ACTS).find(k => d[k] !== undefined);
+    if(act && !await confirmReviewed(REVIEW_ACTS[act])) return; }
   if(d.sendsign !== undefined) return sendToSign(job);
   if(d.quote !== undefined) return sendQuote(job);
   if(d.rscheck !== undefined) return remoteCheck(job);
@@ -5907,6 +5941,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.54 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.55 · 19 Nov 2026</div>
 </body>
 </html>

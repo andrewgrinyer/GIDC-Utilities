@@ -16,6 +16,8 @@ const { chromium } = require(process.env.PLAYWRIGHT || 'playwright');
 const path = require('path'), fs = require('fs'), http = require('http'), os = require('os');
 const DIR = path.join(__dirname, '..', 'measurement-app');
 const TYPES = {'.js':'text/javascript', '.png':'image/png', '.jpg':'image/jpeg', '.pdf':'application/pdf'};
+// 2.55: Print, Sign, Send to Sign and Send Estimate ask first whether the order was fully reviewed
+const reviewed = async p => { if(await p.locator('#sure .reviewed').count()){ await p.click('#sure .reviewed'); await p.waitForTimeout(200); } };
 let fails = 0;
 const check = (name, ok, got) => {
   console.log((ok ? 'PASS ' : 'FAIL ') + name + (ok ? '' : '  got: ' + String(JSON.stringify(got)).slice(0, 400)));
@@ -84,7 +86,7 @@ const server = http.createServer(async (q, r) => {
   });
   await rep.click('[data-review]'); await rep.waitForFunction(() => state.reviewReady, null, {timeout:30000});
   check('the associate has Send to sign', await rep.locator('[data-sendsign]').count() === 1);
-  await rep.click('[data-sendsign]'); await rep.waitForTimeout(200);
+  await rep.click('[data-sendsign]'); await rep.waitForTimeout(200); await reviewed(rep);
   await rep.click('[data-sure="yes"]'); await rep.waitForTimeout(800);
   check('send goes to the function with the job and its fingerprint', db.req && db.req.job.customer === 'Jane Sample' && !!db.req.fp, db.req && db.req.fp);
   check('the review says it was sent and not opened', /Sent to sign to jane@example.com.*not opened yet/.test(await rep.locator('.rv-remote').innerText()));

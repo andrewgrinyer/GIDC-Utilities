@@ -28,6 +28,8 @@ const server = http.createServer((q, r) => {
   r.end(body);
 });
 
+// 2.55: Print, Sign, Send to Sign and Send Estimate ask first whether the order was fully reviewed
+const reviewed = async p => { if(await p.locator('#sure .reviewed').count()){ await p.click('#sure .reviewed'); await p.waitForTimeout(200); } };
 let fails = 0;
 const check = (name, ok, got) => {
   console.log((ok ? 'PASS ' : 'FAIL ') + name + (ok ? '' : '  got: ' + String(JSON.stringify(got)).slice(0, 400)));
@@ -102,7 +104,7 @@ const check = (name, ok, got) => {
   await setup('sales', 'so'); await review();
   const so = await page.evaluate(() => prices0(state.job));
   check('a line with no price blocks signing', so === true, so);
-  await page.click('[data-sign]'); await page.waitForTimeout(200);
+  await page.click('[data-sign]'); await page.waitForTimeout(200); await reviewed(page);
   check('no signing pad opens while a line has no price', await page.locator('.signpad').count() === 0);
   await page.fill('input[data-rvprice="msrpTyped"] >> nth=2', '400');
   await page.locator('input[data-rvprice="msrpTyped"] >> nth=2').dispatchEvent('change');
@@ -110,7 +112,7 @@ const check = (name, ok, got) => {
   check('typing the S/O price lets it be signed', await page.evaluate(() => prices0(state.job)) === false);
 
   // 5. sign every field with the mouse, as on a track pad
-  await page.click('[data-sign]'); await page.waitForTimeout(200);
+  await page.click('[data-sign]'); await page.waitForTimeout(200); await reviewed(page);
   check('the signing pad asks for the name first', await page.inputValue('#sp-name') === 'Jane Sample');
   await page.click('[data-sp="start"]');
   const fields = await page.evaluate(() => signFields(state.job).map(f => f.id));
