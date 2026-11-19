@@ -2277,7 +2277,9 @@ function openPlan(op, o){
   P.realH = realBi;
   const real = h => realBi ? h - BIFOLD_SHORT : h;
   const under = (swing || rough || realBi || /pocket/i.test(t)) && !P.typedH ? hs.filter(h => real(h) <= finH + CUT_TOL).pop() : undefined;
-  const fits = under !== undefined && (rough || finH - real(under) <= GAP_EXTRA + CUT_TOL);
+  /* 2.51, Andrew 19 Nov: less slack on a bifold (a 79 is made for an 80 1/2
+     opening): up to 1/4" extra gap, not the swing door's 3/4" */
+  const fits = under !== undefined && (rough || finH - real(under) <= (realBi ? BIFOLD_GAP_EXTRA : GAP_EXTRA) + CUT_TOL);
   if(fits) finH = real(under);
   P.finH = r4(finH);
   const bH = P.typedH ? tH : fits ? under : hs.find(h => real(h) >= finH - CUT_TOL);
@@ -3381,7 +3383,7 @@ const BIFOLD_UNITS = [24,30,36,48,60,72];
    is stock at 6'8" and 7'0" (it was 6'8" only). 2.47: and 8'0", which the
    price list also has (a line's own 8'0" check, e.g. Lynden's, still shows) */
 const BIFOLD_HEIGHTS = {80:BIFOLD_UNITS, 84:BIFOLD_UNITS, 96:BIFOLD_UNITS};
-const BIFOLD_SHORT = 1;   // 2.50, Andrew: an "80" bifold is 79 tall, 84 is 83, 96 is 95
+const BIFOLD_SHORT = 1, BIFOLD_GAP_EXTRA = 0.25;   // 2.50, Andrew: an "80" bifold is 79 tall, 84 is 83, 96 is 95
 const BYPASS_PANEL_MAX = 36, BYPASS_OPEN_MAX = 144;
 const SUPPLIER_LINES = {
   lynden:   {name:'Lynden molded panel', heights:{80:W_LYNDEN, 84:W_LYNDEN, 96:W_LYN_8},
@@ -5663,6 +5665,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.50 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.51 · 19 Nov 2026</div>
 </body>
 </html>

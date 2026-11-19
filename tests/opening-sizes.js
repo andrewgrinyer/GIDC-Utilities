@@ -57,8 +57,12 @@ const CASES = [
   ['bifold 24 1/4 x 84 1/4: a stock 24 x 84 on the workbook, no check (2.48)', 'Bifold', '1.375 Hollow', 'Aberdeen', 24.25, 84.25, 1,
     {blankW:24, blankH:84, exportW:24, exportH:84}],
   // 2.50, Andrew: an "80" bifold is really 79 tall
-  ['bifold 30 x 81: the 79 tall door, uncut (3/4 allowance)', 'Bifold', '1.375 Hollow', 'Kingston', 30, 81, 1,
+  ['bifold 30 x 80 3/4: the 79 tall door, uncut (2.51: 1/4 allowance)', 'Bifold', '1.375 Hollow', 'Kingston', 30, 80.75, 1,
     {blankH:80, offH:0, reRail:false, finH:79, exportH:80}],
+  ['bifold 30 x 81: an 84 (83 tall) cut to 79 1/2, re-railed (2.51)', 'Bifold', '1.375 Hollow', 'Kingston', 30, 81, 1,
+    {blankH:84, offH:3.5, reRail:true, finH:79.5, exportH:84}],
+  ['bifold 30 x 79 1/2: the 79 cut to 78, no re-rail', 'Bifold', '1.375 Hollow', 'Kingston', 30, 79.5, 1,
+    {blankH:80, offH:1, reRail:false, finH:78}],
   ['bifold 30 x 81 1/2: 79 is too short, an 84 (83 tall) cut to 80 and re-railed', 'Bifold', '1.375 Hollow', 'Kingston', 30, 81.5, 1,
     {blankH:84, offH:3, reRail:true, finH:80, exportH:84}],
   ['bifold single unit 30', 'Bifold', '1.375 Hollow', 'Kingston', 30.125, 80.5, 1,
