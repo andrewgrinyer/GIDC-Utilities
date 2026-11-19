@@ -64,6 +64,13 @@ const check = (name, ok, got) => {
         rules.lists.pocket.join() === 'Pocket,Customer Supplied', rules);
   check('pivot keeps the full list', rules.pivot === 'Passage', rules);
 
+  // 2.50: an opening always has a door there now
+  const nowMiss = await page.evaluate(() => { const j = newJob(); const op = j.openings[0];
+    Object.assign(op, {openW:'30', openH:'80.5'}); op.options[0].v.doorType = 'Single Swing';
+    const a = missing(j).some(m => /door there now/.test(m)); op.existingType = 'Bifold';
+    return [a, missing(j).some(m => /door there now/.test(m))]; });
+  check('2.50: the door there now is needed', nowMiss[0] && !nowMiss[1], nowMiss);
+
   // the measurement screen
   await page.evaluate(() => {
     state.me = {name:'admin', role:'admin'};

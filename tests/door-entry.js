@@ -51,12 +51,12 @@ const dbl = async (page, t) => {
   await fresh(page, true);
   await tap(page, 'Bifold');
   let s = await op(page);
-  check('tap picks the door to quote', s.types.join() === 'Bifold' && s.now === '', s);
+  check('first tap picks the door to quote and is the door there now (2.50)', s.types.join() === 'Bifold' && s.now === 'Bifold', s);
   check('picked chip is filled', /\bon\b/.test(await chipClass(page, 'Bifold')), await chipClass(page, 'Bifold'));
   await tap(page, 'Bifold');
   s = await op(page);
-  check('tap again clears it', s.types.join() === '' && s.now === '', s);
-  check('and the chip is not left lit', !/\b(on|now)\b/.test(await chipClass(page, 'Bifold')), await chipClass(page, 'Bifold'));
+  check('tap again clears the quoted door, the now door stays', s.types.join() === '' && s.now === 'Bifold', s);
+  check('and the chip is not left filled', !/\bon\b/.test(await chipClass(page, 'Bifold')), await chipClass(page, 'Bifold'));
   await tap(page, 'Bifold'); await tap(page, 'Bypass');
   s = await op(page);
   check('tap a different type switches to it, no second line', s.types.join() === 'Bypass', s);
@@ -69,7 +69,7 @@ const dbl = async (page, t) => {
         (await page.textContent('[data-dtype="Single Swing"]')).includes('now'), await chipClass(page, 'Single Swing'));
   await dbl(page, 'Single Swing');
   s = await op(page);
-  check('double tap again clears the now door', s.now === '' && s.types.join() === 'Bypass', s);
+  check('double tap again keeps the now door (2.50: always one)', s.now === 'Single Swing' && s.types.join() === 'Bypass', s);
   await fresh(page, true);
   await dbl(page, 'Single Swing');
   s = await op(page);

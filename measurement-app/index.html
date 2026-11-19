@@ -2268,11 +2268,19 @@ function openPlan(op, o){
      smallest is cut down (80 gets an 80 cut to 78 1/2, re-railed where that
      door can be). */
   if(rough){ P.rough = true; finW = (W - ROUGH_W) / per; finH = H - ROUGH_H; P.finW = r4(finW); }
-  const under = (swing || rough || /pocket/i.test(t)) && !P.typedH ? hs.filter(h => h <= finH + CUT_TOL).pop() : undefined;
-  const fits = under !== undefined && (rough || finH - under <= GAP_EXTRA + CUT_TOL);
-  if(fits) finH = under;
+  /* 2.50, Andrew 19 Nov: bifolds are really 79, 83 and 95 tall, though
+     still called 80, 84 and 96 (the names go on the workbook and the
+     price). The fit, the cut and the re-rail use the real height, and a
+     bifold takes the swing door rule: a stock height up to 3/4" short of
+     the door wanted is hung uncut, otherwise the next one up is cut. */
+  const realBi = bifold && t !== 'GDL BiFold';
+  P.realH = realBi;
+  const real = h => realBi ? h - BIFOLD_SHORT : h;
+  const under = (swing || rough || realBi || /pocket/i.test(t)) && !P.typedH ? hs.filter(h => real(h) <= finH + CUT_TOL).pop() : undefined;
+  const fits = under !== undefined && (rough || finH - real(under) <= GAP_EXTRA + CUT_TOL);
+  if(fits) finH = real(under);
   P.finH = r4(finH);
-  const bH = P.typedH ? tH : fits ? under : hs.find(h => h >= finH - CUT_TOL);
+  const bH = P.typedH ? tH : fits ? under : hs.find(h => real(h) >= finH - CUT_TOL);
   if(bH === undefined){
     P.so = 'no ' + (L ? L.name : 'stock') + ' door is tall enough: it has to be ' + sizeText(r4(finH)) + '"' +
       (hs.length ? ' and the tallest is ' + ftin(hs[hs.length - 1]) : '');
@@ -2295,7 +2303,7 @@ function openPlan(op, o){
     return P;
   }
   P.blankW = bW;
-  P.offH = r4(bH - finH); P.offW = r4(bW - finW);
+  P.offH = r4(real(bH) - finH); P.offW = r4(bW - finW);
   const hollow = hollowCore(o);
   P.reRail = hollow && P.offH > 1 + CUT_TOL;
   P.reStile = hollow && limit != null && (swing ? P.offW >= limit - 1e-6 : P.offW > limit + CUT_TOL);
@@ -2338,7 +2346,8 @@ function planText(P){
   if(!P) return '';
   if(P.so) return 'Special order: ' + P.so + '.';
   const each = (P.per > 1 ? P.per + ' doors, each ' : 'Door ') + (P.typedW || P.typedH ? '(typed) ' : '');
-  return each + ftin(P.blankW) + ' x ' + ftin(P.blankH) + ' (' + P.blankW + ' x ' + P.blankH + '), cut to ' +
+  return each + ftin(P.blankW) + ' x ' + ftin(P.blankH) + ' (' + P.blankW + ' x ' + P.blankH +
+    (P.realH && !P.typedH ? ', really ' + (P.blankH - BIFOLD_SHORT) + ' tall' : '') + '), cut to ' +
     sizeText(P.finW) + ' x ' + sizeText(P.finH) + '. Re-rail ' + (P.reRail ? 'yes' : 'no') + ', re-stile ' +
     (P.reStile ? 'yes' : 'no') + (P.notes.length ? ' (' + P.notes.join('; ') + ')' : '') + '.';
 }
@@ -2907,6 +2916,9 @@ function missing(job){
     }
     if(bifoldTooWide(op))
       out.push('Opening ' + op.number + ': bifold over ' + BIFOLD_MAX + '" is not available');
+    // 2.50, Andrew 19 Nov: every opening has a door there now
+    if(sized(op) && on.length && !op.existingType)
+      out.push('Opening ' + op.number + ': door there now (double tap its type)');
     // 2.31: a job measured by its door opening needs both
     if(sized(op) && on.length && (!op.openW || !op.openH))
       out.push('Opening ' + op.number + ': door opening ' + (!op.openW ? 'width' : 'height'));
@@ -3369,6 +3381,7 @@ const BIFOLD_UNITS = [24,30,36,48,60,72];
    is stock at 6'8" and 7'0" (it was 6'8" only). 2.47: and 8'0", which the
    price list also has (a line's own 8'0" check, e.g. Lynden's, still shows) */
 const BIFOLD_HEIGHTS = {80:BIFOLD_UNITS, 84:BIFOLD_UNITS, 96:BIFOLD_UNITS};
+const BIFOLD_SHORT = 1;   // 2.50, Andrew: an "80" bifold is 79 tall, 84 is 83, 96 is 95
 const BYPASS_PANEL_MAX = 36, BYPASS_OPEN_MAX = 144;
 const SUPPLIER_LINES = {
   lynden:   {name:'Lynden molded panel', heights:{80:W_LYNDEN, 84:W_LYNDEN, 96:W_LYN_8},
@@ -4365,7 +4378,7 @@ function qtyField(op){
 function typeChips(op){
   let h = '<div class="field"><label>Door type</label>' +
           '<p class="hint lh">Tap the door to quote. Tap it again to clear it. ' +
-          'Double tap marks the door that is there now.</p><div class="chips">';
+          'The first tap is also the door there now; double tap another type to change it.</p><div class="chips">';
   LISTS.doorType.forEach(t => {
     const isNow = op.existingType === t;
     const isOpt = op.options.some(o => o.v.doorType === t);
@@ -4402,7 +4415,9 @@ function tapDoorType(op, t){
     const before = JSON.parse(last.before);
     op.existingType = before.existingType; op.options = before.options;
     lastTypeTap = null;
-    op.existingType = op.existingType === t ? '' : t;
+    // 2.50, Andrew 19 Nov: an opening always has a door there now, so a
+    // double tap only ever moves it, never clears it
+    op.existingType = t;
     const tgt = typeTarget(op);
     if(op.existingType && !op.options.some(o => o.v.doorType)) tgt.v.doorType = t;
     return;
@@ -4410,6 +4425,9 @@ function tapDoorType(op, t){
   lastTypeTap = {op: op.id, t, at,
                  before: JSON.stringify({existingType: op.existingType, options: op.options})};
   const tgt = typeTarget(op);
+  /* 2.50, Andrew 19 Nov: the first type tapped on an opening is also the
+     door there now, without a double tap */
+  if(!op.existingType){ op.existingType = t; tgt.v.doorType = t; return; }
   const has = op.options.find(o => o.v.doorType === t);
   if(has === tgt) tgt.v.doorType = '';                     // tap the picked one: clear it
   else if(has){                                            // another option has it: drop that one
@@ -5645,6 +5663,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.49 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.50 · 19 Nov 2026</div>
 </body>
 </html>
