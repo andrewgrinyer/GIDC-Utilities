@@ -6,7 +6,7 @@
    file cached whatever came back, so a single 403 from the edge could be kept
    and handed out afterwards, which is exactly what happened on 23 Sep 2026.
    A response already in the cache from that version is ignored and refetched. */
-const CACHE = 'gidc-10.3';  // 2.58, printed review: door number blocks line up again
+const CACHE = 'gidc-10.4';  // 2.59, GDL line: frame and insert colours, bypass or bifold only
 const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.png', './icon-512.png',
                './apple-touch-icon.png', './manifest.webmanifest',
                './handle-hardware-selection.pdf', './bypass-door-overlap-guide.pdf',
@@ -60,6 +60,15 @@ const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.
                './gdl-glissade-bifold.jpg',
                './gdl-glissade-square.jpg',
                './gdl-glissade-swept.jpg',
+               './glissade-style-1.jpg',
+               './glissade-style-2.jpg',
+               './glissade-style-3.jpg',
+               './glissade-style-4.jpg',
+               './glissade-style-5.jpg',
+               './glissade-style-6.jpg',
+               './glissade-style-7.jpg',
+               './glissade-style-8.jpg',
+               './glissade-style-9.jpg',
                './gdl-malai.jpg',
                './gdl-midori.jpg',
                './gdl-select.jpg',

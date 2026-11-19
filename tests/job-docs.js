@@ -61,6 +61,9 @@ const check = (name, ok, got) => {
                       ['Bifold', 'Bifold Knob', 36], ['GDL BiFold', 'Bifold Knob', 30]]);
   check('customer supplied handles, bypass and bifold each bring their document',
         ids.join() === 'handles:1,bypass:2,bifold:3/4', ids);
+  // 2.59: GDL BiFold makes the door GDL, which needs a GDL style, a frame and an insert
+  await page.evaluate(() => { Object.assign(state.job.openings[3].options[0].v,
+    {doorStyle:'Glissade Bifold Style 1', frameColour:'White', insertColour:'Frosted Glass'}); render(); });
   const listed = await page.$$eval('.docs-box a', a => a.map(x => x.textContent));
   check('the job screen lists them', listed.join('|') === 'Handle Hardware Selection|Bypass Door Overlap Guide|Bifold Door Fit Guide', listed);
 
@@ -109,7 +112,7 @@ const check = (name, ok, got) => {
     state.job.openings[1].options[0].v.doorStyle = 'Logan'; calcJob(state.job); render(); });
   const picks = await page.evaluate(() => doorPicks(state.job).map(p => [p.style, !!p.photo, p.qty]));
   check('door selections: one card per style, photo where there is one',
-        JSON.stringify(picks) === JSON.stringify([['1 Lite Rain', true, 1], ['Logan', true, 2], ['Samish (Smooth)', false, 2]]), picks);
+        JSON.stringify(picks) === JSON.stringify([['1 Lite Rain', true, 1], ['Logan', true, 2], ['Samish (Smooth)', false, 1], ['Glissade Bifold Style 1', true, 1]]), picks);
   const photosOk = await page.evaluate(async () => Promise.all(Object.values(DOOR_PHOTOS).map(async f => (await fetch(f)).status)));
   check('every door photo is there', photosOk.every(x => x === 200), photosOk);
 

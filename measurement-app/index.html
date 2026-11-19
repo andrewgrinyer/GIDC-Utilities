@@ -392,6 +392,9 @@ table.pw > tbody > tr > td, table.pw > tfoot > tr > td{padding:0;border:0;vertic
 @media screen{table.pw{table-layout:fixed}}
 .warn.stop{background:var(--brass-soft);border-color:var(--brass-line);color:var(--brass)}
 .chip.now{background:var(--brass-soft);border-color:var(--brass-line);color:var(--ink)}
+.chip.dim{opacity:.38}
+.gdl-hint{color:var(--brass);margin:4px 0 0}
+.gdl-cap{color:var(--brass)}
 .chip.on.now{background:var(--brass);border-color:var(--brass);color:#fff}
 .chip.on.now .badge{color:#fff}
 /* a double tap is ours, not the browser's zoom */
@@ -1062,33 +1065,33 @@ const DOOR_PHOTOS = {
   "Conmore Smooth":"conmore-beveled.jpg",
   "Craftsman III Smooth":"craftsman-iii-beveled.jpg",
   "Madison Smooth":"madison-beveled.jpg",
-  "Glissade Square Style 1":"gdl-glissade-square.jpg",
-  "Glissade Square Style 2":"gdl-glissade-square.jpg",
-  "Glissade Square Style 3":"gdl-glissade-square.jpg",
-  "Glissade Square Style 4":"gdl-glissade-square.jpg",
-  "Glissade Square Style 5":"gdl-glissade-square.jpg",
-  "Glissade Square Style 6":"gdl-glissade-square.jpg",
-  "Glissade Square Style 7":"gdl-glissade-square.jpg",
-  "Glissade Square Style 8":"gdl-glissade-square.jpg",
-  "Glissade Square Style 9":"gdl-glissade-square.jpg",
-  "Glissade Swept Style 1":"gdl-glissade-swept.jpg",
-  "Glissade Swept Style 2":"gdl-glissade-swept.jpg",
-  "Glissade Swept Style 3":"gdl-glissade-swept.jpg",
-  "Glissade Swept Style 4":"gdl-glissade-swept.jpg",
-  "Glissade Swept Style 5":"gdl-glissade-swept.jpg",
-  "Glissade Swept Style 6":"gdl-glissade-swept.jpg",
-  "Glissade Swept Style 7":"gdl-glissade-swept.jpg",
-  "Glissade Swept Style 8":"gdl-glissade-swept.jpg",
-  "Glissade Swept Style 9":"gdl-glissade-swept.jpg",
-  "Glissade Bifold Style 1":"gdl-glissade-bifold.jpg",
-  "Glissade Bifold Style 2":"gdl-glissade-bifold.jpg",
-  "Glissade Bifold Style 3":"gdl-glissade-bifold.jpg",
-  "Glissade Bifold Style 4":"gdl-glissade-bifold.jpg",
-  "Glissade Bifold Style 5":"gdl-glissade-bifold.jpg",
-  "Glissade Bifold Style 6":"gdl-glissade-bifold.jpg",
-  "Glissade Bifold Style 7":"gdl-glissade-bifold.jpg",
-  "Glissade Bifold Style 8":"gdl-glissade-bifold.jpg",
-  "Glissade Bifold Style 9":"gdl-glissade-bifold.jpg",
+  "Glissade Square Style 1":"glissade-style-1.jpg",
+  "Glissade Square Style 2":"glissade-style-2.jpg",
+  "Glissade Square Style 3":"glissade-style-3.jpg",
+  "Glissade Square Style 4":"glissade-style-4.jpg",
+  "Glissade Square Style 5":"glissade-style-5.jpg",
+  "Glissade Square Style 6":"glissade-style-6.jpg",
+  "Glissade Square Style 7":"glissade-style-7.jpg",
+  "Glissade Square Style 8":"glissade-style-8.jpg",
+  "Glissade Square Style 9":"glissade-style-9.jpg",
+  "Glissade Swept Style 1":"glissade-style-1.jpg",
+  "Glissade Swept Style 2":"glissade-style-2.jpg",
+  "Glissade Swept Style 3":"glissade-style-3.jpg",
+  "Glissade Swept Style 4":"glissade-style-4.jpg",
+  "Glissade Swept Style 5":"glissade-style-5.jpg",
+  "Glissade Swept Style 6":"glissade-style-6.jpg",
+  "Glissade Swept Style 7":"glissade-style-7.jpg",
+  "Glissade Swept Style 8":"glissade-style-8.jpg",
+  "Glissade Swept Style 9":"glissade-style-9.jpg",
+  "Glissade Bifold Style 1":"glissade-style-1.jpg",
+  "Glissade Bifold Style 2":"glissade-style-2.jpg",
+  "Glissade Bifold Style 3":"glissade-style-3.jpg",
+  "Glissade Bifold Style 4":"glissade-style-4.jpg",
+  "Glissade Bifold Style 5":"glissade-style-5.jpg",
+  "Glissade Bifold Style 6":"glissade-style-6.jpg",
+  "Glissade Bifold Style 7":"glissade-style-7.jpg",
+  "Glissade Bifold Style 8":"glissade-style-8.jpg",
+  "Glissade Bifold Style 9":"glissade-style-9.jpg",
   "Economy (No Warranty)":"gdl-economy-glass.jpg",
   "Malai":"gdl-malai.jpg",
   "Madori":"gdl-midori.jpg",
@@ -1101,8 +1104,10 @@ const WIDE_PHOTO = p => /(^|\/)gdl-/.test(p);
 function doorPicks(job){
   const by = new Map();
   (job.openings || []).forEach(op => op.options.filter(o => o.include && o.v.doorStyle).forEach(o => {
-    const k = o.v.doorStyle;
-    if(!by.has(k)) by.set(k, {style:k, photo:DOOR_PHOTOS[k] || '', where:[], qty:0});
+    // 2.59: a GDL door is told apart by its frame and insert colours too
+    const g = gdlWords(o), sub = g ? [g.frame, g.insert].filter(Boolean).join(', ') : '';
+    const k = o.v.doorStyle + (sub ? '|' + sub : '');
+    if(!by.has(k)) by.set(k, {style:o.v.doorStyle, sub, photo:DOOR_PHOTOS[o.v.doorStyle] || '', where:[], qty:0});
     const e = by.get(k);
     e.where.push((op.location || 'Opening ' + op.number)); e.qty += Number(op.qty) || 1;
   }));
@@ -1165,7 +1170,8 @@ function doorsPage(job){
     '<h2>' + (hp.length ? 'Your door and handle selections' : 'Your door selections') + '</h2><p class="pd-who">' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  ·  ')) + '</p>' +
     '<div class="pd-grid">' + picks.map(p => '<div class="pd-card">' +
       (p.photo ? '<img src="' + p.photo + '" alt=""' + (WIDE_PHOTO(p.photo) ? ' class="room"' : '') + '>' : '<div class="pd-nophoto">Photo to come</div>') +
-      '<b>' + esc(styleName(p.style)) + '</b><span>' + esc(p.qty + (p.qty === 1 ? ' door' : ' doors')) +
+      '<b>' + esc(styleName(p.style)) + '</b>' + (p.sub ? '<span class="pd-sub">' + esc(p.sub) + '</span>' : '') +
+      '<span>' + esc(p.qty + (p.qty === 1 ? ' door' : ' doors')) +
       '</span></div>').join('') + '</div>' +
     (hp.length ? '<div class="print-kick ph-kick">Handles</div><div class="ph-grid">' + hp.map(h => '<div class="ph-card">' +
       (h.rosePhoto ? '<div class="ph-pair"><figure><img src="' + h.photo + '" alt=""><figcaption>' + esc(h.title) + '</figcaption></figure>' +
@@ -1218,7 +1224,7 @@ const signDay = iso => { const d = new Date(iso);
 function signFp(job){
   const jr = jambRows(job).map(r => [r.n, r.type, r.dir, r.jamb, r.w, r.h, r.match]);
   const s = JSON.stringify([sheetInputs(job), job.docType || '', jobDocs(job).map(d => d.id),
-                            doorPicks(job).map(p => [p.style, p.qty])].concat(jr.length ? [jr] : [])
+                            doorPicks(job).map(p => p.sub ? [p.style, p.qty, p.sub] : [p.style, p.qty])].concat(jr.length ? [jr] : [])
                             .concat(noteOf(job) || job.openings.some(noteOf) ? [[noteOf(job), job.openings.map(noteOf)]] : []));
   let h = 5381; for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36) + '.' + s.length.toString(36);
@@ -1746,7 +1752,9 @@ async function contractPdf(job, opts){
   const orderNote = noteOf(job) ? wrap('Order notes: ' + noteOf(job), F, 7.5, LW - 68) : [];
   const cell = (ln, i) => { const {op, o} = ln, row = PAGE_ROWS[i], v = o.v;
     const base = [op.number, op.location, op.qty, v.doorType, styleName(v.doorStyle || ''), v.productType,
-      lineSize(op, ln.o).height, lineSize(op, ln.o).width, orderedText(op, ln.o, i), v.jamb, v.handleType, v.handleStyle, v.hwColour, v.paintColour, v.install];
+      lineSize(op, ln.o).height, lineSize(op, ln.o).width, orderedText(op, ln.o, i), v.jamb].concat(gdlWords(o)
+      ? [gdlWords(o).frame, gdlWords(o).insert, '', '']     // 2.59: frame and insert where the handle goes
+      : [v.handleType, v.handleStyle, v.hwColour, v.paintColour]).concat([v.install]);
     return base.concat(prices ? [money(cv('R' + row)), money(cv('T' + row)), money(cv('U' + row))] : []).map(x => x == null ? '' : String(x)); };
   let li = 0, pageNo = 0;
   do {
@@ -1907,7 +1915,7 @@ async function contractPdf(job, opts){
       else { pg.drawRectangle({x:ix, y:y0 - ch, width:w, height:ch, borderColor:RULE, borderWidth:0.6});
         text(pg, 'Photo to come', x0 + cw / 2, y0 - ch / 2, {size:6.5, color:GREY, center:true}); }
       text(pg, fitText(styleName(p.style), FB, 7.5, cw + 14), x0 + cw / 2, y0 - ch - 10, {size:7.5, font:FB, center:true});
-      text(pg, fitText(p.qty + (p.qty === 1 ? ' door' : ' doors'), F, 6, cw + 14),
+      text(pg, fitText((p.sub ? p.sub + ', ' : '') + p.qty + (p.qty === 1 ? ' door' : ' doors'), F, 6, cw + 14),
            x0 + cw / 2, y0 - ch - 18, {size:6, color:GREY, center:true});
     }
     // 2.25: the handles, in their finish, in a row under the doors
@@ -2217,7 +2225,8 @@ function renderRemote(){
       lines.map((l, i) => { const v = l.o.v, row = PAGE_ROWS[i];
         return '<tr><td>' + esc(l.op.number) + '</td><td>' + esc(l.op.location || '') + '</td><td>' + esc(l.op.qty || 1) + '</td><td>' +
           esc(v.doorType || '') + '</td><td>' + esc(styleName(v.doorStyle || '')) + '</td><td>' + esc((lineSize(l.op, l.o).width || '') + ' x ' + (lineSize(l.op, l.o).height || '')) +
-          '</td><td>' + esc([v.handleType, v.handleStyle].filter(x => x && x !== 'N/A').join(', ')) + '</td><td>' + esc(v.hwColour || '') +
+          '</td><td>' + esc(gdlWords(l.o) ? [gdlWords(l.o).frame, gdlWords(l.o).insert].filter(Boolean).join(', ')
+            : [v.handleType, v.handleStyle].filter(x => x && x !== 'N/A').join(', ')) + '</td><td>' + esc(v.hwColour || '') +
           '</td><td>' + esc(v.paintColour || '') + '</td><td class="num">' + esc(money(cv('T' + row))) + '</td><td class="num">' +
           esc(money(cv('U' + row))) + '</td></tr>' +
           (noteOf(l.op) && (i === 0 || lines[i - 1].op !== l.op) ? '<tr><td></td><td colspan="10" style="color:#B5121B;font-size:12px">Note: ' + esc(noteOf(l.op)) + '</td></tr>' : ''); }).join('') + '</tbody></table></div>' +
@@ -2230,7 +2239,7 @@ function renderRemote(){
     const picks = doorPicks(job), hp = handlePicks(job);
     if(picks.length) h += '<div class="print-kick rs-kick">Your door' + (hp.length ? ' and handle' : '') + ' selections</div><div class="rs-picks">' +
       picks.map(p => '<div>' + (p.photo ? '<img class="rs-door" src="' + p.photo + '" alt="">' : '') + '<b>' + esc(styleName(p.style)) + '</b><span>' +
-        esc(p.qty + (p.qty === 1 ? ' door' : ' doors')) + '</span></div>').join('') +
+        esc((p.sub ? p.sub + ', ' : '') + p.qty + (p.qty === 1 ? ' door' : ' doors')) + '</span></div>').join('') +
       hp.map(x => '<div' + (x.rosePhoto ? ' class="rs-pair"' : '') + '><img class="rs-handle" src="' + x.photo + '" alt="">' +
         (x.rosePhoto ? '<img class="rs-handle" src="' + x.rosePhoto + '" alt="">' : '') + '<b>' + esc(x.title) + '</b><span>' + esc(x.rose + ', ' + x.colour) + '</span></div>').join('') + '</div>';
     const docs = jobDocs(job);
@@ -2672,7 +2681,7 @@ function syncPlans(job){
     if(!sized(op)) return;
     op.options.forEach(o => {
       const P = openPlan(op, o);
-      if(!P || !P.blankW) return;
+      if(!P || !P.blankW || isGdl(o)) return;      // 2.59: a GDL door is never re-railed or re-stiled
       if(!o.reRailByHand) o.v.reRail = P.reRail ? 'YES' : 'NO';
       if(!o.reStileByHand) o.v.reStile = P.reStile ? 'YES' : 'NO';
     });
@@ -2746,6 +2755,7 @@ function handleChoices(t){
 const noHandleStyle = t => !!t && (BIFOLD_TYPES.indexOf(t) >= 0 || /bypass/i.test(t));
 function syncHandles(job){
   ((job && job.openings) || []).forEach(op => op.options.forEach(o => {
+    if(isGdl(o)) return;                       // 2.59: a GDL door has no handle
     const t = o.v.doorType;
     if(noHandleStyle(t)){
       if(o.v.handleStyle) o.v.handleStyle = '';
@@ -2757,6 +2767,87 @@ function syncHandles(job){
     if(c.length === 1){ if(o.v.handleType !== c[0]){ o.v.handleType = c[0]; o.handleAuto = true; } }
     else if(o.v.handleType && c.indexOf(o.v.handleType) < 0) o.v.handleType = '';
   }));
+  syncGdl(job);
+}
+/* 2.59, Andrew 19 Nov: THE GDL LINE
+ *
+ * Product type GDL is a closet door: bypass or bifold only (the workbook
+ * prices it as GDL ByPass or GDL BiFold), with no router and stop, re-rail,
+ * re-stile, handle, hardware finish or paint. It has instead a frame colour
+ * and an insert colour. Those two go on the sales contract, the signing page
+ * and the door selections page, but not into the workbook or the XML, which
+ * have no place for them.
+ *   Frame colour  Glissade (Square, Swept, Bifold): Black, White, Silver.
+ *                 The wood line (every GDL Wood style in the list, Economy
+ *                 included): White, Black, Chocolate, Grey, Espresso.
+ *   Insert colour Frosted Glass, White Lacobel, Black Lacobel, White Mirror
+ *                 Strip, Black Mirror Strip, Clear Mirror.
+ * Picking Bypass or Bifold on a GDL door makes it GDL ByPass or GDL BiFold;
+ * picking GDL ByPass or GDL BiFold makes the product GDL; changing the product
+ * away from GDL turns the door back into a plain Bypass or Bifold and puts
+ * the job's defaults back in the fields GDL had emptied. */
+const GDL_TYPES = ['GDL ByPass', 'GDL BiFold'];
+const GDL_OFF = ['routerStop', 'reRail', 'reStile', 'handleType', 'handleStyle', 'hwColour', 'paintColour'];
+const GDL_FRAME_ALU = ['Black', 'White', 'Silver'];
+const GDL_FRAME_WOOD = ['White', 'Black', 'Chocolate', 'Grey', 'Espresso'];
+const GDL_INSERTS = ['Frosted Glass', 'White Lacobel', 'Black Lacobel', 'White Mirror Strip', 'Black Mirror Strip', 'Clear Mirror'];
+const isGdl = o => !!o && o.v.productType === 'GDL';
+const styleFam = n => ((LISTS.doorStyle || []).find(d => d.n === n) || {}).f || '';
+const isGdlStyle = n => /^GDL/.test(styleFam(n));
+// the frame colours of the style picked; before a style, every one of them
+function frameChoices(o){
+  const f = styleFam(o.v.doorStyle);
+  if(f === 'GDL Aluminum') return GDL_FRAME_ALU;
+  if(f === 'GDL Wood') return GDL_FRAME_WOOD;
+  return GDL_FRAME_ALU.concat(GDL_FRAME_WOOD.filter(x => GDL_FRAME_ALU.indexOf(x) < 0));
+}
+// the GDL styles a door type can have: Glissade Bifold only folds, the other Glissades only slide
+function gdlStyles(t){
+  return LISTS.doorStyle.filter(d => /^GDL/.test(d.f) &&
+    (d.f === 'GDL Wood' || !t || (t === 'GDL BiFold') === /^Glissade Bifold/.test(d.n))).map(d => d.n);
+}
+const toGdlType = t => t === 'Bypass' ? 'GDL ByPass' : (t === 'Bifold' || t === 'Premium Bifold') ? 'GDL BiFold' : t;
+const fromGdlType = t => t === 'GDL ByPass' ? 'Bypass' : t === 'GDL BiFold' ? 'Bifold' : t;
+function syncGdl(job){
+  const dv = (job && job.defaults) || {};
+  ((job && job.openings) || []).forEach(op => op.options.forEach(o => {
+    const v = o.v;
+    if(!isGdl(o) && (GDL_TYPES.indexOf(v.doorType) >= 0 || isGdlStyle(v.doorStyle))){
+      if(o.gdlSeen){                                           // the product was changed away from GDL
+        v.doorType = fromGdlType(v.doorType);
+        if(isGdlStyle(v.doorStyle)) v.doorStyle = '';
+      }
+      else v.productType = 'GDL';                              // a GDL door type or style was picked
+    }
+    if(isGdl(o)){
+      v.doorType = toGdlType(v.doorType || '');
+      GDL_OFF.forEach(k => { if(v[k]) v[k] = ''; });
+      delete o.routerAuto; delete o.handleAuto;
+      if(v.doorStyle && gdlStyles(v.doorType).indexOf(v.doorStyle) < 0) v.doorStyle = '';
+      if(v.frameColour && frameChoices(o).indexOf(v.frameColour) < 0) v.frameColour = '';
+      if(v.insertColour && GDL_INSERTS.indexOf(v.insertColour) < 0) v.insertColour = '';
+      o.gdlSeen = true;
+    } else {
+      if(o.gdlSeen){
+        // back from GDL: the fields it had emptied take the job's defaults again
+        DEFAULT_FIELDS.forEach(f => { if(GDL_OFF.indexOf(f.k) >= 0 && dv[f.k] && !v[f.k]) v[f.k] = dv[f.k]; });
+        delete o.gdlSeen;
+      }
+      if(v.frameColour) delete v.frameColour;
+      if(v.insertColour) delete v.insertColour;
+    }
+  }));
+}
+// the frame and insert words, for the contract and the signing page
+const gdlWords = o => isGdl(o) ? {frame:o.v.frameColour ? 'Frame: ' + o.v.frameColour : '',
+  insert:o.v.insertColour ? 'Insert: ' + o.v.insertColour : ''} : null;
+// the frame and insert chips (in-home card and the Edit screen)
+function gdlFields(o, opId, req){
+  if(!isGdl(o)) return '';
+  const row = (k, label, items) => '<div class="field gdl-f"><label>' + label +
+    (req ? ' <span style="color:var(--brass)">required</span>' : '') + '</label>' +
+    chips({k, chips:items}, o, opId).replace(' num"', '"') + '</div>';
+  return row('frameColour', 'Frame colour', frameChoices(o)) + row('insertColour', 'Insert colour', GDL_INSERTS);
 }
 /* 2.52, Andrew 19 Nov: SWING DIRECTION AND THE DOOR JAMB TAKE-OFF SHEET
  *
@@ -3357,6 +3448,13 @@ function missing(job){
     // 2.31: a job measured by its door opening needs both
     if(sized(op) && on.length && (!op.openW || !op.openH))
       out.push('Opening ' + op.number + ': door opening ' + (!op.openW ? 'width' : 'height'));
+    // 2.59, Andrew 19 Nov: a GDL door is a bypass or a bifold, with a frame and an insert colour
+    on.filter(isGdl).forEach(o => {
+      if(o.v.doorType && GDL_TYPES.indexOf(o.v.doorType) < 0)
+        out.push('Opening ' + op.number + ': GDL is bypass or bifold only (it is ' + o.v.doorType + ')');
+      if(!o.v.frameColour) out.push('Opening ' + op.number + ': GDL frame colour');
+      if(!o.v.insertColour) out.push('Opening ' + op.number + ': GDL insert colour');
+    });
     const r = qtyRule(op);
     if(r && r.choices && r.choices.indexOf(Number(op.qty)) < 0)
       out.push('Opening ' + op.number + ': pick the quantity (' + r.choices.join(', ') + ')');
@@ -3541,7 +3639,7 @@ function sheetInputs(job){
       const col = COLMAP[k];
       let val = (secOf[k] && skipped(secOf[k])) ? '' : (o.v[k] || '');
       // cutting a door down to a standard height always means a re-rail
-      if(k === 'reRail' && needsReRail(op)) val = 'YES';
+      if(k === 'reRail' && needsReRail(op) && !isGdl(o)) val = 'YES';   // 2.59: never on a GDL door
       // 2.53: the jamb goes in as a number, so the jamb price lines count it
       if(k === 'jamb' && val !== '' && !isNaN(val)){ out.push([col + row, Number(val)]); return; }
       out.push([col + row, val === '' ? '' : String(val)]);
@@ -4375,8 +4473,10 @@ function reviewEditor(col, op, o){
   const val = (sec && !sec.always && o.skipped[sec.id]) ? '' : (o.v[col.k] || '');
   const shown = (col.k === 'reRail' && needsReRail(op)) ? 'YES' : val;
   // 2.45: the door there now, small and red under the door type
+  // 2.59: a GDL door is a GDL bypass or bifold, in a GDL style for it
+  if(col.k === 'doorStyle' && isGdl(o)) return reviewSelect(col.list, shown, at, gdlStyles(o.v.doorType));
   if(col.k === 'doorType')
-    return reviewSelect(col.list, shown, at) + (op.existingType ? '<span class="rv-now">Now: ' + esc(op.existingType) + '</span>' : '');
+    return reviewSelect(col.list, shown, at, isGdl(o) ? GDL_TYPES : null) + (op.existingType ? '<span class="rv-now">Now: ' + esc(op.existingType) + '</span>' : '');
   if(col.k === 'handleType') return reviewSelect(col.list, shown, at, handleChoices(o.v.doorType));
   if(col.k === 'handleStyle' && noHandleStyle(o.v.doorType)) return '<span class="rv-fixed" title="A bifold or bypass has no handle style">None</span>';
   return reviewSelect(col.list, shown, at);
@@ -4473,6 +4573,16 @@ function renderReview(){
           '<span class="rv-pp">' + money(v) + '</span></td>'; }
       if(c.money){ const v = cv(c.c + row);
         return '<td' + cs(n) + ' class="num' + (isErr(v) || v === 'S/O' ? ' rv-err' : '') + '">' + cap(c) + money(v) + '</td>'; }
+      // 2.59: a GDL door has a frame colour and an insert colour where the handle goes, and nothing else of the second line
+      if(isGdl(o) && GDL_OFF.indexOf(c.k) >= 0){
+        const at = k => 'data-rv="' + k + '" data-op="' + op.id + '" data-o="' + o.id + '"';
+        const gc = t => '<i class="rv-cap gdl-cap">' + t + '</i>';
+        if(c.k === 'handleType') return '<td' + cs(n) + ' class="rv-gdl">' + gc('Frame') +
+          reviewSelect('frameColour', o.v.frameColour, at('frameColour'), frameChoices(o)) + '</td>';
+        if(c.k === 'handleStyle') return '<td' + cs(n) + ' class="rv-gdl">' + gc('Insert') +
+          reviewSelect('insertColour', o.v.insertColour, at('insertColour'), GDL_INSERTS) + '</td>';
+        return '<td' + cs(n) + '>' + cap(c) + '<span class="rv-fixed" title="Not on a GDL door">N/A</span></td>';
+      }
       return '<td' + cs(n) + '>' + cap(c) + reviewEditor(c, op, o) + '</td>';
     };
     // 2.20: the number cell also carries Remove for that door
@@ -4728,20 +4838,22 @@ const FAMILY_OF = {
                   : /^C\s*-/.test(n) ? 'Custom upgraded (C)'
                   : 'No handle'
 };
-function listRows(list){
+function listRows(list, only){
+  // 2.59: only, a list of names the box may offer (a GDL door's styles)
+  if(only) return listRows(list).filter(r => only.indexOf(r.n) >= 0);
   if(list === 'doorStyle') return LISTS.doorStyle;
   const fam = FAMILY_OF[list];
   return (LISTS[list] || []).map(n => fam ? {n:n, f:fam(n)} : {n:n});
 }
-function listItems(list){ return listRows(list).map(r => r.n); }
+function listItems(list, only){ return listRows(list, only).map(r => r.n); }
 
 /* What the typed text resolves to. An exact name wins; otherwise a single
    unambiguous match wins; anything else is rejected so a style that the pricing
    lookup cannot find never reaches the contract. '' clears the field. */
-function comboResolve(list, raw){
+function comboResolve(list, raw, only){
   const q = String(raw == null ? '' : raw).trim();
   if(q === '') return '';
-  const items = listItems(list), lq = q.toLowerCase();
+  const items = listItems(list, only ? String(only).split('|') : null), lq = q.toLowerCase();
   const exact = items.find(x => x.toLowerCase() === lq);
   if(exact) return exact;
   const starts = items.filter(x => x.toLowerCase().indexOf(lq) === 0);
@@ -4765,7 +4877,7 @@ function combo(list, val, attrs){
 function comboPop(inp){
   const list = inp.dataset.combo;
   const q = inp.value.trim().toLowerCase();
-  const rows = listRows(list);
+  const rows = listRows(list, inp.dataset.only ? inp.dataset.only.split('|') : null);
   const hits = q ? rows.filter(r => (r.n + ' ' + (r.f || '')).toLowerCase().indexOf(q) !== -1) : rows;
   const pop = inp.parentNode.querySelector('.combo-pop');
   let h = '<button type="button" class="combo-opt clear" data-comboval="">Leave blank</button>';
@@ -4862,11 +4974,15 @@ function qtyField(op){
 function typeChips(op){
   let h = '<div class="field"><label>Door type</label>' +
           '<p class="hint lh">Tap the door to quote. Tap it again to clear it. ' +
-          'The first tap is also the door there now; double tap another type to change it.</p><div class="chips">';
+          'The first tap is also the door there now; double tap another type to change it.</p>' +
+          // 2.59: a GDL door is a bypass or a bifold
+          (op.options.some(isGdl) ? '<p class="hint gdl-hint">GDL is bypass or bifold only.</p>' : '') + '<div class="chips">';
+  const gdl = op.options.some(isGdl);
   LISTS.doorType.forEach(t => {
     const isNow = op.existingType === t;
     const isOpt = op.options.some(o => o.v.doorType === t);
-    h += '<button type="button" class="chip' + (isOpt ? ' on' : '') + (isNow ? ' now' : '') +
+    const dim = gdl && !isNow && !isOpt && !/bypass|bifold/i.test(t);
+    h += '<button type="button" class="chip' + (isOpt ? ' on' : '') + (isNow ? ' now' : '') + (dim ? ' dim' : '') +
          '" data-dtype="' + esc(t) + '" data-op="' + op.id + '">' + esc(t) +
          (isNow ? '<span class="badge">now</span>' : '') + '</button>';
   });
@@ -5382,7 +5498,7 @@ function renderJob(){
           h += '<div class="field"><label>' + pf.label +
                (op.options.length > 1 ? ' · ' + esc(o.v.doorType || 'this option') : '') +
                ' <span style="color:var(--brass)">required</span></label>' +
-               chips(pf, o, op.id) + '</div>';
+               chips(pf, o, op.id) + '</div>' + gdlFields(o, op.id, true);
         });
       }
       // 2.56: the door's note (left column on a tablet, which has the room)
@@ -5429,6 +5545,7 @@ function renderJob(){
                re-stile worked out from the opening) are off the measurement
                screen. Opening has decides them; the review can still change them. */
             if(s.id === 'jamb') return;
+            if((s.id === 'colour' || s.id === 'hardware') && isGdl(o)) return;   // 2.59: no paint or hardware on a GDL door
             const skipped = !s.always && o.skipped[s.id];
             h += '<div class="sect s-' + s.id + (skipped ? ' skipped' : '') + '">' +
                  '<div class="sect-head"><b>' + s.name + '</b>' +
@@ -5442,6 +5559,7 @@ function renderJob(){
               h += '<div class="sect-body">';
               s.fields.forEach(f => {
                 if(f.k === 'handleStyle' && noHandleStyle(o.v.doorType)) return;   // 2.46
+                if(isGdl(o) && GDL_OFF.indexOf(f.k) >= 0) return;                    // 2.59: not on a GDL door
                 h += '<div class="field"><label>' + f.label +
                      (f.req ? ' <span style="color:var(--brass)">required</span>' : '') + '</label>';
                 if(f.chips){
@@ -5449,7 +5567,7 @@ function renderJob(){
                 } else if(f.list){
                   const at = 'data-v="' + f.k + '" data-o="' + o.id + '" data-op="' + op.id + '"';
                   h += isCombo(f.list)
-                     ? combo(f.list, o.v[f.k], at)
+                     ? combo(f.list, o.v[f.k], at + (f.k === 'doorStyle' && isGdl(o) ? ' data-only="' + esc(gdlStyles(o.v.doorType).join('|')) + '"' : ''))
                      : '<select ' + at + '>' + opt(f.list, o.v[f.k], f.k === 'handleType' ? handleChoices(o.v.doorType) : null) + '</select>';
                 } else {
                   h += '<input type="number" data-v="' + f.k + '" data-o="' + o.id +
@@ -5457,6 +5575,7 @@ function renderJob(){
                 }
                 h += '</div>';
               });
+              if(s.id === 'build') h += gdlFields(o, op.id, true);           // 2.59
               h += '</div>';
             }
             h += '</div>';
@@ -6068,7 +6187,7 @@ document.addEventListener('change', async e => {
   if(d.def){
     job.defaults = job.defaults || {};
     if(d.combo){
-      const fixed = comboResolve(d.combo, t.value);
+      const fixed = comboResolve(d.combo, t.value, d.only);
       if(fixed === null){ t.value = job.defaults[d.def] || ''; return toast('No door style matches that'); }
       t.value = fixed;
     }
@@ -6081,7 +6200,7 @@ document.addEventListener('change', async e => {
   const op = d.op && job.openings.find(o => o.id === d.op);
   if(d.f === 'location'){
     if(d.combo){
-      const fixed = comboResolve(d.combo, t.value);
+      const fixed = comboResolve(d.combo, t.value, d.only);
       if(fixed === null){
         const open = t.parentNode && t.parentNode.classList &&
                      t.parentNode.classList.contains('open');
@@ -6098,7 +6217,7 @@ document.addEventListener('change', async e => {
     render(); return persistBg(); }
   if(d.v){ const o = op.options.find(x => x.id === d.o);
     if(d.combo){
-      const fixed = comboResolve(d.combo, t.value);
+      const fixed = comboResolve(d.combo, t.value, d.only);
       if(fixed === null){
         const open = t.parentNode && t.parentNode.classList &&
                      t.parentNode.classList.contains('open');
@@ -6227,6 +6346,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.58 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.59 · 19 Nov 2026</div>
 </body>
 </html>
