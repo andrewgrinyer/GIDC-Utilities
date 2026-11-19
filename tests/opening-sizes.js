@@ -52,6 +52,8 @@ const CASES = [
     {blankW:24, blankH:80, per:2, reStile:false, exportW:48.5, exportH:80}],
   ['bifold 30 x 85 1/2: a 7/0 bifold is stock (2.46)', 'Bifold', '1.375 Hollow', 'Kingston', 30, 85.5, 1,
     {blankW:30, blankH:84, exportH:84}],
+  ['bifold 30 x 97 1/2: an 8/0 bifold (2.47)', 'Bifold', '1.375 Hollow', 'Kingston', 30, 97.5, 1,
+    {blankW:30, blankH:96, exportH:96}],
   ['bifold single unit 30', 'Bifold', '1.375 Hollow', 'Kingston', 30.5, 81.5, 1,
     {blankW:30, blankH:80, per:1, exportW:30.5}],
   ['pocket 30 1/4: no deduction, up to a 32, not re-stiled', 'Pocket', '1.375 Hollow', 'Kingston', 30.25, 80.5, 1,

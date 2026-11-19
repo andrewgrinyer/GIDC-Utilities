@@ -429,7 +429,7 @@ body.padding{overflow:hidden}
 /* an opening's fields: one column on a phone, in this order */
 .op-grid{display:flex;flex-direction:column}
 .op-left, .op-right{display:contents}
-.o-loc{order:1} .o-qty{order:2} .o-type{order:3} .o-c{order:3} .o-w{order:4} .o-warn{order:5} .o-h{order:6} .o-prod{order:7}
+.o-c{order:1} .o-qty{order:2} .o-type{order:3} .o-w{order:4} .o-warn{order:5} .o-h{order:6} .o-prod{order:7}
 .o-warn .warn{margin-top:0}
 .o-top{margin-bottom:4px}
 .rv-now{display:block;font-size:10.5px;line-height:1.2;color:var(--brass);margin-top:2px;white-space:nowrap}
@@ -481,7 +481,10 @@ body.padding{overflow:hidden}
   .op-grid .chips:not(.num) .chip{padding:0 13px;font-size:16px}
   .op-grid .chips.ranges .chip{padding:0 4px;white-space:nowrap}
   .op-left{display:grid!important;grid-template-columns:1fr auto;gap:0 18px;align-content:start}
-  .op-left > .o-loc{grid-column:1} .op-left > .o-qty{grid-column:2}
+  .op-left > .o-c{grid-column:1} .op-left > .o-qty{grid-column:2}
+  /* 2.47: location on top, its label beside it, so the card stays one screen */
+  .o-loc.o-top{margin-bottom:0} .o-loc.o-top .field{display:flex;align-items:center;gap:12px;margin:0;padding:2px 0 4px}
+  .o-loc.o-top .field > label{margin:0;white-space:nowrap} .o-loc.o-top .combo, .o-loc.o-top select{flex:0 1 460px}
   .op-left > .o-type, .op-left > .o-prod{grid-column:1 / -1}
   .o-qty .chips.num{grid-template-columns:repeat(4,64px)}
   .o-qty input{width:110px}
@@ -3357,8 +3360,9 @@ const UPTO48 = {upto:48}, UPTO36 = {upto:36, from:12};
    of units). Bypass panels are at most 36 wide on an opening up to 144. */
 const BIFOLD_UNITS = [24,30,36,48,60,72];
 /* 2.46, Andrew 19 Nov: 7'0" bifolds are in the price list too, so a bifold
-   is stock at 6'8" and 7'0" (it was 6'8" only) */
-const BIFOLD_HEIGHTS = {80:BIFOLD_UNITS, 84:BIFOLD_UNITS};
+   is stock at 6'8" and 7'0" (it was 6'8" only). 2.47: and 8'0", which the
+   price list also has (a line's own 8'0" check, e.g. Lynden's, still shows) */
+const BIFOLD_HEIGHTS = {80:BIFOLD_UNITS, 84:BIFOLD_UNITS, 96:BIFOLD_UNITS};
 const BYPASS_PANEL_MAX = 36, BYPASS_OPEN_MAX = 144;
 const SUPPLIER_LINES = {
   lynden:   {name:'Lynden molded panel', heights:{80:W_LYNDEN, 84:W_LYNDEN, 96:W_LYN_8},
@@ -3488,7 +3492,7 @@ function sizeCheckRaw(op, o, msrp){
     need = Math.max(0, w - BIFOLD_SLACK);       // 2.29: the unit for the opening
     what = 'the bifold';
     list = (L.bifold || BIFOLD_HEIGHTS)[h];
-    if(!list){ so(L.name + ' bifolds are 6\'8" and 7\'0" only'); return res; }
+    if(!list){ so(L.name + ' bifolds are 6\'8", 7\'0" and 8\'0" only'); return res; }
   }
   if(BYPASS_TYPES.indexOf(type) >= 0){
     if(w > BYPASS_OPEN_MAX + 0.01){ so('Bypass openings go up to ' + BYPASS_OPEN_MAX + '"'); return res; }
@@ -4801,14 +4805,16 @@ function renderJob(){
       /* On a phone these run down the screen in this order. On a tablet held
          sideways they sit in two columns, the door on the left and its size
          on the right, so a whole opening fits without scrolling (2.3). */
-      // 2.45, Andrew 19 Nov: Opening has comes first, with In-Home Measurement on or off
-      h += '<div class="o-c o-top">' + conditionFields(op) + '</div>';
-      h += '<div class="op-grid"><div class="op-left">';
-      h += '<div class="o-loc"><div class="field"><label>Location</label>' +
+      /* 2.45, Andrew 19 Nov: Opening has near the top, with In-Home
+         Measurement on or off. 2.47: Location on top, Opening has in the
+         spot location had (first on the left). */
+      h += '<div class="o-loc o-top"><div class="field"><label>Location</label>' +
            (isCombo('location')
               ? combo('location', op.location, 'data-f="location" data-op="' + op.id + '"')
               : '<select data-f="location" data-op="' + op.id + '">' +
                 opt('location', op.location) + '</select>') + '</div></div>';
+      h += '<div class="op-grid"><div class="op-left">';
+      h += '<div class="o-c">' + conditionFields(op) + '</div>';
       h += '<div class="o-qty">' + qtyField(op) + '</div>';
       h += '<div class="o-type">' + typeChips(op) + '</div>';
       h += '<div class="o-prod">';
@@ -5622,6 +5628,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.46 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.47 · 19 Nov 2026</div>
 </body>
 </html>

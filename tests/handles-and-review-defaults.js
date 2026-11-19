@@ -79,18 +79,20 @@ const check = (name, ok, got) => {
   });
   const screen = await page.evaluate(() => ({
     first:document.querySelector('.card.door .card-body').firstElementChild.className,
+    left:document.querySelector('.card.door .op-left').firstElementChild.className,
     cards:[...document.querySelectorAll('.card-head b')].map(x => x.textContent),
     sects:[...document.querySelectorAll('.opt-edit .sect-head b')].map(x => x.textContent),
     handles:[...document.querySelectorAll('.opt-edit select[data-v="handleType"] option')].map(x => x.textContent).filter(Boolean),
     knob:state.job.openings[1].options[0].v.handleType}));
-  check('Opening has is the first thing on the opening', /o-top/.test(screen.first), screen);
+  check('2.47: Location on top, Opening has first under it', /o-loc o-top/.test(screen.first) && screen.left === 'o-c', screen);
   check('no jamb and machining section while measuring', screen.sects.indexOf('Jamb and machining') < 0 && screen.sects.includes('Hardware'), screen);
   check('no special materials card while measuring', !screen.cards.some(c => /Special materials/i.test(c)), screen);
   check('the handle list on a swing is its five', screen.handles.join() === 'Customer Supplied,Dummy,Passage,Privacy,Keyed', screen);
   check('the bifold got its knob', screen.knob === 'Bifold Knob', screen);
   await page.evaluate(() => { state.job.inHome = true; state.editOption = null; render(); });
-  const home = await page.evaluate(() => document.querySelector('.card.door .card-body').firstElementChild.className);
-  check('Opening has is first with In-Home Measurement on too', /o-top/.test(home), home);
+  const home = await page.evaluate(() => [document.querySelector('.card.door .card-body').firstElementChild.className,
+    document.querySelector('.card.door .op-left').firstElementChild.className]);
+  check('the same with In-Home Measurement on', /o-loc o-top/.test(home[0]) && home[1] === 'o-c', home);
   await page.evaluate(() => { state.job.inHome = false; render(); });
 
   // the review

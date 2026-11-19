@@ -33,7 +33,7 @@ const CASES = [
   ['Lynden bifold 72 1/2 opening takes the 72 unit', 'Bifold', '1.375 Hollow', 'Kingston', 72.5, 80, 2, 'ok'],
   ['Lynden bifold 36 1/2 opening takes the 36 unit', 'Bifold', '1.375 Hollow', 'Kingston', 36.5, 80, 1, 'ok'],
   ['Lynden bifold at 7\'0" is stock (Andrew 19 Nov, in the price list)', 'Bifold', '1.375 Hollow', 'Kingston', 30, 84, 1, 'ok'],
-  ['Lynden bifold at 8\'0" is special order', 'Bifold', '1.375 Hollow', 'Kingston', 30, 96, 1, 'so', '7\'0" only'],
+  ['Lynden bifold at 8\'0" is priced, check with Lynden (2.47)', 'Bifold', '1.375 Hollow', 'Kingston', 30, 96, 1, 'check', 'model dependent'],
   ['Masonite 36 x 80', 'Single Swing', '1.375 Hollow', 'Riverside', 36, 80, 1, 'ok'],
   ['Masonite 40 wide', 'Single Swing', '1.375 Hollow', 'Riverside', 40, 80, 1, 'so'],
   ['Masonite 7\'0" select style', 'Single Swing', '1.375 Hollow', 'Livingston', 30, 84, 1, 'ok'],
