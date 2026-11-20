@@ -3451,7 +3451,7 @@ async function loadIndex(){
        every job down. If the database will not do that, the list still
        works: it falls back to the plain columns. */
     const rich = 'id,customer,owner_name,openings,updated,' +
-                 'status:data->>status,rep:data->>salesRep';
+                 'status:data->>status,rep:data->>salesRep,closets:data->>closetCount';
     let r = await sb('/rest/v1/jobs?select=' + rich + '&order=updated.desc',
                      {headers: sbHeaders()});
     if(!r.ok)
@@ -3461,7 +3461,7 @@ async function loadIndex(){
     return (await r.json()).map(j => ({id:j.id, customer:j.customer, owner:j.owner_name,
                                        rep:j.rep || j.owner_name || '',
                                        status: statusOf(j),
-                                       openings:j.openings, updated: Date.parse(j.updated)}));
+                                       openings:j.openings, closets:+j.closets || 0, updated: Date.parse(j.updated)}));
   }
   try{ const v = await Local.get(IDX); return (v ? JSON.parse(v) : []).map(j =>
          Object.assign({}, j, {status: statusOf(j), rep: j.rep || j.owner || j.salesRep || ''}));
@@ -3480,6 +3480,7 @@ async function loadJob(id){
 }
 async function saveJob(job){
   job.updated = Date.now();
+  job.closetCount = (job.closets || []).length;      // 2.64.2: for the job list
   if(SB){
     const row = {id:job.id, owner_name:job.owner, customer:job.customer,
                  openings:job.openings.length, data:job, updated:new Date().toISOString()};
@@ -3496,7 +3497,7 @@ async function saveJob(job){
     const row = {id:job.id, customer:job.customer, docType:job.docType,
                  owner:job.owner, rep: job.salesRep || job.owner || '',
                  status: statusOf(job),
-                 updated:job.updated, openings:job.openings.length};
+                 updated:job.updated, openings:job.openings.length, closets:job.closetCount};
     const i = ix.findIndex(j => j.id === job.id);
     if(i >= 0) ix[i] = row; else ix.unshift(row);
     ix.sort((a,b) => b.updated - a.updated);
@@ -5416,6 +5417,14 @@ function clStartOf(c, k){
   const segs = clSegs(c), i = segs.findIndex(g => g.k === k);
   return i > 0 && !segs[i].door ? 'the wall ' + segs[i - 1].k + ' corner' : 'the open end';
 }
+/* An opening nothing has been put on yet: what a new job starts with */
+const blankOpening = op => !op.location && !op.existingType && !op.openW && !op.openH && !op.width && !op.height &&
+  !noteOf(op) && !op.cond;
+const jobCounts = j => {
+  const d = +j.openings || 0, c = +j.closets || 0;
+  return [d || !c ? d + ' opening' + (d === 1 ? '' : 's') : '', c ? c + ' closet' + (c === 1 ? '' : 's') : '']
+    .filter(Boolean).join(' \u00b7 ') + (c && !d ? ' (closets only)' : '');
+};
 const clName = c => 'Closet ' + c.number + (c.location ? ' · ' + c.location : '');
 const clVal = (c, k) => String(((c.dims || {})[k]) || '');
 function clMissing(c){
@@ -5778,7 +5787,14 @@ document.addEventListener('click', async e => {
   const act = d.cl;
   if(act === 'closets'){ state.view = 'closets'; window.scrollTo(0, 0); return render(); }
   if(act === 'doors'){ state.view = 'job'; window.scrollTo(0, 0); return render(); }
-  if(act === 'add'){ const n = newCloset(job); state.closetOpen = n.id; state.scrollTo = n.id; render(); return persistBg(); }
+  if(act === 'add'){
+    /* 2.64.2: a closets only job. The empty opening a new job starts with is
+       taken off when the first closet goes on, so nothing asks for a door. */
+    if(!closetsOf(job).length && job.openings.length && job.openings.every(blankOpening)){
+      job.openings = [];
+      toast('Closets only job. Add a door under Doors any time.');
+    }
+    const n = newCloset(job); state.closetOpen = n.id; state.scrollTo = n.id; render(); return persistBg(); }
   if(act === 'print'){ return window.print(); }
   if(!c) return;
   if(act === 'toggle'){ state.closetOpen = state.closetOpen === c.id ? null : c.id; return render(); }
@@ -5998,7 +6014,7 @@ function renderJobs(){
     '<div class="card"><div class="jobrow" data-open="' + j.id + '">' +
       '<div class="t"><b>' + esc(j.customer || 'Untitled job') + ' ' +
         '<span class="spill ' + statusOf(j) + '">' + STATUS_LABEL[statusOf(j)] + '</span></b>' +
-      '<span>' + j.openings + ' opening' + (j.openings === 1 ? '' : 's') + ' · ' +
+      '<span>' + jobCounts(j) + ' · ' +
       new Date(j.updated).toLocaleDateString() +
       (j.rep || j.owner ? ' · ' + esc(j.rep || j.owner) : '') + '</span></div>' +
       '<button class="btn btn-ghost btn-sm" data-exp="' + j.id + '">Save file</button>' +
@@ -6053,7 +6069,7 @@ function renderJob(){
          '<button class="btn btn-ghost btn-sm" data-custopen="1">Edit customer</button></div>';
   } else {
   h += '<div class="card jobcard"><div class="card-body" style="border-top:0;padding-top:8px">';
-  if(job.customer && (job.openings || []).length)
+  if(job.customer && ((job.openings || []).length || closetsOf(job).length))
     h += '<button class="btn btn-ghost btn-sm jc-fold" data-custopen="0">Fold away</button>';
   /* Where this job is up to. It moves to Downloaded on its own the first time
      the contract is taken out of here, so the only one anybody sets by hand is
@@ -6129,6 +6145,10 @@ function renderJob(){
   h += '</div>';
   }
 
+  // 2.64.2, Andrew 20 Nov: a job may be closets only, with no doors
+  if(!job.openings.length)
+    h += '<div class="card"><div class="card-body cl-empty" style="border-top:0">No doors on this job' +
+         (closetsOf(job).length ? ': it is closets only. Add opening if there are doors too.' : '. Add opening for a door, or tap Closets.') + '</div></div>';
   job.openings.forEach((op, oi) => {
     applyQtyRule(op);              // older jobs, imports and a changed tick
     const isOpen = state.openOpening === op.id;
@@ -6329,6 +6349,12 @@ function renderJob(){
   $('#app').innerHTML = h;
 
   const n = included(job), miss = missing(job);
+  if(!job.openings.length){
+    const nc = closetsOf(job).length;
+    $('#dock').innerHTML = '<div class="count">' + (nc ? 'Closets only \u00b7 ' + nc + ' closet' + (nc === 1 ? '' : 's') : 'No doors yet') + '</div>' +
+      '<button class="btn btn-primary" data-cl="closets">Closets</button>';
+    return;
+  }
   $('#dock').innerHTML =
     '<div class="count">' + (miss.length
       ? esc(miss[0]) + (miss.length > 1 ? ' (+' + (miss.length - 1) + ' more)' : '')
@@ -6638,7 +6664,7 @@ document.addEventListener('click', async e => {
     render(); return persistBg(); }
   if(d.open){ const j = await loadJob(d.open);
     state.job = j; state.view = 'job'; state.repOpen = false;
-    state.custOpen = !(j.customer && (j.openings || []).length);   // 2.20
+    state.custOpen = !(j.customer && ((j.openings || []).length || (j.closets || []).length));   // 2.20, 2.64.2 closets
     const first = state.job.openings[0];
     state.openOpening = first && first.id;
     state.editOption = first && first.options[0] && first.options[0].id;
@@ -7035,6 +7061,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.64.1 · 20 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.64.2 · 20 Nov 2026</div>
 </body>
 </html>

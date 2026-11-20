@@ -42,6 +42,24 @@ const check = (name, ok, got) => {
     const j = newJob(); j.customer = 'Closet Test'; j.address = '1 Main St'; j.city = 'Cambridge'; j.openings = [];
     state.job = j; state.view = 'job'; render();
   });
+  // 2.64.2: a closets only job. The new job's empty opening comes off with the first closet
+  await page.evaluate(() => { state.job = newJob(); state.job.customer = 'Closets Only'; state.view = 'job'; render(); });
+  check('a new job starts with one empty opening', await page.evaluate(() => state.job.openings.length === 1 && blankOpening(state.job.openings[0])));
+  await page.click('.cl-switch [data-cl="closets"]'); await page.click('[data-cl="add"]');
+  check('first closet takes the empty opening off', await page.evaluate(() => state.job.openings.length === 0 && state.job.closets.length === 1));
+  await page.click('.cl-switch [data-cl="doors"]');
+  check('doors screen says closets only, nothing asks for a door', await page.evaluate(() =>
+    /closets only/i.test(document.getElementById('app').textContent) && /Closets only/.test(document.getElementById('dock').textContent) &&
+    !/Opening 1/.test(document.getElementById('dock').textContent) && missing(state.job).every(m => !/^Opening/.test(m))));
+  check('job list row says closets only', await page.evaluate(() => jobCounts({openings:0, closets:2}) === '2 closets (closets only)' &&
+    jobCounts({openings:3, closets:1}) === '3 openings \u00b7 1 closet' && jobCounts({openings:0}) === '0 openings'));
+  await page.evaluate(() => { const j = newJob(); j.openings[0].location = 'Foyer 1'; state.job = j; state.view = 'closets'; render(); });
+  await page.click('[data-cl="add"]');
+  check('an opening with anything on it stays', await page.evaluate(() => state.job.openings.length === 1));
+  await page.evaluate(() => {
+    const j = newJob(); j.customer = 'Closet Test'; j.address = '1 Main St'; j.city = 'Cambridge'; j.openings = [];
+    state.job = j; state.view = 'job'; render();
+  });
   const keys = async s => { for(const k of s){ await page.click('#pad [data-pk="' + k + '"]'); } };
   check('the job screen has the Doors | Closets switch', await page.locator('.cl-switch [data-cl="closets"]').count() === 1);
   await page.click('.cl-switch [data-cl="closets"]');
