@@ -75,6 +75,8 @@ edge functions for anything needing an admin key.
 | `account-link` | forgot my password, send me my address link, and confirm, the only thing that sets `email_verified_at`; JWT verification off | service role, `RESEND_API_KEY` |
 | `kpi-import` | the only door numbers come in through | `KPI_IMPORT_KEY` |
 | `send-goback` | emails a go back to the office | `RESEND_API_KEY` |
+| `send-contract` | measurement app 2.23: emails the signed contract PDF to the customer and the signed in sales associate (price roles only, job read as the caller) | `RESEND_API_KEY`, optional `CONTRACT_EMAIL_FROM`, `CONTRACT_EMAIL_BCC` |
+| `remote-sign` | measurement app 2.26: emails the customer a private signing link; customer opens, signs (server time and IP recorded), PDF stored in Storage signed-contracts and emailed. JWT verification OFF, checks the associate itself; customer by link secret (only its SHA-256 is stored in sign_requests) 2.28: actions pdf and supersede; a re-signed job becomes Rev 001, 002..., the replaced contract moves to job.contracts and a copy stamped SUPERSEDED is stored beside the original (`...-SUPERSEDED.pdf`), never overwriting it | service role, `RESEND_API_KEY`, optional `SIGN_PAGE_URL` |
 | `send-order-function` | emails a dealer order | `RESEND_API_KEY` |
 
 `kpi-import` writes all rows or none. One bad row rejects the batch with
@@ -201,6 +203,19 @@ astragal. A double swing with a value above zero in the astragal field
 gets a T astragal. Doors with no price in the hollow section of the list
 only come in solid and are not charged for re railing.
 
+**Measurement app door opening sizes (2.31).** A job has `sizing: 2` and
+its openings carry `openW`/`openH` (the actual opening) only if it was
+started on 2.31 or later; `sized(op)` is just "has an openW key". Those
+openings get their door from `openPlan` (dealer portal deductions, reveal
+3/32 and floor gap 1/2 unless `job.reveal`/`job.floorGap`), the blank
+limited to the style's `SUPPLIER_LINES` sizes, and `syncPlans` writes the
+result into `op.width`/`op.height` and re-rail/re-stile (unless set by
+hand). Swing doors put the blank on the workbook (pair total on a double);
+other types put the measured opening width and the blank height. Older
+jobs are untouched. Andrew 18 Nov: 4 lite and 3 Panel Shaker (T-Shape) are
+Trimlite; bifolds 24, 30, 36, 48, 60, 72 for every line; bypass panel at
+most 36, opening at most 144.
+
 **PostgREST quirks.** A PATCH matching zero rows returns 200 with `[]`,
 not an error, which hid two silent failures. An RPC without
 `headers(true)` resolves to a zero argument function and 404s. Run
@@ -240,3 +255,55 @@ not an error, which hid two silent failures. An RPC without
   history of patches and whichever ran last is what is live.
 - Tests go in both directions: that the thing now works, and that
   everybody who had access yesterday still has exactly what they had.
+
+### Measurement app 2.52: jambs, swing direction, condo form
+- A Rough Opening is the only opening that "needs a jamb" (needsJamb). A swing door there needs op.swingDir (LO, LI, RI, RO: hinge side and in/out, looking into the room) and may have op.hingeMatch (matching hinges already in the home).
+- The Door Jamb Take-Off Work Sheet (jambPage for print, section 3b of contractPdf) lists only openings that need a jamb. Hinges by Andrew's rules (hingeSpec): 80/84 tall hollow 2, solid 3; 96 hollow 3, solid 4; 3" x 1/4" radius, 3 1/2" for doors thicker than 1 3/8; backset 1/4"; top hinge 7" down, bottom hinge 11" up (tops), others evenly between. hingeMatch keeps the worked out quantity and prints CONFIRM EXISTING HINGE SIZE AND RADIUS PRIOR TO STARTING WORK. The sheet is signed (sign field 'jambs').
+- job.condo adds the Condominium Installation Details & Agreement (condo-installation-agreement.pdf/.png, built by scripts/condo-form.js) as a job level JOB_DOCS entry (jobNeeds), signed like the other forms.
+
+### Measurement app 2.53: iPhone dock, jamb charge
+- The print wrapper table (table.pw) around the review grew to the review table's width (about 825px on a phone), so iPhone Safari zoomed the page out and the fixed bottom dock sat at the layout viewport bottom, mid screen. On screen table.pw is now table-layout:fixed, so the page stays the phone width and the review table scrolls inside .rv-scroll.
+- 2.54, jamb charge: the workbook's jamb lines (Pricing Sheet K52/K53) were COUNTIF(H9:H27, "4 5/8") and "6 5/8". The app wrote the jamb as text ("4.625"), which neither HyperFormula nor LibreOffice counts, so no jamb was charged on the review or in the file. Now the jamb is written as a number and JAMB_FORMULAS replace K52/K53 in both the calculator (getCalc) and the downloaded file (fillSheet, setFormula): 4 5/8 on its own line, every other jamb width on the 6 5/8 line (Andrew, 19 Nov: typed widths cost the same as 6 5/8). One jamb per contract line.
+
+### Measurement app 2.55: reviewed order confirm, estimated floor gap
+- Print, Sign, Send to Sign and Send Estimate first ask "Have you fully reviewed this order?" (confirmReviewed, REVIEW_ACTS; sure() takes goClass). Continuing confirms the order is complete and correct and that the salesperson is responsible for errors or omissions. Asked every time, before the action's own checks. Buttons renamed Send to Sign, Send Estimate (Andrew).
+- floorGap(op, o): swing doors on sized jobs, opening height less door height (typed door height, else the worked out finH), rounded to the eighth, at least 1/2" (MIN_FLOOR_GAP). Rough opening (we do the jamb) is always 1/2" (Andrew). Shown on the opening card (.gap-note) and under the height on the review (.rv-gap). Tests: tests/floor-gap.js; signing tests click through the question with reviewed().
+
+### Measurement app 2.56: notes on the contract
+- op.note (each door) and job.note (whole order), Andrew 19 Nov. Typed on the opening card (+ Note for this door, data-opnoteadd, then data-opnote; left column so a tablet still fits one opening), on the review (a third row per door, tr.rv-l3, and .rv-notes under the doors) and on the job screen (order note card). Change updates in place (no render) so the next tap is not lost.
+- Printed review: boxes hidden, text in small red (.note-print), empty rows hidden. Contract PDF: door note in red under its line (noteLines/noteH, once per opening), order note above the special order box and pricing (wrap helper keeps line breaks). Customer signing page shows them read only. Notes are part of signFp, so a note changed after signing needs signing again. Not written to the workbook.
+- The review dock wraps under the total on phones (max-width 600), five buttons did not fit.
+
+### Measurement app 2.57: quotes (options and revisions), change orders
+- Design approved by Andrew 19 Nov ("Yes, let's do this"); he did not answer the two questions, so both were built: options as well as revisions, and a change after signing is a change order needing a new signature.
+- One measurement per job. A quote is the door choices on top (QUOTE_OP: each opening's options, qty, doorW, doorH; QUOTE_JOB: materials, fees, docType). The active option lives in the job's own fields as before; others wait in job.qt.opts[k].data (switchOpt, newOpt, removeOpt, choicesOf, applyChoices). Openings, sizes, notes are shared.
+- Revisions per option: job.qt.opts[k].revs [{rev, at, fp (signFp), data, total, events[{kind estimate|send-sign|contract|revised, at, to}]}]. lockRev on Send Estimate, Send to Sign, signing; reviseQuote (Revise quote) locks and sets next. quoteRev = last rev if fp unchanged, else +1. revPdf remakes a locked revision's estimate from its data.
+- quoteRef = quoteNo (job.quoteNo or Q + id tail) + Option k (when more than one) + Rev n; printed on estimates (Estimate #), the contract PDF subtitle and the printed review. Quote bar (quoteBar) on the review, not printed.
+- Signing records signed.opt and signed.qrev; markSigned locks the contract revision and marks other options superseded. signedOk needs the active option to be the signed one. Download workbook warns on an option that is not the signed one.
+- revLabel is now "Change Order 001" (app and both edge functions' emails).
+- Opening has (cond) is required on sized openings (missing()), and Opening has, door opening width and height show "needed" until set. The door note button is "+ Add note".
+- 2.58: printing hid empty note rows with display:none, which broke the door number cell's rowspan (3) and shifted every later door. Empty note rows now stay with no height. Test in tests/order-notes.js.
+
+### Measurement app 2.59: the GDL line
+- Andrew 19 Nov: when Product is GDL the door is bypass or bifold only, and router and stop, re-rail, re-stile, handle type, handle style, HW colour and paint colour are not needed (GDL_OFF, emptied by syncGdl, hidden on the Edit screen, N/A on the review). Added instead, required: Frame colour and Insert colour (o.v.frameColour, o.v.insertColour).
+- Frame colours: Glissade (family GDL Aluminum) Black, White, Silver; wood line (family GDL Wood, which includes Economy (No Warranty), my reading) White, Black, Chocolate, Grey, Espresso (Andrew wrote Expresso). Inserts: Frosted Glass, White Lacobel, Black Lacobel, White Mirror Strip, Black Mirror Strip, Clear Mirror.
+- syncGdl (end of syncHandles): GDL turns Bypass into GDL ByPass and Bifold/Premium Bifold into GDL BiFold (the workbook prices GDL only under those types); picking GDL ByPass, GDL BiFold or a GDL style makes the product GDL; leaving GDL (o.gdlSeen) turns the type back and clears a GDL style, frame and insert, and puts back the job defaults in GDL_OFF fields. GDL styles per type: gdlStyles (Glissade Bifold only on GDL BiFold, other Glissades only on GDL ByPass, wood on both); the style box and review list are limited to them. syncPlans and sheetInputs never re-rail a GDL door.
+- Frame and insert are NOT written to the workbook or XML (no place for them). They show on the review (in the Handle Type and Handle Style cells, captions Frame/Insert), the contract PDF (Handle columns: "Frame: X", "Insert: Y"), the signing page, and the door selections page (doorPicks keys by style plus frame plus insert, p.sub caption). Part of signFp.
+- Picture sheet: glissade-style-1..9.jpg, the nine panel drawings of grinyer.ca "GDL Glissade Closet Door Set, Mix and Match", in gallery order taken as Style 1 to 9 (a guess, told to Andrew); used for Square, Swept and Bifold alike. Wood styles keep their room photos; Chuhai and Shochu have none on the site. Haru, Hinata, Hiroto are on the site and in the workbook but not in the app's style list.
+- Test: tests/gdl.js. tests/job-docs.js updated (its GDL BiFold line now a real GDL door).
+
+### Measurement app 2.60: install Yes or No, GDL pictures from the supplier sheets
+- Install (Andrew 19 Nov): YES or NO on every door, FREE only on a GDL door (installChoices, syncInstall at the end of syncHandles: blank, or FREE on a non GDL door, becomes YES). Edit and review lists limited the same way.
+- Glissade names (Andrew): Futura = Glissade Square, Moderna = Glissade Swept, Inspira = Glissade Bifold. Pictures now cropped from Andrew's numbered sheets, replacing the 2.59 gallery order guess: glissade-style-1..9.jpg (the bypass sheet #1 to #9, used for Square and Swept), glissade-bifold-style-1..9.jpg (the Inspira sheet; its #9 differs). Frame edge close ups glissade-edge-square/swept/bifold.jpg (gdlEdge) sit over the lower right of the door photo on the door selections page (print, contract PDF, signing page) with "Futura frame edge shown" and so on.
+
+### Measurement app 2.61: GDL priced per set, third track
+- Andrew 19 Nov: GDL is priced per set. The workbook's GDL prices are per opening ('Pricing - GDL MSRP': "Prices are per OPENING"), so a GDL line writes quantity 1 (C column, and DoorQuantity 1 in the XML) while op.qty stays the number of doors in the set, shown on the card ("Doors in the set"), the review (with "1 set") and the contract.
+- Door count (gdlPanels, GDL_PANELS) from the price list Panels column by opening width, rounded up like the price: Glissade bypass to 72: 2, 96: 2 or 3 (rep picks), 108: 3, 120 to 192: 4. Glissade bifold to 36: 2, 48 to 72: 4. Economy: 2. Wood line: no Panels column in the price list, so the Glissade counts are used (a guess, told to Andrew). qtyRule hands GDL to gdlQtyRule.
+- Override: "Override door count" on the card (op.qtyOverride), or any count off the price list on the review. The opening is then a SPECIAL CASE (gdlSpecial, specialText): red line on the review and the printed order (.rv-special), in the contract PDF note line (lineNote) and on the signing page. The workbook has no place for it. Width past the price list is also a special case.
+- A GDL line carries the opening size itself (lineSize returns openW/openH), not a worked out door, and the card shows "GDL set made to the W x H opening". Before 2.61 a 48" GDL bifold with 4 doors went to the workbook as 96 wide.
+- Third track (o.v.thirdTrack) on GDL ByPass in Glissade Square or Swept only (canThirdTrack). Cost = single top track 33.33 + single bottom track 7.98 per foot of opening width, rounded up to the foot (my reading of the price list's Track section: the set includes the double track). Written to AJ{row}; the S (Door Price) formula of every line becomes R + N(AJ) for GDL (trackFormula), in the calculator and the file. setCell adds a missing cell to its row (addCell). Shown on the card, the review (Third track YES/NO in the HW Colour cell, "+$x in door price"), the contract (HW column) and the door selections page.
+- Tests: tests/gdl-sets.js (LibreOffice recalculates the downloaded file when soffice is present).
+- 2.62 (Andrew 20 Nov): the third track is only offered on a GDL set of exactly 3 doors (canThirdTrack(o, op)); a set changed to another count drops it and its cost. The rates are 'Pricing - GDL MSRP' D30 (Grey single top track $33.33/ft) and D31 (Grey single bottom track $7.98/ft); the price list has no "third track" item, so this is a reading, asked of Andrew.
+
+### Measurement app 2.63: opening size read only on the review
+- Andrew 20 Nov: the opening's width and height are measured on the measurement screen only. The review shows them (and "orders as" for a range height) but never edits them, for every job, old (op.width/op.height) or new (openW/openH); reviewChange ignores width and height. "+ Add door" on the review adds the opening and opens it on the measurement screen; Review order brings the review back.
