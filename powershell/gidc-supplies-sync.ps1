@@ -39,7 +39,11 @@
 #    Two weeks before its installation date (Orders.InstallBookedDate).
 #    With none, two weeks after its template date. With neither, the
 #    Schedule Cut Date, so dealer orders (no installation) still count;
-#    -NoCutDate turns that off.
+#    -NoCutDate turns that off. -CutFirst uses the cut date ahead of the
+#    other two whenever an order has one.
+#    The supplies check (20 November) found the template date at
+#    Orders.TemplateBookedDate. Of 73 orders with a cut date in the next
+#    12 weeks, only 1 had an installation booked.
 #    The template date is found by name: an Orders column with "templat"
 #    in its name, or a production detail with it. -TemplateColumn or
 #    -TemplateDetail names it outright once the supplies check has shown
@@ -60,10 +64,13 @@ param(
   [string] $LogDir = "C:\GIDC\logs",
 
   [string] $InstallColumn  = "InstallBookedDate",
-  [string] $TemplateColumn = "",
+  # Found by the supplies check, 20 November: Orders.TemplateBookedDate.
+  [string] $TemplateColumn = "TemplateBookedDate",
   [string] $TemplateDetail = "",
   [string] $CutName        = "Schedule Cut Date",
   [switch] $NoCutDate,
+  # The cut date first, when an order has one; then the rules above.
+  [switch] $CutFirst,
   [int]    $InstallLeadDays  = 14,
   [int]    $TemplateLagDays  = 14,
 
@@ -229,7 +236,8 @@ $cn.Close()
 # ---- the day each order needs its supplies ----------------------------------------
 $needOn = @{}; $why = @{}
 foreach ($id in $orderIds) {
-  if ($install[$id]) { $needOn[$id] = $install[$id].AddDays(-$InstallLeadDays); $why[$id] = "install" }
+  if ($CutFirst -and $cut.ContainsKey($id) -and $cut[$id]) { $needOn[$id] = $cut[$id]; $why[$id] = "cut" }
+  elseif ($install[$id]) { $needOn[$id] = $install[$id].AddDays(-$InstallLeadDays); $why[$id] = "install" }
   elseif ($template.ContainsKey($id) -and $template[$id]) { $needOn[$id] = $template[$id].AddDays($TemplateLagDays); $why[$id] = "template" }
   elseif ($cut.ContainsKey($id) -and $cut[$id]) { $needOn[$id] = $cut[$id]; $why[$id] = "cut" }
 }
