@@ -307,3 +307,11 @@ not an error, which hid two silent failures. An RPC without
 
 ### Measurement app 2.63: opening size read only on the review
 - Andrew 20 Nov: the opening's width and height are measured on the measurement screen only. The review shows them (and "orders as" for a range height) but never edits them, for every job, old (op.width/op.height) or new (openW/openH); reviewChange ignores width and height. "+ Add door" on the review adds the opening and opens it on the measurement screen; Review order brings the review back.
+
+### Measurement app 2.64: closet organizer measurements
+- Andrew 20 Nov: closet organizers are measured on their own screen, reached from the job by the Doors | Closets switch (closetSwitch, state.view 'closets', renderClosets). Measurements only: kept as notes for designing later in Grinyer's closet software. Not priced, not in the workbook, XML, contract or signFp.
+- job.closets [{id, number, location (same location list as doors), shape reach|walk|open|custom, pts (custom only, grid dots), free (angled walls on), drawn, dims {A, B, ..., Door}, ceiling, note, marks [{id, type, wall, from, size, off, tall}]}], saved with the job.
+- Standards (CL_SHAPES, Andrew confirmed): Reach in A to E (his paper sheet), Walk in A to E plus the door opening, Three walls A to C with no returns. Draw your own: tap the corners on a 16 x 12 grid; straight walls snap across or up and down and a tap the same way lengthens the wall; Angled walls on draws to the dot tapped (Andrew asked for angled walls). Each turn is a new lettered wall.
+- Every size is typed on the big number pad (openClosetPad, pad.closet, closetPadDone), never the door size picker (Andrew). Done on a blank size moves on to the next blank wall, then the ceiling.
+- Windows and obstructions (CL_MARKS): wall, from corner (measured from the corner the wall starts at, or the open end for the first wall, clStartOf), width, off floor, height; drawn as a numbered blue bar on the wall.
+- Print closets prints the Closet Measurements sheet (closetPrint): letterhead, customer, address, phone, email, date, salesperson, then each drawn closet with sizes, ceiling, marks and notes. Test: tests/closets.js (iPhone 13).

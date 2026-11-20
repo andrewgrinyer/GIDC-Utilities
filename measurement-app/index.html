@@ -847,6 +847,67 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 
 .gidc-build{position:fixed;right:10px;bottom:8px;z-index:60;font-size:11px;line-height:1;color:#8E8E99;opacity:.7;font-variant-numeric:tabular-nums;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+
+/* 2.64: closet organizers */
+.cl-switch{display:flex;gap:0;margin:0 0 12px;border:1px solid var(--rule);border-radius:12px;overflow:hidden;background:var(--card)}
+.cl-switch button{flex:1;border:0;background:none;font:inherit;font-weight:600;font-size:16px;padding:12px 8px;min-height:48px;color:var(--muted);cursor:pointer}
+.cl-switch button.on{background:#1F1F24;color:#fff}
+.cl-switch small{display:inline-block;min-width:22px;padding:1px 6px;border-radius:10px;background:var(--rule-soft);color:var(--ink);font-size:12px;margin-left:4px}
+.cl-switch button.on small{background:#fff}
+.cl-empty{padding-top:16px;color:var(--muted);font-size:15px}
+.cl-shapes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
+.cl-shape{border:2px solid var(--rule);border-radius:12px;background:#fff;padding:6px 4px 8px;font:inherit;font-size:13px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;min-height:44px}
+.cl-shape.on{border-color:var(--brass);background:var(--brass-soft)}
+.cl-shape .cl-svg{width:100%;height:auto;max-height:64px}
+.cl-draw{background:#fff;border:1px solid var(--rule);border-radius:12px;margin:8px 0;touch-action:manipulation}
+.cl-draw .cl-svg{display:block;width:100%;height:auto;max-height:62vh}
+.cl-draw svg.cl-draw{cursor:crosshair}
+.cl-lab[data-cl]{cursor:pointer}
+.cl-hint{margin:6px 0 0}
+.cl-tools{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
+.cl-tools .cl-free.on{background:var(--brass-soft);border-color:var(--brass);color:var(--brass)}
+.cl-dims, .cl-mdims{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:8px 0}
+.cl-dim{border:1px solid var(--rule);border-radius:12px;background:#fff;font:inherit;padding:8px 12px;min-height:56px;display:flex;flex-direction:column;align-items:flex-start;cursor:pointer;text-align:left}
+.cl-dim span{font-size:12px;color:var(--muted)}
+.cl-dim b{font-size:20px}
+.cl-dim.empty{border-color:var(--brass);background:var(--brass-soft)}
+.cl-dim.empty b{color:var(--brass);font-size:15px}
+.cl-dim.opt b{color:var(--muted)}
+.cl-marks{margin:12px 0 4px}
+.cl-mh{font-weight:600;font-size:14px;margin:0 0 6px}
+.cl-mark{border:1px solid var(--rule);border-left:4px solid #2D6CDF;border-radius:10px;padding:8px;margin:0 0 8px;background:#fff}
+.cl-mrow{display:flex;gap:6px;align-items:center}
+.cl-mrow select{flex:1 1 60%;min-width:0}
+.cl-mrow select[data-clmark="wall"]{flex:0 0 104px}
+.cl-mn{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;background:#2D6CDF;color:#fff;flex:none}
+.cl-mx{flex:none;min-width:44px}
+.cl-mdims{grid-template-columns:repeat(4,1fr);margin:8px 0 2px}
+.cl-mdims .cl-dim{min-height:48px;padding:6px 8px}
+.cl-mdims .cl-dim b{font-size:16px}
+.cl-mfrom{font-size:12px;color:var(--muted)}
+.cl-note{margin-top:12px}
+.cl-print{display:none}
+@media (max-width:600px){
+  .cl-shapes{grid-template-columns:repeat(2,1fr)}
+  .cl-shape .cl-svg{max-height:56px}
+  .cl-dims{grid-template-columns:repeat(2,1fr)}
+  .cl-mdims{grid-template-columns:repeat(2,1fr)}
+}
+@media print{
+  body.closets #app > :not(.cl-print){display:none!important}
+  body.closets .cl-print{display:block!important}
+  body.closets .wrap{max-width:none;padding:0}
+  .clp-title h1{font-size:20px;margin:0 0 6px}
+  .clp-who{display:grid;grid-template-columns:repeat(3,1fr);gap:2px 14px;background:#F2F2F2;padding:6px 10px;border-radius:4px;margin:0 0 10px}
+  .clp-who span{display:block;font-size:7px;color:#6B6B6B;text-transform:uppercase;letter-spacing:.08em}
+  .clp-who b{font-size:11px}
+  .clp-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px 18px}
+  .clp-one{break-inside:avoid;border-top:1px solid #C8C8C8;padding-top:4px}
+  .clp-one h2{font-size:13px;margin:0 0 2px}
+  .clp-one .cl-svg{width:100%;height:auto;max-height:3.6in}
+  .clp-marks{margin:2px 0;padding-left:18px;font-size:10px}
+  .clp-note{margin:2px 0;font-size:10px;color:#B5121B;white-space:pre-wrap}
+}
 </style>
 </head>
 <body>
@@ -4329,8 +4390,8 @@ function drawPad(){
   const v = padValue();
   const fr = ['1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
   el.innerHTML = '<div class="pad-card" role="dialog" aria-label="Type a size">' +
-    '<div class="pad-head"><b>' + ({width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height', doorW:'Each door width', doorH:'Each door height', jambW:'Jamb width'}[pad.f] || 'Size') + '</b>' +
-    '<span>Opening ' + (op ? op.number + (op.location ? ' · ' + esc(op.location) : '') : '') + '</span></div>' +
+    '<div class="pad-head"><b>' + (pad.title ? esc(pad.title) : {width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height', doorW:'Each door width', doorH:'Each door height', jambW:'Jamb width'}[pad.f] || 'Size') + '</b>' +
+    '<span>' + (pad.sub ? esc(pad.sub) : 'Opening ' + (op ? op.number + (op.location ? ' · ' + esc(op.location) : '') : '')) + '</span></div>' +
     '<div class="pad-show">' + (v === '' ? '<i>0</i>' : esc(sizeText(v))) + '<small>in</small></div>' +
     '<div class="pad-fr">' + fr.map((x, i) =>
       '<button type="button" data-pk="f' + (i + 1) + '"' + (pad.eighths === i + 1 ? ' class="on"' : '') +
@@ -4352,6 +4413,7 @@ async function padKey(k){
     return;
   }
   if(k === 'done'){
+    if(pad.closet) return closetPadDone();          // 2.64: a closet size
     const job = state.job, op = job && job.openings.find(o => o.id === pad.opId);
     const f = pad.f, v = padValue();
     if(op && !setOpeningSize(op, f, v)) return;      // refused: the pad stays up to fix it
@@ -5310,8 +5372,398 @@ function sizeLine(o){
   return [v.width && v.width + '"W', v.height && v.height + '"H'].filter(Boolean).join(' × ');
 }
 
+/* ---------------- closet organizers (2.64) ----------------
+ *
+ * Andrew, 20 Nov: closet organizer measurements, on their own screen from
+ * the job (Doors | Closets). Each closet has an opening name from the same
+ * list as the doors, a drawing, a size for every wall, the ceiling height
+ * and notes. Three standard drawings (his paper sheet's reach in, a walk in
+ * with its door, and three walls with no returns) or Draw your own: tap the
+ * corners on a grid, lines go straight up, down, left or right, and every
+ * time the line turns there is a new wall with its own size. Sizes are typed
+ * on the big number pad (inches and eighths), not the door size picker.
+ *
+ * Stored on the job as job.closets, saved with it. Not priced, not in the
+ * workbook. Printed as a Closet Measurements sheet from this screen. */
+const CL_U = 40;                                  // one grid square in the drawing
+const CL_GRID = {w:16, h:12};                     // Draw your own grid, in squares
+const CL_SHAPES = {
+  reach: {name:'Reach in',    pts:[[3,6],[0,6],[0,0],[10,0],[10,6],[7,6]]},
+  walk:  {name:'Walk in',     pts:[[3.5,9],[0,9],[0,0],[10,0],[10,9],[6.5,9]], door:true},
+  open:  {name:'Three walls', pts:[[0,6],[0,0],[10,0],[10,6]]}
+};
+const CL_ORDER = ['reach', 'walk', 'open'];
+const clLetter = i => (i >= 26 ? clLetter(Math.floor(i / 26) - 1) : '') + String.fromCharCode(65 + i % 26);
+const closetsOf = job => (job.closets = Array.isArray(job.closets) ? job.closets : []);
+const clFind = (job, id) => closetsOf(job).find(c => c.id === id);
+const clPts = c => c.shape === 'custom' ? (c.pts || []) : ((CL_SHAPES[c.shape] || {}).pts || []);
+function clSegs(c){
+  const p = clPts(c), s = [];
+  for(let i = 1; i < p.length; i++) s.push({k:clLetter(i - 1), a:p[i - 1], b:p[i]});
+  if(CL_SHAPES[c.shape] && CL_SHAPES[c.shape].door && p.length > 1)
+    s.push({k:'Door', a:p[p.length - 1], b:p[0], door:true});
+  return s;
+}
+/* Andrew 20 Nov: windows and obstructions marked on a wall. Each one says
+   which wall, how far from the corner the wall starts at, how wide, how high
+   off the floor and how tall. */
+const CL_MARKS = ['Window', 'Door', 'Outlet', 'Switch', 'Bulkhead', 'Pipe or vent', 'Attic hatch', 'Other'];
+const CL_MARK_F = [['from', 'From corner'], ['size', 'Width'], ['off', 'Off floor'], ['tall', 'Height']];
+const clMarks = c => (c.marks = Array.isArray(c.marks) ? c.marks : []);
+const clMarkVal = (m, f) => String((m && m[f]) || '');
+function clStartOf(c, k){
+  const segs = clSegs(c), i = segs.findIndex(g => g.k === k);
+  return i > 0 && !segs[i].door ? 'the wall ' + segs[i - 1].k + ' corner' : 'the open end';
+}
+const clName = c => 'Closet ' + c.number + (c.location ? ' · ' + c.location : '');
+const clVal = (c, k) => String(((c.dims || {})[k]) || '');
+function clMissing(c){
+  const m = [];
+  if(!c.shape) return ['pick a drawing'];
+  if(c.shape === 'custom' && clPts(c).length < 2) return ['draw the walls'];
+  const open = clSegs(c).filter(s => !clVal(c, s.k)).map(s => s.k);
+  if(open.length) m.push(open.length === 1 ? open[0] + ' needs a size' : open.length + ' sizes needed');
+  if(!c.ceiling) m.push('ceiling height');
+  return m;
+}
+function newCloset(job){
+  const list = closetsOf(job);
+  const n = list.reduce((x, c) => Math.max(x, +c.number || 0), 0) + 1;
+  const c = {id:uid(), number:n, location:'', shape:'', pts:[], dims:{}, ceiling:'', note:''};
+  list.push(c);
+  return c;
+}
+
+/* The drawing. mode 'edit' (sizes are buttons), 'draw' (the grid takes taps),
+   'thumb' (the picker) or 'print'. */
+function closetSvg(c, mode){
+  const segs = clSegs(c), p = clPts(c), U = CL_U;
+  const grid = mode === 'draw';
+  let x0, y0, x1, y1;
+  if(grid){ x0 = 0; y0 = 0; x1 = CL_GRID.w; y1 = CL_GRID.h; }
+  else if(p.length){
+    x0 = Math.min(...p.map(q => q[0])); x1 = Math.max(...p.map(q => q[0]));
+    y0 = Math.min(...p.map(q => q[1])); y1 = Math.max(...p.map(q => q[1]));
+  } else { x0 = 0; y0 = 0; x1 = 10; y1 = 6; }
+  const cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+  const m = grid ? 0.5 : mode === 'thumb' ? 1.1 : 1.9;
+  const vb = [(x0 - m) * U, (y0 - m) * U, (x1 - x0 + 2 * m) * U, (y1 - y0 + 2 * m) * U].map(v => Math.round(v));
+  let s = '<svg class="cl-svg cl-' + mode + '" viewBox="' + vb.join(' ') + '" xmlns="http://www.w3.org/2000/svg"' +
+          (grid ? ' data-cl="grid" data-cid="' + c.id + '"' : '') + ' role="img" aria-label="' + esc(clName(c)) + '">';
+  if(grid){
+    s += '<rect x="' + vb[0] + '" y="' + vb[1] + '" width="' + vb[2] + '" height="' + vb[3] + '" fill="#fff"/>';
+    for(let gx = 0; gx <= CL_GRID.w; gx++) for(let gy = 0; gy <= CL_GRID.h; gy++)
+      s += '<circle cx="' + gx * U + '" cy="' + gy * U + '" r="2.6" fill="#C9C9D0"/>';
+  }
+  const thick = mode === 'thumb' ? 9 : 7;
+  if(p.length > 1)
+    s += '<polyline points="' + p.map(q => q[0] * U + ',' + q[1] * U).join(' ') + '" fill="none" stroke="#17171A" stroke-width="' +
+         thick + '" stroke-linecap="square" stroke-linejoin="miter"/>';
+  if(grid && p.length){
+    const L = p[p.length - 1];
+    s += '<circle cx="' + p[0][0] * U + '" cy="' + p[0][1] * U + '" r="7" fill="#17171A"/>' +
+         '<circle cx="' + L[0] * U + '" cy="' + L[1] * U + '" r="11" fill="none" stroke="#C80000" stroke-width="4"/>';
+  }
+  // the walk in's door: the gap dashed, the leaf and its swing into the closet
+  const door = segs.find(g => g.door);
+  if(door){
+    const h = door.b, e = door.a, w = Math.abs(e[0] - h[0]);
+    s += '<line x1="' + h[0] * U + '" y1="' + h[1] * U + '" x2="' + e[0] * U + '" y2="' + e[1] * U +
+         '" stroke="#8A8A92" stroke-width="2" stroke-dasharray="8 7"/>' +
+         '<path d="M' + h[0] * U + ' ' + h[1] * U + ' L' + h[0] * U + ' ' + (h[1] - w) * U +
+         ' A' + w * U + ' ' + w * U + ' 0 0 1 ' + e[0] * U + ' ' + e[1] * U + '" fill="none" stroke="#8A8A92" stroke-width="2.5"/>';
+  }
+  // windows and obstructions: along the wall where measured, else a badge mid wall
+  if(mode !== 'thumb') clMarks(c).forEach((mk, i) => {
+    const g = segs.find(x => x.k === mk.wall); if(!g) return;
+    const dx = g.b[0] - g.a[0], dy = g.b[1] - g.a[1], len = Math.hypot(dx, dy) || 1;
+    const wl = parseFloat(clVal(c, g.k)), fr = parseFloat(mk.from), sz = parseFloat(mk.size);
+    let t0 = 0.35, t1 = 0.65;
+    if(wl > 0 && !isNaN(fr) && sz > 0){ t0 = Math.max(0, Math.min(1, fr / wl)); t1 = Math.max(t0, Math.min(1, (fr + sz) / wl)); }
+    let nx = -dy / len, ny = dx / len;
+    const mx = (g.a[0] + g.b[0]) / 2, my = (g.a[1] + g.b[1]) / 2;
+    if(nx * (mx - cx) + ny * (my - cy) > 0){ nx = -nx; ny = -ny; }      // inwards
+    const P = t => [(g.a[0] + dx * t) * U, (g.a[1] + dy * t) * U];
+    const a = P(t0), b = P(t1), mm = P((t0 + t1) / 2);
+    s += '<line x1="' + a[0] + '" y1="' + a[1] + '" x2="' + b[0] + '" y2="' + b[1] + '" stroke="#2D6CDF" stroke-width="13" stroke-linecap="butt"/>' +
+         '<circle cx="' + (mm[0] + nx * 0.6 * U) + '" cy="' + (mm[1] + ny * 0.6 * U) + '" r="17" fill="#2D6CDF"/>' +
+         '<text x="' + (mm[0] + nx * 0.6 * U) + '" y="' + (mm[1] + ny * 0.6 * U + 8) + '" text-anchor="middle" font-size="22" font-weight="700" fill="#fff">' + (i + 1) + '</text>';
+  });
+  // each wall's letter outside the closet, its size under the letter
+  segs.forEach(g => {
+    const mx = (g.a[0] + g.b[0]) / 2, my = (g.a[1] + g.b[1]) / 2;
+    const dx = g.b[0] - g.a[0], dy = g.b[1] - g.a[1], len = Math.hypot(dx, dy) || 1;
+    let nx = -dy / len, ny = dx / len;
+    if(g.door){ nx = 0; ny = 1; }
+    else if(nx * (mx - cx) + ny * (my - cy) < 0){ nx = -nx; ny = -ny; }
+    if(!grid && Math.abs(nx * (mx - cx) + ny * (my - cy)) < 1e-6 && !g.door){
+      // a wall through the middle (it happens on a drawn one): go up or left
+      if(Math.abs(nx) > Math.abs(ny)) nx = -Math.abs(nx); else ny = -Math.abs(ny);
+    }
+    const off = mode === 'thumb' ? 0.62 : 0.95;
+    const tx = (mx + nx * off) * U, ty = (my + ny * off) * U;
+    const v = clVal(c, g.k);
+    if(mode === 'thumb'){
+      s += '<text x="' + tx + '" y="' + (ty + 13) + '" text-anchor="middle" font-size="36" font-weight="700" fill="#17171A">' +
+           (g.door ? '' : g.k) + '</text>';
+      return;
+    }
+    const tap = mode === 'edit' || mode === 'draw';
+    const val = v ? sizeText(v) + '"' : (tap ? 'tap' : '');
+    const bw = Math.max(64, 18 * Math.max(String(g.k).length, val.length) + 14);
+    s += '<g class="cl-lab' + (v ? '' : ' empty') + '"' + (tap ? ' data-cl="dim" data-cid="' + c.id + '" data-k="' + g.k + '"' : '') + '>' +
+         (tap ? '<rect x="' + (tx - bw / 2) + '" y="' + (ty - 30) + '" width="' + bw + '" height="66" rx="10" fill="' +
+                (v ? '#fff' : '#FCECEC') + '" stroke="' + (v ? '#C9C9D0' : '#C80000') + '" stroke-width="2"/>' : '') +
+         '<text x="' + tx + '" y="' + (ty - 2) + '" text-anchor="middle" font-size="27" font-weight="700" fill="#17171A">' + esc(g.k) + '</text>' +
+         '<text x="' + tx + '" y="' + (ty + 27) + '" text-anchor="middle" font-size="25" fill="' + (v ? '#17171A' : '#C80000') + '">' + esc(val) + '</text></g>';
+  });
+  if(mode !== 'thumb' && mode !== 'draw' && p.length > 1){
+    const ch = c.ceiling ? sizeText(c.ceiling) + '"' : (mode === 'edit' ? 'tap' : '');
+    s += '<g class="cl-lab"' + (mode === 'edit' ? ' data-cl="dim" data-cid="' + c.id + '" data-k="ceiling"' : '') + '>' +
+         '<text x="' + cx * U + '" y="' + (cy * U - 4) + '" text-anchor="middle" font-size="24" fill="#6E6E76">Ceiling height</text>' +
+         '<text x="' + cx * U + '" y="' + (cy * U + 26) + '" text-anchor="middle" font-size="28" font-weight="700" fill="' +
+         (c.ceiling ? '#17171A' : '#C80000') + '">' + esc(ch) + '</text></g>';
+  }
+  return s + '</svg>';
+}
+
+/* A tap on the Draw your own grid: the nearest dot, kept straight from the
+   last corner. Carrying on the same way makes the line longer; turning starts
+   the next wall. */
+function closetTap(c, svg, e){
+  if(!svg.getScreenCTM) return;
+  const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+  const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+  const gx = Math.max(0, Math.min(CL_GRID.w, Math.round(q.x / CL_U)));
+  const gy = Math.max(0, Math.min(CL_GRID.h, Math.round(q.y / CL_U)));
+  return closetAddPoint(c, gx, gy);
+}
+function closetAddPoint(c, gx, gy){
+  c.pts = c.pts || [];
+  if(!c.pts.length){ c.pts.push([gx, gy]); return true; }
+  const L = c.pts[c.pts.length - 1];
+  let dx = gx - L[0], dy = gy - L[1];
+  // Andrew 20 Nov: angled walls. Angled on: the line goes to the dot tapped.
+  if(!c.free){ if(Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0; }
+  if(!dx && !dy) return false;
+  const np = [L[0] + dx, L[1] + dy];
+  if(c.pts.length >= 2 && !c.free){
+    const P = c.pts[c.pts.length - 2];
+    const px = Math.sign(L[0] - P[0]), py = Math.sign(L[1] - P[1]);
+    if(px === Math.sign(dx) && py === Math.sign(dy)){ c.pts[c.pts.length - 1] = np; return true; }
+    if(px === -Math.sign(dx) && py === -Math.sign(dy)){ toast('That goes back over the last wall. Tap Undo instead.'); return false; }
+  }
+  c.pts.push(np);
+  return true;
+}
+
+/* Every size goes in on the big number pad. Done on a blank one moves on to
+   the next blank one, so a closet is measured wall by wall without hunting. */
+function clPadOrder(c){ return clSegs(c).map(g => g.k).concat('ceiling'); }
+const clMarkKey = (c, k) => { const p = /^m:([^:]+):(\w+)$/.exec(k); if(!p) return null;
+  const m = clMarks(c).find(x => x.id === p[1]); return m ? {m, f:p[2]} : null; };
+const clGet = (c, k) => { const mk = clMarkKey(c, k); return mk ? clMarkVal(mk.m, mk.f) : k === 'ceiling' ? String(c.ceiling || '') : clVal(c, k); };
+function openClosetPad(c, k){
+  const cur = clGet(c, k), mk = clMarkKey(c, k);
+  const n = parseFloat(cur), ok = !isNaN(n);
+  const w = ok ? Math.floor(n) : 0, e = ok ? Math.round((n - w) * 8) : 0;
+  pad = {closet:c.id, key:k, mode:'num', fresh:true,
+         whole: ok && (w || e) ? String(w + (e === 8 ? 1 : 0)) : '', eighths: e === 8 ? 0 : e,
+         title: mk ? mk.m.type + ' on wall ' + mk.m.wall + ': ' + (CL_MARK_F.find(x => x[0] === mk.f) || [, ''])[1] +
+                     (mk.f === 'from' ? ' (from ' + clStartOf(c, mk.m.wall) + ')' : '')
+              : k === 'ceiling' ? 'Ceiling height' : k === 'Door' ? 'Door opening' : 'Wall ' + k,
+         sub: clName(c)};
+  drawPad();
+}
+function closetPadDone(){
+  const job = state.job, c = job && clFind(job, pad.closet), k = pad.key, v = padValue();
+  pad = null;
+  if(!c){ drawPad(); return; }
+  const was = clGet(c, k), mk = clMarkKey(c, k);
+  if(mk) mk.m[mk.f] = v;
+  else if(k === 'ceiling') c.ceiling = v; else { c.dims = c.dims || {}; if(v) c.dims[k] = v; else delete c.dims[k]; }
+  persistBg();
+  const order = clPadOrder(c);
+  const next = !was && v && order.indexOf(k) >= 0 ? order.find(x => x !== k && !clGet(c, x)) : null;
+  render();
+  if(next) openClosetPad(c, next); else drawPad();
+}
+
+function closetSwitch(job, on){
+  const nd = (job.openings || []).length, nc = closetsOf(job).length;
+  return '<div class="cl-switch" role="tablist">' +
+    '<button type="button" role="tab"' + (on === 'doors' ? ' class="on" aria-selected="true"' : ' data-cl="doors"') + '>Doors' +
+      (nd ? ' <small>' + nd + '</small>' : '') + '</button>' +
+    '<button type="button" role="tab"' + (on === 'closets' ? ' class="on" aria-selected="true"' : ' data-cl="closets"') + '>Closets' +
+      (nc ? ' <small>' + nc + '</small>' : '') + '</button></div>';
+}
+
+function closetPrint(job){
+  const list = closetsOf(job).filter(c => clPts(c).length > 1);
+  if(!list.length) return '';
+  const who = [['Customer', job.customer], ['Address', docAddress(job)], ['Phone', job.phone], ['Email', job.email],
+               ['Date', job.date], ['Salesperson', job.salesRep || job.owner]];
+  return '<div class="cl-print">' + letterhead() +
+    '<div class="clp-title"><h1>Closet Measurements</h1></div>' +
+    '<div class="clp-who">' + who.map(([l, v]) => '<div><span>' + l + '</span><b>' + esc(v || '') + '</b></div>').join('') + '</div>' +
+    '<div class="clp-grid">' + list.map(c => '<div class="clp-one"><h2>' + esc(clName(c)) + '</h2>' + closetSvg(c, 'print') +
+      (clMarks(c).length ? '<ol class="clp-marks">' + clMarks(c).map(m => '<li>' + esc(m.type) + ' on wall ' + esc(m.wall) +
+        CL_MARK_F.filter(([f]) => clMarkVal(m, f)).map(([f, l]) => ', ' + l.toLowerCase() + ' ' + esc(sizeText(clMarkVal(m, f))) + '"').join('') +
+        '</li>').join('') + '</ol>' : '') +
+      (noteOf(c) ? '<p class="clp-note">Notes: ' + esc(noteOf(c)) + '</p>' : '') + '</div>').join('') + '</div></div>';
+}
+
+function renderClosets(){
+  const job = state.job;
+  document.body.classList.add('closets');
+  $('#bar').innerHTML =
+    '<button class="btn btn-ghost btn-sm" data-cl="doors">Back</button>' +
+    '<h1>' + esc(job.customer || 'Untitled job') + '</h1><span class="crumb">Closets</span>';
+  const list = closetsOf(job);
+  let h = closetSwitch(job, 'closets');
+  if(!list.length)
+    h += '<div class="card"><div class="card-body cl-empty" style="border-top:0">No closets on this job yet. ' +
+         'Add one for each closet you measure.</div></div>';
+  list.forEach(c => {
+    const isOpen = state.closetOpen === c.id, miss = clMissing(c);
+    h += '<div class="card cl-card' + (isOpen ? ' is-open' : '') + '" id="cl-' + c.id + '">' +
+         '<div class="card-head" data-cl="toggle" data-cid="' + c.id + '"><div class="n">C' + c.number + '</div>' +
+         '<div class="t"><b>' + esc(c.location || 'No location set') + '</b><span>' +
+         esc([c.shape === 'custom' ? 'Drawn' : (CL_SHAPES[c.shape] || {}).name, miss.length ? miss.join(', ') : 'all sizes in',
+              c.ceiling ? 'ceiling ' + sizeText(c.ceiling) + '"' : ''].filter(Boolean).join(' · ')) + '</span></div>' +
+         '<span class="crumb">' + (isOpen ? 'Hide' : 'Open') + '</span></div>';
+    if(isOpen){
+      h += '<div class="card-body"><div class="field cl-loc"><label>Location</label>' +
+           (isCombo('location') ? combo('location', c.location, 'data-clloc="' + c.id + '"')
+              : '<select data-clloc="' + c.id + '">' + opt('location', c.location) + '</select>') + '</div>';
+      h += '<div class="cl-shapes">' + CL_ORDER.map(k => '<button type="button" class="cl-shape' + (c.shape === k ? ' on' : '') +
+             '" data-cl="shape" data-cid="' + c.id + '" data-k="' + k + '">' + closetSvg({id:c.id, shape:k}, 'thumb') +
+             '<span>' + CL_SHAPES[k].name + '</span></button>').join('') +
+           '<button type="button" class="cl-shape cl-own' + (c.shape === 'custom' ? ' on' : '') + '" data-cl="shape" data-cid="' + c.id +
+             '" data-k="custom"><svg class="cl-svg cl-thumb" viewBox="0 0 480 290"><path d="M150 240 L60 240 L60 50 L330 50 L330 140 L420 140 L420 240" fill="none" stroke="#17171A" stroke-width="9" stroke-dasharray="22 14"/>' +
+             '<path d="M360 250 l40 -40 l18 18 l-40 40 z" fill="#C80000"/></svg><span>Draw your own</span></button></div>';
+      if(c.shape){
+        const drawing = c.shape === 'custom' && !c.drawn;
+        if(drawing)
+          h += '<p class="hint cl-hint">Tap where the first wall starts, then tap each corner in turn. ' +
+               (c.free ? 'Angled walls: each line goes straight to the dot you tap.'
+                       : 'Lines go straight across or up and down. Tap Straight walls for an angled one.') +
+               ' Every time the line turns there is a new wall to size.</p>';
+        h += '<div class="cl-draw">' + closetSvg(c, drawing ? 'draw' : 'edit') + '</div>';
+        if(c.shape === 'custom')
+          h += '<div class="cl-tools">' + (drawing
+            ? '<button class="btn btn-sm cl-free' + (c.free ? ' on' : '') + '" data-cl="free" data-cid="' + c.id + '">' +
+                (c.free ? 'Angled walls on' : 'Straight walls') + '</button>' +
+              '<button class="btn btn-sm" data-cl="undo" data-cid="' + c.id + '"' + (c.pts.length ? '' : ' disabled') + '>Undo</button>' +
+              '<button class="btn btn-sm" data-cl="restart" data-cid="' + c.id + '"' + (c.pts.length ? '' : ' disabled') + '>Start over</button>' +
+              '<button class="btn btn-sm btn-primary" data-cl="drawn" data-cid="' + c.id + '"' + (c.pts.length > 1 ? '' : ' disabled') + '>Done drawing</button>'
+            : '<button class="btn btn-sm" data-cl="redraw" data-cid="' + c.id + '">Change the drawing</button>') + '</div>';
+        if(clPts(c).length > 1){
+          h += '<div class="cl-dims">' + clSegs(c).map(g => '<button type="button" class="cl-dim' + (clVal(c, g.k) ? '' : ' empty') +
+                 '" data-cl="dim" data-cid="' + c.id + '" data-k="' + g.k + '"><span>' + (g.door ? 'Door opening' : 'Wall ' + g.k) + '</span><b>' +
+                 (clVal(c, g.k) ? esc(sizeText(clVal(c, g.k))) + '"' : 'needed') + '</b></button>').join('') +
+               '<button type="button" class="cl-dim cl-ceil' + (c.ceiling ? '' : ' empty') + '" data-cl="dim" data-cid="' + c.id +
+                 '" data-k="ceiling"><span>Ceiling height</span><b>' + (c.ceiling ? esc(sizeText(c.ceiling)) + '"' : 'needed') + '</b></button></div>';
+        }
+      }
+      if(clPts(c).length > 1 && (c.shape !== 'custom' || c.drawn)){
+        const walls = clSegs(c).filter(g => !g.door).map(g => g.k);
+        h += '<div class="cl-marks"><div class="cl-mh">Windows and obstructions</div>' + clMarks(c).map((mk, i) =>
+          '<div class="cl-mark"><div class="cl-mrow"><b class="cl-mn">' + (i + 1) + '</b>' +
+          '<select data-clmark="type" data-cid="' + c.id + '" data-mid="' + mk.id + '">' +
+            CL_MARKS.map(x => '<option' + (x === mk.type ? ' selected' : '') + '>' + x + '</option>').join('') + '</select>' +
+          '<select data-clmark="wall" data-cid="' + c.id + '" data-mid="' + mk.id + '">' +
+            walls.map(x => '<option value="' + x + '"' + (x === mk.wall ? ' selected' : '') + '>Wall ' + x + '</option>').join('') + '</select>' +
+          '<button type="button" class="btn btn-sm btn-ghost cl-mx" data-cl="mrm" data-cid="' + c.id + '" data-mid="' + mk.id + '" aria-label="Remove">\u2715</button></div>' +
+          '<div class="cl-mdims">' + CL_MARK_F.map(([f, l]) => '<button type="button" class="cl-dim' + (clMarkVal(mk, f) ? '' : ' opt') +
+            '" data-cl="dim" data-cid="' + c.id + '" data-k="m:' + mk.id + ':' + f + '"><span>' + l + '</span><b>' +
+            (clMarkVal(mk, f) ? esc(sizeText(clMarkVal(mk, f))) + '"' : '\u2013') + '</b></button>').join('') + '</div>' +
+          '<div class="cl-mfrom">From corner is measured from ' + esc(clStartOf(c, mk.wall)) + ' along wall ' + esc(mk.wall) + '.</div></div>').join('') +
+          '<button class="btn btn-sm" data-cl="madd" data-cid="' + c.id + '">+ Window or obstruction</button></div>';
+      }
+      h += '<div class="field cl-note"><label>Notes</label>' +
+           noteBox('data-clnote="' + c.id + '"', c.note, 'e.g. baseboard 4", outlet on wall B, remove the old shelf') + '</div>' +
+           '<div style="display:flex;gap:8px;padding-top:8px"><button class="btn btn-sm btn-danger" data-cl="rm" data-cid="' + c.id +
+           '">Remove closet</button></div></div>';
+    }
+    h += '</div>';
+  });
+  h += '<button class="btn" style="width:100%;justify-content:center;margin-top:6px" data-cl="add">Add closet</button>';
+  h += closetPrint(job);
+  $('#app').innerHTML = h;
+  const todo = list.reduce((n, c) => n + (clMissing(c).length ? 1 : 0), 0);
+  $('#dock').innerHTML = '<div class="count">' + (list.length
+      ? list.length + ' closet' + (list.length === 1 ? '' : 's') + (todo ? ' · ' + todo + ' still need sizes' : ' · all measured')
+      : 'No closets yet') + '</div>' +
+    '<button class="btn" data-cl="doors">Doors</button>' +
+    '<button class="btn btn-primary" data-cl="print"' + (list.some(c => clPts(c).length > 1) ? '' : ' disabled') + '>Print closets</button>';
+  if(state.scrollTo){
+    const target = state.scrollTo; state.scrollTo = null;
+    requestAnimationFrame(() => { const el = document.getElementById('cl-' + target);
+      if(el) el.scrollIntoView({block:'start', behavior:'smooth'}); });
+  }
+}
+
+document.addEventListener('click', async e => {
+  if(sureGo || pad) return;
+  const t = e.target.closest && e.target.closest('[data-cl]');
+  const job = state.job;
+  if(!t || !job) return;
+  const d = t.dataset, c = d.cid ? clFind(job, d.cid) : null;
+  const act = d.cl;
+  if(act === 'closets'){ state.view = 'closets'; window.scrollTo(0, 0); return render(); }
+  if(act === 'doors'){ state.view = 'job'; window.scrollTo(0, 0); return render(); }
+  if(act === 'add'){ const n = newCloset(job); state.closetOpen = n.id; state.scrollTo = n.id; render(); return persistBg(); }
+  if(act === 'print'){ return window.print(); }
+  if(!c) return;
+  if(act === 'toggle'){ state.closetOpen = state.closetOpen === c.id ? null : c.id; return render(); }
+  if(act === 'shape'){
+    if(c.shape === d.k) return;
+    const had = Object.keys(c.dims || {}).length || (c.pts || []).length;
+    if(had && !await sure({title:'Change the drawing?', what:'The wall sizes on this closet are cleared.',
+        why:'The ceiling height, location and notes stay.', final:'You can type the sizes again.', go:'Change', goClass:'btn-primary'})) return;
+    c.shape = d.k; c.dims = {}; c.pts = []; c.drawn = false;
+    render(); return persistBg();
+  }
+  if(act === 'grid'){ if(closetTap(c, t, e)){ render(); persistBg(); } return; }
+  if(act === 'undo'){ const p = c.pts || []; if(p.length){ p.pop(); if(c.dims) delete c.dims[clLetter(p.length - 1)]; } render(); return persistBg(); }
+  if(act === 'restart'){ c.pts = []; c.dims = {}; render(); return persistBg(); }
+  if(act === 'drawn'){ c.drawn = true; render(); persistBg(); const k = clPadOrder(c).find(x => !clVal(c, x)); if(k) openClosetPad(c, k); return; }
+  if(act === 'free'){ c.free = !c.free; return render(); }
+  if(act === 'redraw'){ c.drawn = false; return render(); }
+  if(act === 'dim') return openClosetPad(c, d.k);
+  if(act === 'madd'){ const w = clSegs(c).find(g => !g.door);
+    clMarks(c).push({id:uid(), type:'Window', wall:w ? w.k : 'A'}); render(); return persistBg(); }
+  if(act === 'mrm'){ c.marks = clMarks(c).filter(m => m.id !== d.mid); render(); return persistBg(); }
+  if(act === 'rm'){
+    if(!await sure({title:'Remove ' + clName(c) + '?', what:'Its drawing, sizes and notes go.', go:'Remove'})) return;
+    job.closets = closetsOf(job).filter(x => x !== c);
+    render(); return persistBg();
+  }
+});
+document.addEventListener('change', e => {
+  const t = e.target, d = t.dataset, job = state.job;
+  if(!job || !(d.clloc || d.clnote || d.clmark)) return;
+  const c = clFind(job, d.clloc || d.clnote || d.cid);
+  if(!c) return;
+  if(d.clmark){ const m = clMarks(c).find(x => x.id === d.mid); if(m){ m[d.clmark] = t.value; render(); persistBg(); } return; }
+  if(d.clnote){ c.note = t.value; t.classList.toggle('set', !!noteOf(c)); return persistBg(); }
+  let v = t.value;
+  if(t.dataset.combo){
+    const fixed = comboResolve('location', v);
+    if(fixed === null){
+      const open = t.parentNode && t.parentNode.classList && t.parentNode.classList.contains('open');
+      t.value = c.location || '';
+      return open ? undefined : toast('No location matches that');
+    }
+    v = fixed;
+  }
+  c.location = v; render(); persistBg();
+});
+
 function render(){
   document.body.classList.remove('reviewing');
+  document.body.classList.remove('closets');
   if(state.job && state.view !== 'remote'){ syncPlans(state.job); syncConditions(state.job); syncHandles(state.job); }
   if(state.view === 'remote') return renderRemote();
   if(state.view === 'review') return renderReview();
@@ -5319,6 +5771,7 @@ function render(){
   if(state.view === 'signin') return renderSignin();
   if(state.view === 'users')  return renderUsers();
   if(state.view === 'jobs')   return renderJobs();
+  if(state.view === 'closets') return renderClosets();
   return renderJob();
 }
 
@@ -5525,6 +5978,7 @@ function renderJob(){
          ? 'Showing only what gets filled in on site. Untick for the rest.'
          : 'Puts away everything except location, quantity, door type and size.') +
        '</span></label>';
+  h += closetSwitch(job, 'doors');           // 2.64: closet organizers on their own screen
   /* 2.20, Andrew 18 Nov: the customer box took a whole screen. It is now a
      tight grid, and a job opened with a customer and doors already on it
      shows the customer as one line until Edit is tapped. */
@@ -6517,6 +6971,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.63 · 20 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.64 · 20 Nov 2026</div>
 </body>
 </html>
