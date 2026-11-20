@@ -244,7 +244,7 @@ function sum(list, f){ return list.reduce(function(a, x){ return a + (Number(f(x
 var CODE = (new URLSearchParams(location.search).get('c') || 'shop').toLowerCase();
 var USES = {
   rerail:        {label: 'Rerail: the width of each rerailed door', per: 'Length of one piece, inches', cut: true},
-  pine:          {label: 'Pine: bump stops, and a piece the width of the opening for each valance', per: 'Length of one piece, inches', cut: true},
+  pine:          {label: 'Pine: bump stops, and a piece the width of the opening for each valance or Add Pine', per: 'Length of one piece, inches', cut: true},
   valance_small: {label: 'Small valances: openings 83" high or less', per: 'Length of one piece, inches', cut: true},
   valance_large: {label: 'Large valances: openings over 83" high', per: 'Length of one piece, inches', cut: true},
   doors:         {label: 'Doors on the schedule', per: 'Doors per unit', cut: false}

@@ -24,8 +24,10 @@
 #    rerail         every door line ticked DoorReRail: its door width,
 #                   once for each door on the line.
 #    pine           bump stops: DoorBumpStopLength_L and _R on each line
-#                   that has them. And for each valance, a piece the width
-#                   of the opening.
+#                   that has them. And a piece the width of the opening for
+#                   each opening with a valance or with DoorAddPine ticked
+#                   (Andrew, 20 November: "if the order calls to add pine
+#                   that must be counted"), once per opening.
 #    valance_small  a valance on an opening 83" high or less.
 #    valance_large  a valance on an opening over 83" high.
 #                   A line has a valance when DoorValanceLength is filled.
@@ -230,7 +232,7 @@ for ($i = 0; $i -lt $orderIds.Count; $i += 200) {
                                d.DoorReRail, d.DoorOrderWidth, d.DoorWidthManual, d.DoorResizedWidth,
                                d.DoorOpeningWidth, d.DoorOpeningHeight, d.DoorOrderHeight,
                                d.DoorBumpStops, d.DoorBumpStopLength_L, d.DoorBumpStopLength_R,
-                               d.DoorValanceLength
+                               d.DoorValanceLength, d.DoorAddPine, d.DoorTrackLength
                           from DoorOrders as d where d.OrderID in ($chunk)")) {
     $doorRows += $r
   }
@@ -267,6 +269,7 @@ function Use($id, $uses, $amount, $cuts) {
 function FirstOf($r, $cols) { foreach ($c in $cols) { $v = Num $r[$c]; if ($v -gt 0) { return $v } }; return 0.0 }
 
 $valances = @{}     # one per opening: "order|opening" -> @{ length; width; height }
+$pineOpenings = @{} # one piece per opening with a valance or Add Pine: "order|opening" -> @{ id; width }
 foreach ($r in $doorRows) {
   $id = [int]$r["OrderID"]
   if (-not $needOn.ContainsKey($id)) { continue }
@@ -286,9 +289,16 @@ foreach ($r in $doorRows) {
   if ($bump.Count) { Use $id "pine" (($bump | Measure-Object -Sum).Sum) $bump }
 
   $vl = Num $r["DoorValanceLength"]
+  $opening = if (Blank $r["DoorOpeningNumber"]) { "line" + $valances.Count + "_" + $pineOpenings.Count + "_" + $byKey.Count } else { [string]$r["DoorOpeningNumber"] }
+  $vk = "$id|$opening"
+  if ($vl -gt 0 -or (Yes $r["DoorAddPine"])) {
+    $pw = FirstOf $r @("DoorOpeningWidth", "DoorTrackLength")
+    if ($pw -le 0) { $pw = $vl }
+    if ($pw -gt 0 -and (-not $pineOpenings.ContainsKey($vk) -or $pineOpenings[$vk].width -lt $pw)) {
+      $pineOpenings[$vk] = @{ id = $id; width = $pw }
+    }
+  }
   if ($vl -gt 0) {
-    $opening = if (Blank $r["DoorOpeningNumber"]) { "line" + $byKey.Count + "_" + $valances.Count } else { [string]$r["DoorOpeningNumber"] }
-    $vk = "$id|$opening"
     $h = FirstOf $r @("DoorOpeningHeight", "DoorOrderHeight")
     $wd = FirstOf $r @("DoorOpeningWidth")
     if (-not $valances.ContainsKey($vk) -or $valances[$vk].length -lt $vl) {
@@ -301,8 +311,8 @@ foreach ($v in $valances.Values) {
           elseif ($v.height -gt $SmallValanceMaxHeight) { "valance_large" }
           else { "valance_small" }
   Use $v.id $size $v.length @($v.length)
-  Use $v.id "pine" $v.width @($v.width)
 }
+foreach ($p in $pineOpenings.Values) { Use $p.id "pine" $p.width @($p.width) }
 
 $lines = @($byKey.Values | ForEach-Object {
   [pscustomobject]@{ order_id = $_.order_id; order_no = $_.order_no; job = $_.job; uses = $_.uses
