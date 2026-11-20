@@ -96,6 +96,27 @@ const check = (name, ok, got) => {
   await tap(14, 5);
   pts = await page.evaluate(() => state.job.closets[2].pts);
   check('angled walls: the line goes to the dot tapped', JSON.stringify(pts[3]) === '[14,5]', pts);
+  // drag a finger: a wobbly U from scratch on a fourth closet, straight walls
+  await page.click('[data-cl="add"]');
+  await page.click('.cl-card.is-open [data-cl="shape"][data-k="custom"]');
+  const gp = (gx, gy) => page.evaluate(([gx, gy]) => { const s = document.querySelector('svg[data-cl="grid"]'); const m = s.getScreenCTM();
+      const pt = s.createSVGPoint(); pt.x = gx * CL_U; pt.y = gy * CL_U; const q = pt.matrixTransform(m); return [q.x, q.y]; }, [gx, gy]);
+  const drag = async path => { await page.evaluate(() => document.querySelector('svg[data-cl="grid"]').scrollIntoView({block:'center'})); let p = await gp(...path[0]); await page.mouse.move(...p); await page.mouse.down();
+    for(const q of path.slice(1)){ p = await gp(...q); await page.mouse.move(...p, {steps:12}); } await page.mouse.up(); await page.waitForTimeout(50); };
+  await drag([[3,10],[3.2,6],[2.9,3],[8,3.2],[13,2.9],[13.1,7],[12.9,10]]);
+  let dp = await page.evaluate(() => state.job.closets[3].pts);
+  check('a dragged U becomes three straight walls', JSON.stringify(dp) === '[[3,10],[3,3],[13,3],[13,10]]', dp);
+  await drag([[13,10],[11,10]]);
+  dp = await page.evaluate(() => state.job.closets[3].pts);
+  check('a second drag carries on from the end', JSON.stringify(dp[4]) === '[11,10]', dp);
+  await page.click('.cl-card.is-open [data-cl="undo"]');
+  await page.click('.cl-card.is-open [data-cl="free"]');
+  await drag([[13,10],[10,12]]);
+  dp = await page.evaluate(() => state.job.closets[3].pts);
+  check('angled walls drag to the dot', JSON.stringify(dp[4]) === '[10,12]', dp);
+  await page.click('.cl-card.is-open [data-cl="rm"]'); await page.click('[data-sure="yes"]');
+  await page.click('.cl-card:nth-of-type(3) [data-cl="toggle"]').catch(() => {});
+  await page.evaluate(() => { state.closetOpen = state.job.closets[2].id; render(); });
   await page.click('[data-cl="drawn"]');
   check('Done drawing opens the pad on wall A', await page.evaluate(() => pad && pad.key === 'A'));
   await page.click('#pad [data-pk="cancel"]');

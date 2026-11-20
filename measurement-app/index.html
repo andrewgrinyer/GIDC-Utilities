@@ -861,6 +861,7 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 .cl-shape .cl-svg{width:100%;height:auto;max-height:64px}
 .cl-draw{background:#fff;border:1px solid var(--rule);border-radius:12px;margin:8px 0;touch-action:manipulation}
 .cl-draw .cl-svg{display:block;width:100%;height:auto;max-height:62vh}
+.cl-draw svg[data-cl="grid"]{touch-action:none;-webkit-user-select:none;user-select:none}
 .cl-draw svg.cl-draw{cursor:crosshair}
 .cl-lab[data-cl]{cursor:pointer}
 .cl-hint{margin:6px 0 0}
@@ -5527,17 +5528,9 @@ function closetSvg(c, mode){
   return s + '</svg>';
 }
 
-/* A tap on the Draw your own grid: the nearest dot, kept straight from the
-   last corner. Carrying on the same way makes the line longer; turning starts
-   the next wall. */
-function closetTap(c, svg, e){
-  if(!svg.getScreenCTM) return;
-  const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
-  const q = pt.matrixTransform(svg.getScreenCTM().inverse());
-  const gx = Math.max(0, Math.min(CL_GRID.w, Math.round(q.x / CL_U)));
-  const gy = Math.max(0, Math.min(CL_GRID.h, Math.round(q.y / CL_U)));
-  return closetAddPoint(c, gx, gy);
-}
+/* Draw your own: the next corner, kept straight from the last one unless
+   Angled walls is on. Carrying on the same way makes the line longer;
+   turning starts the next wall. */
 function closetAddPoint(c, gx, gy){
   c.pts = c.pts || [];
   if(!c.pts.length){ c.pts.push([gx, gy]); return true; }
@@ -5556,6 +5549,75 @@ function closetAddPoint(c, gx, gy){
   c.pts.push(np);
   return true;
 }
+
+/* 2.64, Andrew 20 Nov: "can we modify so you can simply drag your finger".
+   A drag is drawn live, then tidied when the finger lifts: the wobble is
+   taken out (Douglas Peucker, half a grid square), each corner goes to the
+   nearest dot, and with straight walls each line is squared up, so every
+   turn of the finger is one lettered wall. A drag carries on from the end
+   of the walls already drawn. A tap without moving still adds a corner. */
+let clStroke = null;           // {c, svg, raw:[[x,y]...], line}
+function clGridPt(svg, e){
+  const pt = svg.createSVGPoint(); pt.x = e.clientX; pt.y = e.clientY;
+  const q = pt.matrixTransform(svg.getScreenCTM().inverse());
+  return [Math.max(0, Math.min(CL_GRID.w, q.x / CL_U)), Math.max(0, Math.min(CL_GRID.h, q.y / CL_U))];
+}
+function clSimplify(pts, eps){
+  if(pts.length < 3) return pts.slice();
+  const [a, b] = [pts[0], pts[pts.length - 1]];
+  const dx = b[0] - a[0], dy = b[1] - a[1], L = Math.hypot(dx, dy);
+  let far = 0, at = 0;
+  for(let i = 1; i < pts.length - 1; i++){
+    const p = pts[i];
+    const d = L ? Math.abs(dy * p[0] - dx * p[1] + b[0] * a[1] - b[1] * a[0]) / L : Math.hypot(p[0] - a[0], p[1] - a[1]);
+    if(d > far){ far = d; at = i; }
+  }
+  if(far <= eps) return [a, b];
+  return clSimplify(pts.slice(0, at + 1), eps).slice(0, -1).concat(clSimplify(pts.slice(at), eps));
+}
+function closetStroke(c, raw){
+  const moved = raw.some(p => Math.hypot(p[0] - raw[0][0], p[1] - raw[0][1]) > 0.35);
+  const snap = p => [Math.round(p[0]), Math.round(p[1])];
+  if(!moved) return closetAddPoint(c, ...snap(raw[0]));
+  /* with straight walls closetAddPoint squares each line up and joins lines
+     that carry on the same way, so a corner is only where the finger turned */
+  const pts = clSimplify(raw, c.free ? 0.5 : 0.6);
+  let changed = false;
+  if(!(c.pts || []).length){ c.pts = [snap(pts[0])]; changed = true; }
+  pts.slice(1).forEach(p => { if(closetAddPoint(c, ...snap(p))) changed = true; });
+  return changed;
+}
+document.addEventListener('pointerdown', e => {
+  const svg = e.target.closest && e.target.closest('svg[data-cl="grid"]');
+  if(!svg || pad || sureGo || !state.job) return;
+  if(e.target.closest('[data-cl="dim"]')) return;            // a size label, not the grid
+  const c = clFind(state.job, svg.dataset.cid); if(!c || !svg.getScreenCTM) return;
+  e.preventDefault();
+  try{ svg.setPointerCapture(e.pointerId); }catch(err){}
+  const start = clGridPt(svg, e);
+  const from = (c.pts || []).length ? c.pts[c.pts.length - 1] : null;
+  const line = document.createElementNS('http://www.w3.org/2000/svg', 'polyline');
+  line.setAttribute('fill', 'none'); line.setAttribute('stroke', '#C80000'); line.setAttribute('stroke-width', '6');
+  line.setAttribute('stroke-linecap', 'round'); line.setAttribute('stroke-linejoin', 'round'); line.setAttribute('opacity', '.7');
+  svg.appendChild(line);
+  clStroke = {c, svg, raw: from ? [from.slice(), start] : [start], line, id:e.pointerId};
+  line.setAttribute('points', clStroke.raw.map(p => p[0] * CL_U + ',' + p[1] * CL_U).join(' '));
+});
+document.addEventListener('pointermove', e => {
+  if(!clStroke || e.pointerId !== clStroke.id) return;
+  e.preventDefault();
+  clStroke.raw.push(clGridPt(clStroke.svg, e));
+  clStroke.line.setAttribute('points', clStroke.raw.map(p => p[0] * CL_U + ',' + p[1] * CL_U).join(' '));
+}, {passive:false});
+function clStrokeEnd(e){
+  if(!clStroke || e.pointerId !== clStroke.id) return;
+  const {c, raw} = clStroke; clStroke = null;
+  const changed = closetStroke(c, raw);
+  render();
+  if(changed) persistBg();
+}
+document.addEventListener('pointerup', clStrokeEnd);
+document.addEventListener('pointercancel', clStrokeEnd);
 
 /* Every size goes in on the big number pad. Done on a blank one moves on to
    the next blank one, so a closet is measured wall by wall without hunting. */
@@ -5645,7 +5707,7 @@ function renderClosets(){
       if(c.shape){
         const drawing = c.shape === 'custom' && !c.drawn;
         if(drawing)
-          h += '<p class="hint cl-hint">Tap where the first wall starts, then tap each corner in turn. ' +
+          h += '<p class="hint cl-hint">Drag your finger along the walls (or tap each corner). Lift and drag again to carry on from the end. ' +
                (c.free ? 'Angled walls: each line goes straight to the dot you tap.'
                        : 'Lines go straight across or up and down. Tap Straight walls for an angled one.') +
                ' Every time the line turns there is a new wall to size.</p>';
@@ -5709,6 +5771,9 @@ document.addEventListener('click', async e => {
   const t = e.target.closest && e.target.closest('[data-cl]');
   const job = state.job;
   if(!t || !job) return;
+  /* this tap is the closet screen's alone: the main handler would otherwise
+     see the are-you-sure panel opened here and close it as a tap outside */
+  e.stopImmediatePropagation(); comboClose();
   const d = t.dataset, c = d.cid ? clFind(job, d.cid) : null;
   const act = d.cl;
   if(act === 'closets'){ state.view = 'closets'; window.scrollTo(0, 0); return render(); }
@@ -5725,7 +5790,6 @@ document.addEventListener('click', async e => {
     c.shape = d.k; c.dims = {}; c.pts = []; c.drawn = false;
     render(); return persistBg();
   }
-  if(act === 'grid'){ if(closetTap(c, t, e)){ render(); persistBg(); } return; }
   if(act === 'undo'){ const p = c.pts || []; if(p.length){ p.pop(); if(c.dims) delete c.dims[clLetter(p.length - 1)]; } render(); return persistBg(); }
   if(act === 'restart'){ c.pts = []; c.dims = {}; render(); return persistBg(); }
   if(act === 'drawn'){ c.drawn = true; render(); persistBg(); const k = clPadOrder(c).find(x => !clVal(c, x)); if(k) openClosetPad(c, k); return; }
@@ -6971,6 +7035,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.64 · 20 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.64.1 · 20 Nov 2026</div>
 </body>
 </html>
