@@ -2843,7 +2843,7 @@ function syncGdl(job){
       if(v.doorStyle && gdlStyles(v.doorType).indexOf(v.doorStyle) < 0) v.doorStyle = '';
       if(v.frameColour && frameChoices(o).indexOf(v.frameColour) < 0) v.frameColour = '';
       if(v.insertColour && GDL_INSERTS.indexOf(v.insertColour) < 0) v.insertColour = '';
-      if(v.thirdTrack && !canThirdTrack(o)) delete v.thirdTrack;
+      if(v.thirdTrack && !canThirdTrack(o, op)) delete v.thirdTrack;
       o.gdlSeen = true;
     } else {
       if(o.gdlSeen){
@@ -2930,10 +2930,12 @@ function gdlQtyRule(op, o){
    ($33.33 a foot) and one single bottom track ($7.98 a foot), for the
    opening width rounded up to the foot. It is added to the door's price
    (Door Price, column S, through column AJ), in the calculator and the file. */
-const TRACK_TOP_FT = 33.33, TRACK_BOTTOM_FT = 7.98;
-const canThirdTrack = o => isGdl(o) && o.v.doorType === 'GDL ByPass' && /^Glissade (Square|Swept)/.test(o.v.doorStyle || '');
+const TRACK_TOP_FT = 33.33, TRACK_BOTTOM_FT = 7.98;   // 'Pricing - GDL MSRP' D30, D31 (Grey single top / bottom track)
+const thirdTrackStyle = o => isGdl(o) && o.v.doorType === 'GDL ByPass' && /^Glissade (Square|Swept)/.test(o.v.doorStyle || '');
+// Andrew 20 Nov: only on a set of 3 doors
+const canThirdTrack = (o, op) => thirdTrackStyle(o) && !!op && Number(op.qty) === 3;
 function thirdTrackCost(op, o){
-  if(!o.v.thirdTrack || !canThirdTrack(o)) return 0;
+  if(!o.v.thirdTrack || !canThirdTrack(o, op)) return 0;
   const w = widthNum(op);
   return w > 0 ? Math.round(Math.ceil(w / 12 - 1e-9) * (TRACK_TOP_FT + TRACK_BOTTOM_FT) * 100) / 100 : 0;
 }
@@ -2941,7 +2943,7 @@ const trackFormula = (f, r) => String(f).replace('IF(D' + r + '="GDL",R' + r + '
   'IF(D' + r + '="GDL",IF(ISNUMBER(R' + r + '),R' + r + '+N($AJ' + r + '),R' + r + '),');
 // the frame and insert words, for the contract and the signing page
 const gdlWords = o => isGdl(o) ? {frame:o.v.frameColour ? 'Frame: ' + o.v.frameColour : '',
-  insert:o.v.insertColour ? 'Insert: ' + o.v.insertColour : '', track:o.v.thirdTrack && canThirdTrack(o) ? 'Third track' : ''} : null;
+  insert:o.v.insertColour ? 'Insert: ' + o.v.insertColour : '', track:o.v.thirdTrack && thirdTrackStyle(o) ? 'Third track' : ''} : null;
 // the frame and insert chips (in-home card and the Edit screen)
 function gdlFields(o, opId, req){
   if(!isGdl(o)) return '';
@@ -2949,7 +2951,7 @@ function gdlFields(o, opId, req){
     (req ? ' <span style="color:var(--brass)">required</span>' : '') + '</label>' +
     chips({k, chips:items}, o, opId).replace(' num"', '"') + '</div>';
   return row('frameColour', 'Frame colour', frameChoices(o)) + row('insertColour', 'Insert colour', GDL_INSERTS) +
-    (canThirdTrack(o) ? '<div class="field gdl-f"><label>Third track</label><div class="chips"><button type="button" class="chip' +
+    (canThirdTrack(o, ((state.job && state.job.openings) || []).find(x => x.id === opId)) ? '<div class="field gdl-f"><label>Third track</label><div class="chips"><button type="button" class="chip' +
       (o.v.thirdTrack ? ' on' : '') + '" data-track3="' + o.id + '" data-op="' + opId + '">Add a third track</button></div>' +
       '<p class="hint">Single top and bottom track, $' + (TRACK_TOP_FT + TRACK_BOTTOM_FT).toFixed(2) + ' a foot of width, added to the door price.</p></div>' : '');
 }
@@ -4716,7 +4718,7 @@ function renderReview(){
         if(c.k === 'handleStyle') return '<td' + cs(n) + ' class="rv-gdl">' + gc('Insert') +
           reviewSelect('insertColour', o.v.insertColour, at('insertColour'), GDL_INSERTS) + '</td>';
         // 2.61: the third track, on a Glissade or Glissade Swept bypass
-        if(c.k === 'hwColour' && canThirdTrack(o)) return '<td' + cs(n) + ' class="rv-gdl">' + gc('Third track') +
+        if(c.k === 'hwColour' && canThirdTrack(o, op)) return '<td' + cs(n) + ' class="rv-gdl">' + gc('Third track') +
           reviewSelect('install', o.v.thirdTrack ? 'YES' : 'NO', at('thirdTrack'), ['YES', 'NO']) +
           (thirdTrackCost(op, o) ? '<span class="rv-note">+' + esc(money(thirdTrackCost(op, o))) + ' in door price</span>' : '') + '</td>';
         return '<td' + cs(n) + '>' + cap(c) + '<span class="rv-fixed" title="Not on a GDL door">N/A</span></td>';
@@ -6504,6 +6506,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.61 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.62 · 20 Nov 2026</div>
 </body>
 </html>

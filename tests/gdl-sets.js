@@ -79,8 +79,8 @@ const check = (name, ok, got) => {
     state.openOpening = c.id; render(); const chipC = !!document.querySelector('.card.is-open [data-track3]');
     state.openOpening = d.id; render(); const chipD = !!document.querySelector('.card.is-open [data-track3]');
     state.openOpening = a.id; j.inHome = false; render();
-    return {chipA, chipC, chipD, can:[a, b, c, d].map(op => canThirdTrack(op.options[0]))}; });
-  check('third track offered on Glissade Square and Swept bypass only', t.chipA && !t.chipC && !t.chipD && t.can.join() === 'true,true,false,false', t);
+    return {chipA, chipC, chipD, can:[a, b, c, d].map(op => canThirdTrack(op.options[0], op))}; });
+  check('third track offered on a 3 door Glissade Square or Swept bypass only', t.chipA && !t.chipC && !t.chipD && t.can.join() === 'true,true,false,false', t);
   await page.evaluate(() => { state.job.inHome = true; render(); });
   await page.click('.card.is-open [data-track3]');
   const tr = await page.evaluate(() => { const j = state.job; j.inHome = false; calcJob(j); render();
@@ -135,6 +135,10 @@ const check = (name, ok, got) => {
   await page.evaluate(() => { const op = state.job.openings[0]; reviewChange({value:'2'}, {rv:'qty', op:op.id, o:op.options[0].id}); });
   await page.waitForTimeout(100);
   check('picking the price list count on the review clears the flag', await page.evaluate(() => !state.job.openings[0].qtyOverride && !specialText(state.job.openings[0])));
+  // 2.62, Andrew 20 Nov: a third track only on a set of 3 doors
+  const two = await page.evaluate(() => { const op = state.job.openings[0]; calcJob(state.job);
+    return {qty:op.qty, track:!!op.options[0].v.thirdTrack, AJ9:cv('AJ9'), can:canThirdTrack(op.options[0], op)}; });
+  check('a 2 door set loses the third track and its cost', two.qty === 2 && !two.track && !two.AJ9 && !two.can, two);
   // a plain door keeps its own quantity in the workbook
   const plain = await page.evaluate(() => { const j = state.job, op = j.openings[3];
     Object.assign(op.options[0].v, {productType:'1.375 Hollow', doorStyle:'Kingston'}); op.qty = 2; calcJob(j);

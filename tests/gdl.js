@@ -117,7 +117,7 @@ const check = (name, ok, got) => {
   });
   check('review: frame select with the Glissade colours, set to Black', JSON.stringify(rv.frame) === '["Black","White","Silver"]' && rv.frameVal === 'Black', rv);
   check('review: insert select set', rv.insertVal === 'White Lacobel', rv);
-  check('review: Frame, Insert and (Glissade bypass) Third track captions, N/A on the rest', rv.caps.join() === 'Frame,Insert,Third track' && rv.na === 4, rv);
+  check('review: Frame and Insert captions (no third track on a 2 door set), N/A on the rest', rv.caps.join() === 'Frame,Insert' && rv.na === 5, rv);
   check('review: door type only GDL ByPass or GDL BiFold', rv.types === 3, rv.types);
   check('review: wood door offers the wood frames', rv.woodFrames.length === 5 && rv.woodFrames.includes('Espresso'), rv.woodFrames);
   check('the GDL door is priced by the workbook', typeof rv.msrp === 'number' && rv.msrp > 0, rv.msrp);
