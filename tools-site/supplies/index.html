@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Grinyer · Order Supplies</title>
+
+<!-- gidc-guard
+     who: shop. Administrators and the production staff (manufacturing),
+     the same as Paint. The database says the same thing underneath:
+     can_use_paint() in sql/paint.sql and can_use_supplies() in
+     sql/supplies.sql.
+
+     Andrew, 20 November: one Order Supplies button on the tools page, and
+     under it Paint, Shop Supplies, Sanding Supplies and Install Supplies.
+     Each keeps its own PO numbers: PD, SHP, SND and INST. -->
+<script>window.GIDC_TOOL = {who: 'shop'};</script>
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<style>
+:root{
+  --paper:#F6F6F7; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --rule-soft:#EFEFF2;
+  --brass:#C80000; --brass-soft:#FCECEC;
+  --pad:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:940px;margin:0 auto;padding:28px var(--pad) 72px}
+h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:-.01em}
+.lede{margin:0 0 26px;color:var(--muted);font-size:15px;max-width:60ch}
+.grid{display:grid;gap:14px;grid-template-columns:1fr}
+@media(min-width:620px){.grid{grid-template-columns:1fr 1fr}}
+.tile{display:flex;flex-direction:column;gap:10px;background:var(--card);border:1px solid var(--rule);
+  border-radius:14px;padding:18px;text-decoration:none;color:inherit;
+  box-shadow:0 1px 2px rgba(20,20,30,.04);transition:border-color .15s,box-shadow .15s,transform .15s}
+a.tile:hover,a.tile:focus-visible{border-color:var(--brass);box-shadow:0 6px 18px rgba(200,0,0,.10);
+  transform:translateY(-2px);outline:none}
+.ico{width:42px;height:42px;border-radius:11px;flex:none;background:var(--brass-soft);color:var(--brass);
+  display:grid;place-items:center}
+.ico svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.tile b{font-size:17px;font-weight:600;display:block}
+.tile p{margin:0;font-size:14px;color:var(--muted)}
+.foot{display:flex;align-items:center;gap:8px;margin-top:auto;padding-top:8px}
+.chip{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;padding:4px 9px;
+  border-radius:999px;background:var(--brass-soft);color:var(--brass)}
+.chip.grey{background:var(--rule-soft);color:var(--muted)}
+.go{margin-left:auto;color:var(--brass);font-size:19px;line-height:1}
+@media(prefers-reduced-motion:reduce){*{transition:none!important}}
+.gidc-build{position:fixed;right:10px;bottom:8px;z-index:60;font-size:11px;line-height:1;
+  color:#8E8E99;opacity:.7;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Order Supplies</h1>
+  <p class="lede">Stock on hand, what the schedule will use, and purchase orders, for each kind of supply.</p>
+  <div class="grid">
+    <a class="tile" href="/paint/">
+      <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="3" width="15" height="6" rx="1"/><path d="M18 6h2v5h-8v3"/><rect x="10.5" y="14" width="3" height="7" rx="1"/></svg></span>
+      <span><b>Paint</b><p>Primer and paint for the schedule, stock, custom colours, and paint orders.</p></span>
+      <span class="foot"><span class="chip grey">PO PD</span><span class="go" aria-hidden="true">&rarr;</span></span>
+    </a>
+    <a class="tile" href="./order/?c=shop">
+      <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 7h18v4H3z"/><path d="M5 11v9M19 11v9M9 11v4M15 11v4"/></svg></span>
+      <span><b>Shop Supplies</b><p>Pine, rerail and valances, predicted from the doors on the schedule.</p></span>
+      <span class="foot"><span class="chip grey">PO SHP</span><span class="go" aria-hidden="true">&rarr;</span></span>
+    </a>
+    <a class="tile" href="./order/?c=sanding">
+      <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="2"/><path d="M12 4v2M12 18v2M4 12h2M18 12h2"/></svg></span>
+      <span><b>Sanding Supplies</b><p>Discs, sheets and pads. Add the items, suppliers and standard orders.</p></span>
+      <span class="foot"><span class="chip grey">PO SND</span><span class="go" aria-hidden="true">&rarr;</span></span>
+    </a>
+    <a class="tile" href="./order/?c=install">
+      <span class="ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M14.7 6.3a4 4 0 1 0 5 5L21 21l-3 0-9.5-9.5a4 4 0 0 1-5-5z"/></svg></span>
+      <span><b>Install Supplies</b><p>What the installers take to site. Add the items, suppliers and standard orders.</p></span>
+      <span class="foot"><span class="chip grey">PO INST</span><span class="go" aria-hidden="true">&rarr;</span></span>
+    </a>
+  </div>
+</div>
+<div class="gidc-build">Order Supplies 1.0 &middot; 20 Nov 2026</div>
+</body>
+</html>

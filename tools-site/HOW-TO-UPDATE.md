@@ -1,6 +1,6 @@
 # GIDC Tools, all in one
 
-One Cloudflare Pages project serves the landing page and twelve tools. Upload this
+One Cloudflare Pages project serves the landing page and thirteen tools. Upload this
 zip to the project that already answers on tools.gidc.ca and everything goes
 live together.
 
@@ -16,7 +16,9 @@ live together.
     tools.gidc.ca/wholesale/     Wholesale Order to QuickBooks
     tools.gidc.ca/exportdocs/    Export Documents
     tools.gidc.ca/inventory/     Door Inventory
-    tools.gidc.ca/paint/         Paint
+    tools.gidc.ca/supplies/      Order Supplies (the menu)
+    tools.gidc.ca/paint/         Paint, under Order Supplies
+    tools.gidc.ca/supplies/order/?c=shop     Shop Supplies (also sanding, install)
 
 No subdomains, no DNS, no certificates. The tiles link to the folders sitting
 beside them, so they work whatever address the project ends up on.
@@ -44,7 +46,7 @@ block to the APPS list near the bottom of the landing page index.html:
       icon: 'wrench'
     },
 
-Icons available: ruler, doors, boxes, papers, receipt, chart, tag, globe, wrench, paint.
+Icons available: ruler, doors, boxes, papers, receipt, chart, tag, globe, wrench, paint, cart.
 
 ## Signing in
 

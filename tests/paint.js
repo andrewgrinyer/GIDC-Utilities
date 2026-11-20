@@ -146,7 +146,9 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
 
   let page = await open('manufacturing');
   const landing = await page.evaluate(() => fetch('/').then(r => r.text()));
-  check(/name: 'Paint'/.test(landing) && /\.\/paint\//.test(landing) && /who:\s*'shop'/.test(landing.split("name: 'Paint'")[1]), 'landing page has a Paint tile for the shop');
+  const menu = await page.evaluate(() => fetch('/supplies/').then(r => r.text()));
+  check(/name: 'Order Supplies'/.test(landing) && /\.\/supplies\//.test(landing) && /who:\s*'shop'/.test(landing.split("name: 'Order Supplies'")[1]) &&
+        /href="\/paint\/"/.test(menu), 'landing page has an Order Supplies tile for the shop, and Paint is under it');
   check(/last updated Thu, Nov 19/.test(await text(page, '#fresh')), 'says when the schedule last came from Access');
 
   // stock
