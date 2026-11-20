@@ -135,16 +135,14 @@ const check = (name, ok, got) => {
   check('changing the document reprices the total', fin[0] === 'Estimate - Financing' && fin[1] !== total, [fin, total]);
   // quantity rules still hold on the review
   const bifoldId = await page.evaluate(() => state.job.openings[1].id);
-  await page.fill('input[data-rv="width"][data-op="' + bifoldId + '"]', '30');
-  await page.press('input[data-rv="width"][data-op="' + bifoldId + '"]', 'Tab');
+  // 2.63: the width is changed on the measurement screen only; the review shows it read only
+  check('width is read only on the review', await page.locator('[data-rv="width"][data-op="' + bifoldId + '"]').count() === 0, null);
+  await page.evaluate(id => { const op = state.job.openings.find(x => x.id === id); setOpeningSize(op, 'width', '30'); calcJob(state.job); render(); }, bifoldId);
   await page.waitForTimeout(200);
   const bq = await page.evaluate(() => [state.job.openings[1].qty, cv('C10')]);
-  check('bifold narrowed to 30 on the review becomes quantity 1', bq[0] === 1 && bq[1] === 1, bq);
-  await page.fill('input[data-rv="width"][data-op="' + bifoldId + '"]', '80');
-  await page.press('input[data-rv="width"][data-op="' + bifoldId + '"]', 'Tab');
-  await page.waitForTimeout(200);
-  const bw = await page.evaluate(() => state.job.openings[1].width);
-  check('bifold over 72 refused on the review', String(bw) === '30', bw);
+  check('bifold narrowed to 30 becomes quantity 1 on the review', bq[0] === 1 && bq[1] === 1, bq);
+  const bw = await page.evaluate(id => { const op = state.job.openings.find(x => x.id === id); setOpeningSize(op, 'width', '80'); return op.width; }, bifoldId);
+  check('bifold over 72 refused', String(bw) === '30', bw);
   const glass = await page.$$eval('tr.rv-l1.rv-glass', t => t.length);
   check('narrow glass line is marked', glass === 1, glass);          // the pantry, glass at 22
   const glassMarked = await page.evaluate(() => narrowGlass(state.job.openings[4]));

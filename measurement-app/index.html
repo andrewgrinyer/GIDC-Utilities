@@ -4594,6 +4594,13 @@ function reviewEditor(col, op, o){
       (op[f] ? '<span class="rv-note">opening ' + esc(sizeText(op[f])) + '</span>' : '') +
       (col.k === 'height' && floorGap(op, o) != null ? '<span class="rv-note rv-gap">floor gap ' + esc(sizeText(floorGap(op, o))) + '"</span>' : '');
   }
+  /* 2.63, Andrew 20 Nov: the opening is measured on the measurement screen
+     only. The review shows its width and height but never changes them. */
+  if(col.k === 'height' || col.k === 'width'){
+    const v = col.k === 'height' ? op.height : op.width;
+    return '<span class="rv-fixed" title="Change it on the measurement screen">' + esc(v === '' || v == null ? '' : sizeText(v)) + '</span>' +
+      (col.k === 'height' && rangeFor(op.height) ? '<span class="rv-note">orders as ' + rangeFor(op.height).to + '</span>' : '');
+  }
   if(col.k === 'height'){
     const opts = HEIGHTS.map(String).concat(HEIGHT_RANGES.map(x => x.label));
     const v = String(op.height || '');
@@ -4893,6 +4900,7 @@ async function reviewChange(t, d){
       const r = gdlOpt(op) && qtyRule(op);
       if(r && r.auto) { if(op.qty && r.auto.indexOf(op.qty) < 0) op.qtyOverride = true; else if(r.auto.length) delete op.qtyOverride; }
     }
+    else if(k === 'width' || k === 'height') return;          // 2.63: measured on the measurement screen only
     else if(k === 'width'){
       if(isBifold(op) && parseFloat(val) > BIFOLD_MAX){
         t.value = op.width || '';
@@ -5954,11 +5962,14 @@ document.addEventListener('click', async e => {
     if(reviewLines(job).length >= PAGE_ROWS.length)
       return toast('The contract holds ' + PAGE_ROWS.length + ' lines and they are all used');
     const o = newOpening(job.openings.length + 1, job.defaults, job);
-    job.openings.push(o); state.openOpening = o.id; state.editOption = o.options[0].id;
+    job.openings.push(o); state.openOpening = o.id; state.editOption = null;
+    /* 2.63, Andrew 20 Nov: its opening is measured on the measurement screen,
+       so the new door opens there; Review order brings the review back */
+    state.view = 'job'; document.body.classList.remove('reviewing');
     calcJob(job); render(); persistBg();
-    const row = [...document.querySelectorAll('table.rv-two tbody tr.rv-l1')].pop();
-    if(row){ row.scrollIntoView({block:'center'}); const f = row.querySelector('select,input'); if(f) f.focus(); }
-    return toast('Door ' + o.number + ' added. Fill in its line.');
+    const card = document.querySelector('.card.is-open');
+    if(card && card.scrollIntoView) card.scrollIntoView({block:'start'});
+    return toast('Door ' + o.number + ' added. Measure it here, then Review order.');
   }
   /* 2.20, Andrew 18 Nov: remove a door from the review. An opening quoted
      with one door goes as a whole (the ones after move up a number); an
@@ -6506,6 +6517,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.62 · 20 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.63 · 20 Nov 2026</div>
 </body>
 </html>

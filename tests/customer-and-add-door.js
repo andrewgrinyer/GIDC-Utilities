@@ -81,26 +81,26 @@ const check = (name, ok, got) => {
   const before = await page.$$eval('table.rv-two tbody tr.rv-l1', t => t.length);
   await page.click('[data-revaddop]');
   await page.waitForTimeout(200);
-  const after = await page.$$eval('table.rv-two tbody tr.rv-l1', t => t.length);
-  check('Add door adds a door line to the review', after === before + 1, [before, after]);
-  check('the review stays open', await page.evaluate(() => state.view) === 'review', null);
+  // 2.63, Andrew 20 Nov: the opening is measured on the measurement screen, so a door added on the review opens there
+  const added = await page.evaluate(() => ({view:state.view, n:state.job.openings.length, open:state.openOpening === state.job.openings[state.job.openings.length - 1].id,
+    card:!!document.querySelector('.card.is-open')}));
+  check('Add door on the review adds an opening and opens it on the measurement screen', added.view === 'job' && added.n === 2 && added.open && added.card, added);
   const nd = await page.evaluate(() => { const op = state.job.openings[state.job.openings.length - 1];
     return [op.number, op.options[0].v.install, state.job.openings.length]; });
   check('the new door is opening 2 with Install YES', nd[0] === 2 && nd[1] === 'YES' && nd[2] === 2, nd);
 
-  // fill it in on the review and it prices
+  // measured there, it comes back on the review with a price
+  await page.evaluate(() => { const op = state.job.openings[1]; op.location = 'Den';
+    if(sized(op)){ op.openW = '30.25'; op.openH = '81'; op.cond = 'Jamb'; op.existingType = 'Single Swing'; } else { op.width = '30'; op.height = 80; }
+    Object.assign(op.options[0].v, {doorType:'Single Swing', productType:'1.375 Hollow', doorStyle:'Columbia'}); applyQtyRule(op); render(); });
+  await page.click('[data-review]');
+  await page.waitForFunction(() => state.reviewReady, null, {timeout:15000});
+  check('the review has the new door line', await page.$$eval('table.rv-two tbody tr.rv-l1', t => t.length) === before + 1, null);
   const last = 'table.rv-two tbody tr.rv-l1 >> nth=-1';
-  for(const [k, v] of [['location', 'Den'], ['doorType', 'Single Swing'], ['productType', '1.375 Hollow'], ['doorStyle', 'Columbia']])
-    { await page.locator(last).locator('[data-rv="' + k + '"]').selectOption(v); await page.waitForTimeout(150); }
-  const w = page.locator(last).locator('[data-rv="width"]');
-  if(await w.evaluate(el => el.tagName) === 'SELECT') await w.selectOption('30'); else { await w.fill('30'); await w.dispatchEvent('change'); }
-  await page.waitForTimeout(150);
-  const hgt = page.locator(last).locator('[data-rv="height"]');
-  if(await hgt.evaluate(el => el.tagName) === 'SELECT') await hgt.selectOption({index:1}); else { await hgt.fill('80'); await hgt.dispatchEvent('change'); }
-  await page.waitForTimeout(300);
+  check('opening width and height are read only on the review', await page.locator(last).locator('[data-rv="width"], [data-rv="height"]').count() === 0, null);
   const filled = await page.evaluate(() => { const op = state.job.openings[1];
     return [op.location, op.width, String(op.height), op.options[0].v.doorStyle, cv('R' + PAGE_ROWS[1])]; });
-  check('the new line fills in and gets a price', filled[0] === 'Den' && filled[1] === '30' && filled[3] === 'Columbia' &&
+  check('the new line gets a price', filled[0] === 'Den' && filled[1] === '30' && filled[3] === 'Columbia' &&
         typeof filled[4] === 'number' && filled[4] > 0, filled);
 
   // 2.21: remove a door from the review, after the are you sure
