@@ -26,8 +26,9 @@
      gidc-supplies-sync.ps1: rerail (door widths), pine (bump stops and a
      piece the width of the opening behind each valance), and small and
      large valances (83" high or less, or over). Each job's supplies are
-     needed two weeks before its installation date, or two weeks after
-     its template date. Cuts are fitted whole into stock lengths, so a
+     needed on its cut date; with none, two weeks before its installation
+     date, or two weeks after its template date (Andrew chose the cut
+     date first, 20 November). Cuts are fitted whole into stock lengths, so a
      valance is never pieced, with a waste allowance on top. -->
 <script>window.GIDC_TOOL = {who: 'shop'};</script>
 <script src="/gate.js"></script>
@@ -202,7 +203,7 @@ table.ord{border-collapse:collapse;width:100%;font-size:14px}
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.0 &middot; 20 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.0.1 &middot; 20 Nov 2026</div>
 
 <script>
 (function(){
@@ -495,8 +496,8 @@ function drawSchedule(){
   var rows = SCHED.filter(function(s){ return s.need_on >= TODAY && s.need_on <= to; });
   var days = {}; rows.forEach(function(s){ (days[s.need_on] = days[s.need_on] || []).push(s); });
   var keys = Object.keys(days).sort();
-  $('schedsub').textContent = 'The next four weeks, by the day each job needs its supplies: two weeks before installation, ' +
-    'or two weeks after templating when no installation is booked. Pieces are estimated a day at a time, waste included.';
+  $('schedsub').textContent = 'The next four weeks, by the day each job needs its supplies: its cut date, or with none, two weeks before ' +
+    'installation or two weeks after templating. Pieces are estimated a day at a time, waste included.';
   if(!keys.length){ $('sched').innerHTML = '<tr><td><div class="empty">Nothing on the schedule for the next four weeks.</div></td></tr>'; return; }
   var head = '<thead><tr><th>Day</th>' + used.map(function(it){ return '<th>' + esc(it.shop_name) + '</th>'; }).join('') + '</tr></thead>';
   var body = keys.map(function(d){
