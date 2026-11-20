@@ -180,7 +180,19 @@
       if(r.status !== 401) return r;
       return refresh().then(function(ok){
         if(!ok) return r;
-        opts.headers = headers(!!opts.body);
+        /* Andrew, 19 November: "logged in as admin it says I do not have
+           permission". A sign in lasts an hour; after that the first save
+           is refused, the session is renewed, and the save is sent again.
+           The second try used to go with fresh headers only, which dropped
+           every header the page had added, among them Prefer:
+           return=representation. The save went in, but nothing came back,
+           and the page read nothing back as not allowed. Now only the
+           sign in headers are renewed and the page's own are kept. */
+        var fresh = headers(!!opts.body), keep = opts.headers || {};
+        Object.keys(keep).forEach(function(k){
+          if(k.toLowerCase() !== 'authorization' && k.toLowerCase() !== 'apikey') fresh[k] = keep[k];
+        });
+        opts.headers = fresh;
         return fetch(CONFIG.supabaseUrl + path, opts);
       });
     });

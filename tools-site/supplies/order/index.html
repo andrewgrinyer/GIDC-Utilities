@@ -1,0 +1,872 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Grinyer · Supplies</title>
+
+<!-- gidc-guard
+     who: shop. Administrators and the production staff (manufacturing).
+     The database says the same thing underneath this page:
+     can_use_supplies() in sql/supplies.sql.
+
+     One page for Shop, Sanding and Install Supplies: ?c=shop, ?c=sanding
+     or ?c=install. Andrew, 20 November:
+
+       Each item shows the shop's name, and the supplier's name small.
+       Each item has a standard order; the quantity can be changed.
+       Items, suppliers and their email addresses are added here.
+       Items ordered together from one supplier go on one PO (SHP, SND or
+         INST and five digits), emailed to that supplier with the
+         purchasing manager copied (Ashley to start with).
+       Stock works like paint: a count, taken down as the schedule passes,
+         a warning level.
+
+     Shop Supplies predicts from the doors in Access, sent every hour by
+     gidc-supplies-sync.ps1: rerail (door widths), pine (bump stops and a
+     piece the width of the opening behind each valance), and small and
+     large valances (83" high or less, or over). Each job's supplies are
+     needed on its cut date; with none, two weeks before its installation
+     date, or two weeks after its template date (Andrew chose the cut
+     date first, 20 November). Cuts are fitted whole into stock lengths, so a
+     valance is never pieced, with a waste allowance on top. -->
+<script>window.GIDC_TOOL = {who: 'shop'};</script>
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<style>
+:root{
+  --paper:#F6F6F7; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --rule-soft:#EFEFF2;
+  --brass:#C80000; --brass-soft:#FCECEC;
+  --ok:#2F6B3A; --ok-soft:#ECF5EE;
+  --warn:#9A4A12; --warn-soft:#FBF1E7;
+  --info:#2B5599; --info-soft:#EAF0FA;
+  --pad:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  padding:0 var(--pad) 60px;-webkit-text-size-adjust:100%}
+.wrap{max-width:1180px;margin:0 auto}
+h1{font-size:23px;margin:22px 0 4px;letter-spacing:-.01em}
+h2{font-size:17px;margin:26px 0 10px}
+.sub{color:var(--muted);font-size:14px;margin:0 0 14px;max-width:72ch}
+.fresh{font-size:13px;color:var(--muted);margin:0 0 16px}
+.fresh.stale{color:var(--warn);font-weight:600}
+
+.msg{padding:11px 13px;border-radius:9px;font-size:14px;margin:0 0 14px}
+.msg.bad{background:var(--brass-soft);color:var(--brass)}
+.msg.good{background:var(--ok-soft);color:var(--ok)}
+.hide{display:none !important}
+.empty{padding:26px 18px;text-align:center;color:var(--muted);font-size:14.5px}
+
+/* ---- stock cards ---- */
+.stock{display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:12px}
+.sc{background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:13px 15px;display:flex;flex-direction:column}
+.sc.low{border-color:#E8B98F;box-shadow:inset 4px 0 0 #D9822B}
+.sc.short{border-color:#E9A3A3;box-shadow:inset 4px 0 0 var(--brass)}
+.sc .nm{font-weight:700;font-size:16px;display:flex;align-items:center;gap:8px}
+.sc .sw{width:16px;height:16px;border-radius:50%;border:1px solid #CFCFD4;flex:none}
+.sc .big{font-size:26px;font-weight:700;letter-spacing:-.01em;margin:6px 0 0;font-variant-numeric:tabular-nums}
+.sc .big small{font-size:14px;font-weight:600;color:var(--muted)}
+.sc .how{font-size:12.5px;color:var(--muted);margin:0 0 8px}
+.sc dl{display:grid;grid-template-columns:1fr auto;gap:2px 10px;margin:0 0 10px;font-size:13.5px}
+.sc dt{color:var(--muted)} .sc dd{margin:0;text-align:right;font-variant-numeric:tabular-nums}
+.sc .acts{display:flex;gap:8px;margin-top:auto}
+.chip{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:600}
+.chip.ok{background:var(--ok-soft);color:var(--ok)}
+.chip.low{background:var(--warn-soft);color:var(--warn)}
+.chip.short{background:var(--brass-soft);color:var(--brass)}
+.chip.info{background:var(--info-soft);color:var(--info)}
+.chip.grey{background:var(--rule-soft);color:var(--ink)}
+.suggest{font-size:13px;color:var(--warn);margin:0 0 9px}
+h2.withbtn{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.areyousure{margin:0 0 9px;padding:9px 11px;border-radius:9px;background:var(--brass-soft);color:var(--brass);font-size:13.5px}
+.areyousure .acts{margin-top:8px}
+
+button.save{border:0;border-radius:9px;background:var(--brass);color:#fff;
+  font:600 14px/1 inherit;padding:10px 16px;min-height:38px;cursor:pointer;white-space:nowrap}
+button.save:disabled{opacity:.55;cursor:default}
+button.plain{border:1px solid var(--rule);background:var(--card);color:var(--ink);
+  border-radius:9px;font:600 14px/1 inherit;padding:9px 13px;min-height:38px;cursor:pointer;white-space:nowrap}
+button.plain.on{background:var(--ink);border-color:var(--ink);color:#fff}
+button.small{min-height:32px;padding:6px 10px;font-size:13px}
+
+/* ---- the little forms ---- */
+.panel{background:var(--card);border:2px solid var(--ink);border-radius:12px;padding:14px 16px;margin:14px 0}
+.panel h3{margin:0 0 10px;font-size:16px}
+.form{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 12px;align-items:end}
+.form .wide{grid-column:1 / -1}
+.form label{display:block;font-size:12px;color:var(--muted);text-transform:uppercase;
+  letter-spacing:.05em;font-weight:600;margin-bottom:3px}
+.form input,.form select{width:100%;padding:9px 11px;border:1px solid var(--rule);border-radius:9px;
+  font:inherit;min-height:40px;background:var(--card);color:var(--ink)}
+.form input:focus,.form select:focus{outline:2px solid var(--brass);outline-offset:-1px;border-color:var(--brass)}
+.form .acts{display:flex;gap:8px;grid-column:1 / -1;flex-wrap:wrap;align-items:center}
+.form .total{font-size:14px;color:var(--muted)}
+
+/* ---- custom colours and orders lists ---- */
+.list{background:var(--card);border:1px solid var(--rule);border-radius:12px;overflow:hidden}
+.row{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:center;border-bottom:1px solid var(--rule-soft);padding:11px 15px}
+.row:last-child{border-bottom:0}
+.row .what{flex:1 1 260px;min-width:0}
+.row .t{font-weight:600}
+.row .meta{color:var(--muted);font-size:13.5px}
+.row .acts{display:flex;gap:6px;flex:none;flex-wrap:wrap;align-items:center}
+.row.none{opacity:.6}
+
+/* ---- the schedule ---- */
+.bar{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:0 0 12px}
+.bar .range{font-weight:600;margin:0 6px}
+.bar input[type=date]{padding:7px 9px;border:1px solid var(--rule);border-radius:9px;font:inherit;min-height:38px;background:var(--card)}
+.bar .sp{flex:1}
+.tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--rule);border-radius:12px}
+table.sched{border-collapse:collapse;width:100%;font-size:14px;font-variant-numeric:tabular-nums}
+.sched th,.sched td{padding:7px 10px;border-bottom:1px solid var(--rule-soft);text-align:right;vertical-align:top;white-space:nowrap}
+.sched th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;background:#FAFAFB}
+.sched th:first-child,.sched td:first-child{text-align:left}
+.sched td.cust{text-align:left;white-space:normal;min-width:150px}
+.sched td small{display:block;color:var(--muted);font-size:12px}
+.sched tr.wk td{background:#FBFBFC;color:var(--muted)}
+.sched tr.today td:first-child{box-shadow:inset 3px 0 0 var(--brass)}
+.sched tr.tot td{font-weight:700;border-top:2px solid var(--ink);border-bottom:0}
+.sched tr.jobs td{text-align:left;white-space:normal;font-size:13px;color:var(--ink);padding-top:0;background:#FCFCFD}
+.sched .z{color:#C5C5CB}
+.jobs ul{margin:2px 0 4px;padding-left:18px}
+.nocol{color:var(--warn);font-weight:600}
+
+details.set{margin-top:26px}
+details.set summary{cursor:pointer;font-weight:600;font-size:15px}
+table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var(--card);border:1px solid var(--rule);border-radius:10px}
+.cov th,.cov td{padding:7px 10px;border-bottom:1px solid var(--rule-soft);text-align:left}
+.cov input{width:90px;padding:6px 8px;border:1px solid var(--rule);border-radius:8px;font:inherit}
+
+.gidc-build{position:fixed;right:10px;bottom:8px;z-index:60;font-size:11px;line-height:1;
+  color:#8E8E99;opacity:.7;pointer-events:none;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.sc .sup{font-size:12.5px;color:var(--muted);margin:1px 0 0;line-height:1.35}
+.sc .nm{align-items:flex-start}
+.qty{width:90px;padding:7px 9px;border:1px solid var(--rule);border-radius:8px;font:inherit;text-align:right}
+.qty:focus{outline:2px solid var(--brass);outline-offset:-1px;border-color:var(--brass)}
+table.ord{border-collapse:collapse;width:100%;font-size:14px}
+.ord th,.ord td{padding:8px 10px;border-bottom:1px solid var(--rule-soft);text-align:left;vertical-align:middle}
+.ord th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;background:#FAFAFB}
+.ord td.n{text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+.ord td small{display:block;color:var(--muted);font-size:12px}
+.ord tr.picked td{background:#FFFBF5}
+.groups{margin:12px 0 0;font-size:14px}
+.groups div{margin:3px 0}
+.back{display:inline-block;margin:16px 0 0;font-size:14px;color:var(--brass);text-decoration:none;font-weight:600}
+.back:hover{text-decoration:underline}
+.tiny{font-size:12.5px;color:var(--muted)}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="../">&lsaquo; Order Supplies</a>
+  <h1 id="title">Supplies</h1>
+  <p class="sub" id="lede">Stock on hand, what the schedule will use, and purchase orders.</p>
+  <p class="fresh" id="fresh"></p>
+  <div id="msg" class="hide"></div>
+  <div id="panel"></div>
+
+  <h2 class="withbtn">Stock <button class="plain small" id="newitem">New item</button></h2>
+  <div class="stock" id="stock"><div class="empty">Loading&hellip;</div></div>
+
+  <h2 class="withbtn">New order
+    <button class="plain small" id="fillsuggest">Fill suggested</button>
+    <button class="plain small" id="fillstandard">Fill standard order</button>
+    <button class="plain small" id="clearorder">Clear</button></h2>
+  <p class="sub">Type how many of each to order. Items from the same supplier go on one PO, emailed to that
+    supplier with <span id="copyname">purchasing</span> copied.</p>
+  <div class="tablewrap"><table class="ord" id="ord"></table></div>
+  <div class="form" style="margin-top:12px">
+    <div><label for="o-by">Needed by</label><input id="o-by" type="date"></div>
+    <div class="wide"><label for="o-note">Note for the supplier</label><input id="o-note" placeholder="Optional: delivery, pick up, anything else"></div>
+    <div class="acts"><button class="save" id="o-send">Send order</button><span class="total" id="o-total"></span></div>
+  </div>
+  <div class="groups" id="groups"></div>
+
+  <div id="sched-wrap">
+    <h2 class="withbtn">Coming up <button class="plain small" id="showjobs">Show jobs</button></h2>
+    <p class="sub" id="schedsub"></p>
+    <div class="tablewrap"><table class="sched" id="sched"></table></div>
+  </div>
+
+  <h2>Orders</h2>
+  <div class="list" id="orders"><div class="empty">Loading&hellip;</div></div>
+
+  <details class="set" id="settings">
+    <summary>Settings: items, suppliers, who is copied, counts</summary>
+    <div id="setbody"></div>
+  </details>
+</div>
+<div class="gidc-build">Order Supplies 1.0.1 &middot; 20 Nov 2026</div>
+
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+function $$(sel){ return document.querySelector(sel); }
+function esc(s){
+  return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; });
+}
+
+/* ---- dates, as yyyy-mm-dd strings in local time ------------------------- */
+function iso(d){
+  return d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+}
+function parse(s){ var p = String(s).split('-').map(Number); return new Date(p[0], p[1] - 1, p[2]); }
+function addDays(s, n){ var d = parse(s); d.setDate(d.getDate() + n); return iso(d); }
+var TODAY = iso(new Date());
+var DAYS = ['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function nice(s, withDay){
+  if(!s) return '';
+  var d = parse(s);
+  return (withDay ? DAYS[d.getDay()] + ' ' : '') + MONTHS[d.getMonth()] + ' ' + d.getDate();
+}
+function n1(n){ n = Number(n) || 0; var r = Math.round(n * 10) / 10; return r % 1 ? r.toFixed(1) : String(r); }
+function plural(n, unit){
+  unit = unit || 'piece';
+  if(Math.abs(Number(n)) === 1) return unit;
+  if(/(s|x|ch|sh)$/.test(unit)) return unit + 'es';
+  if(/[^aeiou]y$/.test(unit)) return unit.slice(0, -1) + 'ies';
+  return unit + 's';
+}
+function qtyText(n, unit){ return n1(n) + ' ' + plural(n1(n), unit); }
+function sum(list, f){ return list.reduce(function(a, x){ return a + (Number(f(x)) || 0); }, 0); }
+
+/* ---- which list this is ------------------------------------------------- */
+var CODE = (new URLSearchParams(location.search).get('c') || 'shop').toLowerCase();
+var USES = {
+  rerail:        {label: 'Rerail: the width of each rerailed door', per: 'Length of one piece, inches', cut: true},
+  pine:          {label: 'Pine: bump stops, and a piece the width of the opening for each valance or Add Pine', per: 'Length of one piece, inches', cut: true},
+  valance_small: {label: 'Small valances: openings 83" high or less', per: 'Length of one piece, inches', cut: true},
+  valance_large: {label: 'Large valances: openings over 83" high', per: 'Length of one piece, inches', cut: true},
+  doors:         {label: 'Doors on the schedule', per: 'Doors per unit', cut: false}
+};
+
+/* ---- what was read ------------------------------------------------------ */
+var ME = null, CAT = null, ITEMS = [], SUPPLIERS = [], COUNTS = [], ORDERS = [], SCHED = [];
+var QTY = {};              // what is typed in the new order, by item id
+var panel = null;          // which little form is open
+var askRemove = null;      // item or supplier about to be removed
+var showJobs = false;
+var busy = false;
+
+function message(kind, text){
+  var m = $('msg');
+  if(!kind){ m.className = 'hide'; m.textContent = ''; return; }
+  m.className = 'msg ' + kind; m.textContent = text;
+}
+function failText(r, what){
+  return r.json().catch(function(){ return {}; }).then(function(j){
+    if(r.status === 404 || /supply_/.test(j.message || '') && /exist|find/i.test(j.message || ''))
+      throw new Error('The supplies tables are not set up in the database yet. Run supplies.sql in Supabase first.');
+    if(/supply_suppliers_same_name/.test(j.message || '')) throw new Error('That supplier is already on the list.');
+    if(/supply_items_same_name/.test(j.message || '')) throw new Error('An item with that name is already on this list.');
+    if(/supply_suppliers_ok/.test(j.message || '')) throw new Error('That email address does not look right. Use commas between several.');
+    throw new Error(j.message || j.error || (what + ' (' + r.status + ')'));
+  });
+}
+function get(path){
+  return GIDCAuth.api(path, {headers: GIDCAuth.headers()})
+    .then(function(r){ if(!r.ok) return failText(r, 'Could not read ' + path.split('?')[0]); return r.json(); });
+}
+function getAll(path){
+  var out = [];
+  function page(from){
+    return get(path + '&offset=' + from + '&limit=1000').then(function(rows){
+      out = out.concat(rows || []);
+      return rows && rows.length === 1000 ? page(from + 1000) : out;
+    });
+  }
+  return page(0);
+}
+function send(method, path, body){
+  var h = GIDCAuth.headers(true); h.Prefer = 'return=representation';
+  return GIDCAuth.api(path, {method: method, headers: h, body: body ? JSON.stringify(body) : undefined})
+    .then(function(r){
+      if(!r.ok) return failText(r, 'The database would not take it');
+      return r.json().catch(function(){ return []; });
+    })
+    .then(function(rows){
+      if(!rows || !rows.length) throw new Error('The database would not allow that. Only the shop and administrators can change supplies.');
+      return rows[0];
+    });
+}
+function rpc(name, body){
+  return GIDCAuth.api('/rest/v1/rpc/' + name, {method: 'POST', headers: GIDCAuth.headers(true), body: JSON.stringify(body)})
+    .then(function(r){ if(!r.ok) return failText(r, 'The database would not take it'); return r.json(); });
+}
+
+function load(){
+  return get('/rest/v1/supply_categories?select=*&code=eq.' + encodeURIComponent(CODE)).then(function(cats){
+    CAT = (cats || [])[0] || null;
+    if(!CAT) throw new Error('There is no supplies list called ' + CODE + '.');
+    return Promise.all([
+      get('/rest/v1/supply_items?select=*&category=eq.' + encodeURIComponent(CODE) + '&order=sort.asc,shop_name.asc'),
+      get('/rest/v1/supply_suppliers?select=*&order=name.asc'),
+      get('/rest/v1/supply_counts?select=*,supply_items!inner(category)&supply_items.category=eq.' + encodeURIComponent(CODE) +
+          '&order=counted_on.desc,created_at.desc&limit=500'),
+      get('/rest/v1/supply_orders?select=*,supply_order_lines(*)&category=eq.' + encodeURIComponent(CODE) +
+          '&order=requested_at.desc&limit=300'),
+      getAll('/rest/v1/supply_schedule?select=*&need_on=gte.' + addDays(TODAY, -400) + '&order=need_on.asc,access_order_id.asc')
+    ]);
+  }).then(function(r){
+    ITEMS = r[0] || []; SUPPLIERS = r[1] || []; COUNTS = r[2] || []; ORDERS = r[3] || []; SCHED = r[4] || [];
+    draw();
+  }).catch(function(err){
+    message('bad', err.message);
+    ['stock','orders'].forEach(function(id){ $(id).innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
+  });
+}
+
+function supplierOf(it){ return SUPPLIERS.filter(function(s){ return s.id === it.supplier_id; })[0] || null; }
+function itemById(id){ return ITEMS.filter(function(i){ return i.id === id; })[0] || null; }
+
+/* ---- turning the schedule into units -------------------------------------
+   Cuts are fitted whole into stock lengths, longest first, each into the
+   first piece it fits (Andrew, 20 November: a valance is never pieced
+   from two). A cut longer than a piece takes as many whole pieces as it
+   needs. The waste allowance goes on top. Doors are doors per unit. */
+function pack(cuts, len){
+  var open = [], pieces = 0;
+  cuts.slice().sort(function(a, b){ return b - a; }).forEach(function(c){
+    c = Number(c) || 0;
+    if(c <= 0) return;
+    if(c > len){ pieces += Math.ceil(c / len); return; }
+    for(var i = 0; i < open.length; i++){ if(open[i] >= c){ open[i] -= c; return; } }
+    open.push(len - c); pieces++;
+  });
+  return pieces;
+}
+function rowsFor(it, from, to){
+  return SCHED.filter(function(s){ return s.uses === it.uses && (!from || s.need_on >= from) && (!to || s.need_on <= to); });
+}
+function unitsFor(it, rows){
+  if(!it.uses || !rows.length) return 0;
+  var waste = 1 + (Number(it.waste_pct) || 0) / 100, per = Number(it.per_unit) || 0;
+  if(per <= 0) return 0;
+  if(USES[it.uses] && USES[it.uses].cut){
+    var cuts = [];
+    rows.forEach(function(s){ (s.cuts || []).forEach(function(c){ cuts.push(Number(c)); }); });
+    return pack(cuts, per) * waste;
+  }
+  return sum(rows, function(s){ return s.amount; }) / per * waste;
+}
+
+/* ---- stock ----------------------------------------------------------------
+   As paint: the last count (stock at the end of that day), plus what was
+   received after it, less what the schedule used on every day after it up
+   to yesterday. Today's need is still to come. */
+function received(o){ return o.status === 'received'; }
+function linesFor(it, test){
+  var out = [];
+  ORDERS.forEach(function(o){ if(test(o)) (o.supply_order_lines || []).forEach(function(l){ if(l.item_id === it.id) out.push({o: o, l: l}); }); });
+  return out;
+}
+function stockOf(it){
+  var last = COUNTS.filter(function(x){ return x.item_id === it.id; })[0] || null;
+  var since = last ? last.counted_on : null;
+  var firstIn = null;
+  if(!last) linesFor(it, received).forEach(function(x){ if(x.o.received_on && (!firstIn || x.o.received_on < firstIn)) firstIn = x.o.received_on; });
+  if(!last && firstIn) since = addDays(firstIn, -1);
+  var got = sum(linesFor(it, function(o){ return received(o) && (!since || o.received_on > since); }), function(x){ return x.l.qty; });
+  var used = since ? unitsFor(it, rowsFor(it, addDays(since, 1), addDays(TODAY, -1))) : 0;
+  var onOrder = sum(linesFor(it, function(o){ return o.status === 'requested'; }), function(x){ return x.l.qty; });
+  var now = last ? Number(last.qty) + got - used : firstIn ? got - used : null;
+
+  var two = addDays(TODAY, 13);
+  var next = rowsFor(it, TODAY, two);
+  var need2 = unitsFor(it, next);
+  var jobs2 = {}; next.forEach(function(s){ jobs2[s.access_order_id] = 1; });
+
+  /* the first day the stock in hand runs out, walking forward */
+  var runsOut = null;
+  if(now != null && it.uses){
+    var days = {}; rowsFor(it, TODAY, null).forEach(function(s){ days[s.need_on] = 1; });
+    Object.keys(days).sort().some(function(d){
+      if(now - unitsFor(it, rowsFor(it, TODAY, d)) < -0.05){ runsOut = d; return true; }
+      return false;
+    });
+  }
+
+  var warn = Number(it.warn_qty) || 0, std = Number(it.standard_order) || 0;
+  var after = now == null ? null : now + onOrder - need2;
+  var state = now == null ? 'unknown' : after < 0 ? 'short' : after < warn ? 'low' : 'ok';
+  var suggest = state === 'short' || state === 'low' ? Math.max(std, Math.ceil(warn - after)) : 0;
+  return {last: last, now: now, got: got, used: used, onOrder: onOrder, need2: need2,
+          jobs2: Object.keys(jobs2).length, runsOut: runsOut, after: after, state: state, suggest: suggest};
+}
+
+function card(it){
+  var s = stockOf(it), sup = supplierOf(it), u = it.unit;
+  var chip = s.state === 'unknown' ? '<span class="chip grey">Not counted yet</span>'
+           : s.state === 'short' ? '<span class="chip short">Runs short' + (s.runsOut ? ' ' + esc(nice(s.runsOut, true)) : '') + '</span>'
+           : s.state === 'low' ? '<span class="chip low">Low</span>'
+           : '<span class="chip ok">OK</span>';
+  var how = s.last
+    ? 'Counted ' + esc(qtyText(s.last.qty, u)) + ' on ' + esc(nice(s.last.counted_on)) +
+      (s.used ? ', less ' + n1(s.used) + ' used since' : '') + (s.got ? ', plus ' + n1(s.got) + ' received' : '')
+    : s.got ? 'Received ' + esc(qtyText(s.got, u)) + (s.used ? ', less ' + n1(s.used) + ' used since' : '') + '. Count it to be sure.'
+    : 'Count it to start tracking.';
+  var sub = [it.supplier_item, sup && sup.name].filter(Boolean).map(esc).join(' &middot; ');
+  return '<div class="sc ' + s.state + '" data-card="' + esc(it.id) + '">' +
+    '<div class="nm"><span>' + esc(it.shop_name) + (sub ? '<div class="sup">' + sub + '</div>' : '') + '</span>' +
+      '<span style="margin-left:auto">' + chip + '</span></div>' +
+    '<div class="big">' + (s.now == null ? '?' : n1(s.now)) + ' <small>' + esc(plural(s.now == null ? 2 : n1(s.now), u)) + ' in stock</small></div>' +
+    '<div class="how">' + how + '</div>' +
+    '<dl>' +
+      (it.uses ? '<dt>Next 2 weeks</dt><dd>' + n1(s.need2) + (s.jobs2 ? ' <span style="color:var(--muted)">(' + s.jobs2 + ' job' + (s.jobs2 === 1 ? '' : 's') + ')</span>' : '') + '</dd>'
+               : '<dt>Next 2 weeks</dt><dd><span class="tiny">not in Access</span></dd>') +
+      '<dt>On order</dt><dd>' + (s.onOrder ? n1(s.onOrder) : 'none') + '</dd>' +
+      (s.after == null ? '' : '<dt>Left after 2 weeks</dt><dd>' + n1(s.after) + '</dd>') +
+      '<dt>Warn below</dt><dd>' + n1(it.warn_qty) + '</dd>' +
+      '<dt>Standard order</dt><dd>' + (Number(it.standard_order) ? n1(it.standard_order) : 'not set') + '</dd>' +
+    '</dl>' +
+    (s.suggest ? '<div class="suggest">Suggest ordering ' + esc(qtyText(s.suggest, u)) + '</div>' : '') +
+    (askRemove === it.id
+      ? '<div class="areyousure">Take ' + esc(it.shop_name) + ' off the list, with its counts? Orders keep their record.' +
+        '<div class="acts"><button class="save small" data-removeyes="' + esc(it.id) + '">Yes, remove it</button>' +
+        '<button class="plain small" data-removeno>No</button></div></div>'
+      : '') +
+    '<div class="acts"><button class="plain small" data-count="' + esc(it.id) + '">Count</button>' +
+      '<button class="save small" data-add="' + esc(it.id) + '" data-q="' + (s.suggest || Number(it.standard_order) || 1) + '">Add to order</button>' +
+      '<button class="plain small" data-edit="' + esc(it.id) + '">Edit</button></div>' +
+    '</div>';
+}
+function drawStock(){
+  $('stock').innerHTML = ITEMS.map(card).join('') ||
+    '<div class="empty">Nothing on this list yet. Press New item to add the first one.</div>';
+}
+
+/* ---- the new order --------------------------------------------------------- */
+function picked(){
+  return ITEMS.filter(function(it){ return Number(QTY[it.id]) > 0; });
+}
+function groupsOf(list){
+  var g = {}, order = [];
+  list.forEach(function(it){
+    var k = it.supplier_id || '';
+    if(!g[k]){ g[k] = {supplier: supplierOf(it), items: []}; order.push(k); }
+    g[k].items.push(it);
+  });
+  return order.map(function(k){ return g[k]; });
+}
+function copyList(){ return String(CAT && CAT.copy_to || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean); }
+function drawOrderForm(){
+  if(!ITEMS.length){ $('ord').innerHTML = '<tr><td><div class="empty">Add items first.</div></td></tr>'; drawGroups(); return; }
+  $('ord').innerHTML = '<thead><tr><th>Item</th><th>Supplier</th><th style="text-align:right">In stock</th>' +
+    '<th style="text-align:right">Suggested</th><th style="text-align:right">Order</th></tr></thead><tbody>' +
+    ITEMS.map(function(it){
+      var s = stockOf(it), sup = supplierOf(it), q = QTY[it.id];
+      return '<tr' + (Number(q) > 0 ? ' class="picked"' : '') + '><td><b>' + esc(it.shop_name) + '</b>' +
+        (it.supplier_item ? '<small>' + esc(it.supplier_item) + '</small>' : '') + '</td>' +
+        '<td>' + (sup ? esc(sup.name) : '<span class="tiny">none set</span>') + '</td>' +
+        '<td class="n">' + (s.now == null ? '?' : n1(s.now)) + '</td>' +
+        '<td class="n">' + (s.suggest ? n1(s.suggest) : '<span class="tiny">none</span>') + '</td>' +
+        '<td class="n"><input class="qty" data-qty="' + esc(it.id) + '" inputmode="decimal" value="' + esc(q == null ? '' : q) + '" aria-label="How many ' + esc(it.shop_name) + '"> ' +
+          '<span class="tiny">' + esc(plural(2, it.unit)) + '</span></td></tr>';
+    }).join('') + '</tbody>';
+  drawGroups();
+}
+function drawGroups(){
+  var gs = groupsOf(picked()), copy = copyList();
+  $('copyname').textContent = copy.length ? copy.join(', ') : 'nobody (set who is copied under Settings)';
+  $('o-total').textContent = gs.length ? gs.length + ' PO' + (gs.length === 1 ? '' : 's') + ', ' + picked().length + ' item' + (picked().length === 1 ? '' : 's') : 'Nothing picked yet.';
+  $('o-send').textContent = gs.length > 1 ? 'Send ' + gs.length + ' orders' : 'Send order';
+  $('groups').innerHTML = gs.map(function(g){
+    var to = g.supplier && g.supplier.email ? esc(g.supplier.email) : (copy.length ? esc(copy.join(', ')) + ' only (no supplier email)' : '<b style="color:var(--brass)">nobody: no supplier email and nobody copied</b>');
+    return '<div>' + (CAT ? esc(CAT.po_prefix) : '') + ' PO for <b>' + esc(g.supplier ? g.supplier.name : 'no supplier') + '</b>, to ' + to + ': ' +
+      g.items.map(function(it){ return esc(qtyText(QTY[it.id], it.unit) + ' ' + it.shop_name); }).join(', ') + '</div>';
+  }).join('');
+}
+
+/* ---- coming up, by the day needed ------------------------------------------- */
+function drawSchedule(){
+  var used = ITEMS.filter(function(it){ return it.uses && Number(it.per_unit) > 0; });
+  $('sched-wrap').classList.toggle('hide', !used.length);
+  if(!used.length) return;
+  var to = addDays(TODAY, 27);
+  var rows = SCHED.filter(function(s){ return s.need_on >= TODAY && s.need_on <= to; });
+  var days = {}; rows.forEach(function(s){ (days[s.need_on] = days[s.need_on] || []).push(s); });
+  var keys = Object.keys(days).sort();
+  $('schedsub').textContent = 'The next four weeks, by the day each job needs its supplies: its cut date, or with none, two weeks before ' +
+    'installation or two weeks after templating. Pieces are estimated a day at a time, waste included.';
+  if(!keys.length){ $('sched').innerHTML = '<tr><td><div class="empty">Nothing on the schedule for the next four weeks.</div></td></tr>'; return; }
+  var head = '<thead><tr><th>Day</th>' + used.map(function(it){ return '<th>' + esc(it.shop_name) + '</th>'; }).join('') + '</tr></thead>';
+  var body = keys.map(function(d){
+    var list = days[d];
+    var r = '<tr' + (d === TODAY ? ' class="today"' : '') + '><td>' + esc(nice(d, true)) + '</td>' + used.map(function(it){
+      var mine = list.filter(function(s){ return s.uses === it.uses; });
+      return '<td>' + (mine.length ? n1(unitsFor(it, mine)) : '<span class="z">&middot;</span>') + '</td>';
+    }).join('') + '</tr>';
+    if(showJobs){
+      var jobs = {}; list.forEach(function(s){ var k = s.access_order_id; (jobs[k] = jobs[k] || {s: s, bits: []}).bits.push(s); });
+      r += '<tr class="jobs"><td colspan="' + (used.length + 1) + '"><ul>' + Object.keys(jobs).map(function(k){
+        var j = jobs[k];
+        return '<li>' + esc((j.s.order_no ? '#' + j.s.order_no + ' ' : '') + (j.s.job || '')) + ': ' + j.bits.map(function(b){
+          return b.uses === 'doors' ? n1(b.amount) + ' doors' : esc(b.uses.replace('_', ' ')) + ' ' + (b.cuts || []).map(function(c){ return n1(c) + '"'; }).join(', ');
+        }).join('; ') + '</li>';
+      }).join('') + '</ul></td></tr>';
+    }
+    return r;
+  }).join('');
+  var tot = '<tr class="tot"><td>Four weeks</td>' + used.map(function(it){ return '<td>' + n1(unitsFor(it, rowsFor(it, TODAY, to))) + '</td>'; }).join('') + '</tr>';
+  $('sched').innerHTML = head + '<tbody>' + body + tot + '</tbody>';
+  $('showjobs').classList.toggle('on', showJobs);
+}
+
+/* ---- orders ------------------------------------------------------------- */
+function drawOrders(){
+  var cut = addDays(TODAY, -90);
+  var list = ORDERS.filter(function(o){ return o.status === 'requested' || o.requested_at.slice(0, 10) >= cut; });
+  $('orders').innerHTML = list.map(function(o){
+    var lines = (o.supply_order_lines || []).map(function(l){ return qtyText(l.qty, l.unit) + ' ' + l.shop_name; }).join(', ');
+    var chip = o.status === 'received' ? '<span class="chip ok">Received ' + esc(nice(o.received_on)) + '</span>'
+             : o.status === 'cancelled' ? '<span class="chip grey">Cancelled</span>'
+             : '<span class="chip info">On order</span>';
+    var mail = o.emailed_at ? 'Emailed to ' + esc(o.sent_to || 'the supplier') + (o.copied_to ? ', copy ' + esc(o.copied_to) : '')
+                            : '<b style="color:var(--brass)">Email not sent</b>';
+    return '<div class="row' + (o.status === 'cancelled' ? ' none' : '') + '"><div class="what">' +
+      '<div class="t">' + esc(o.po_no) + ' &nbsp;' + esc(o.supplier_name || 'No supplier') + '</div>' +
+      '<div>' + esc(lines) + '</div>' +
+      '<div class="meta">' + (o.needed_by ? 'Needed by ' + esc(nice(o.needed_by, true)) + '. ' : '') +
+        'Asked by ' + esc(o.requested_by || 'someone') + ' ' + esc(nice(o.requested_at.slice(0, 10))) + '. ' + mail +
+        (o.note ? '. ' + esc(o.note) : '') + '</div></div>' +
+      '<div class="acts">' + chip +
+        (o.status === 'requested'
+          ? (o.emailed_at ? '' : ' <button class="plain small" data-resend="' + o.id + '">Send email</button>') +
+            ' <button class="save small" data-received="' + o.id + '">Received</button>' +
+            ' <button class="plain small" data-cancel="' + o.id + '">Cancel</button>'
+          : '') +
+      '</div></div>';
+  }).join('') || '<div class="empty">No orders yet.</div>';
+}
+
+/* ---- settings ------------------------------------------------------------- */
+function drawSettings(){
+  var sups = SUPPLIERS.map(function(s){
+    var n = ITEMS.filter(function(it){ return it.supplier_id === s.id; }).length;
+    return '<div class="row"><div class="what"><span class="t">' + esc(s.name) + '</span> ' +
+      (s.email ? esc(s.email) : '<b style="color:var(--brass)">no email yet</b>') +
+      '<div class="meta">' + n + ' item' + (n === 1 ? '' : 's') + ' on this list' + (s.note ? '. ' + esc(s.note) : '') + '</div>' +
+      (askRemove === 's' + s.id ? '<div class="areyousure">Take ' + esc(s.name) + ' off? Its items keep their names and lose the supplier.' +
+        '<div class="acts"><button class="save small" data-supremoveyes="' + esc(s.id) + '">Yes, remove</button><button class="plain small" data-removeno>No</button></div></div>' : '') +
+      '</div><div class="acts"><button class="plain small" data-supedit="' + esc(s.id) + '">Edit</button>' +
+      '<button class="plain small" data-supremove="' + esc(s.id) + '">Remove</button></div></div>';
+  }).join('');
+  var counts = COUNTS.slice(0, 15).map(function(x){
+    var it = itemById(x.item_id);
+    return '<div class="row"><div class="what"><span class="t">' + esc(it ? it.shop_name : 'An item') + '</span> ' +
+      esc(qtyText(x.qty, it && it.unit)) + ' on ' + esc(nice(x.counted_on)) +
+      '<div class="meta">By ' + esc(x.created_by || 'someone') + (x.note ? '. ' + esc(x.note) : '') + '</div></div>' +
+      '<div class="acts"><button class="plain small" data-uncount="' + x.id + '">Remove</button></div></div>';
+  }).join('');
+  $('setbody').innerHTML =
+    '<h2>Who is copied on every order</h2><div class="form">' +
+      '<div class="wide"><label for="s-copy">Purchasing manager, commas for several</label><input id="s-copy" value="' + esc(CAT && CAT.copy_to || '') + '" placeholder="ashley@grinyer.ca"></div>' +
+      '<div class="acts"><button class="save" id="s-savecopy">Save</button><span class="total">Copied on every ' + esc(CAT ? CAT.po_prefix : '') + ' PO, and where the supplier’s reply goes.</span></div></div>' +
+    '<h2 class="withbtn">Suppliers <button class="plain small" id="newsupplier">New supplier</button></h2>' +
+    '<p class="sub">Shared by Shop, Sanding and Install Supplies. Each PO is emailed to the supplier’s address.</p>' +
+    '<div class="list">' + (sups || '<div class="empty">No suppliers yet.</div>') + '</div>' +
+    '<h2>Recent counts</h2><div class="list">' + (counts || '<div class="empty">No counts yet.</div>') + '</div>';
+}
+
+function drawFresh(){
+  var el = $('fresh');
+  if(!ITEMS.some(function(it){ return it.uses; })){ el.className = 'fresh'; el.textContent = ''; return; }
+  var last = SCHED.reduce(function(m, s){ return s.pulled_at > m ? s.pulled_at : m; }, '');
+  if(!last){ el.className = 'fresh stale'; el.textContent = 'Nothing has come from Access yet. The server sync sends what each job needs every hour once it is set up.'; return; }
+  var age = (Date.now() - new Date(last).getTime()) / 36e5;
+  el.className = 'fresh' + (age > 3 ? ' stale' : '');
+  el.textContent = 'Jobs from Access, last updated ' +
+    new Date(last).toLocaleString('en-CA', {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}).replace(/\.$/, '') +
+    (age > 3 ? '. That is over three hours ago: the server sync may have stopped.' : '.');
+}
+
+function draw(){
+  if(CAT){
+    $('title').textContent = CAT.name;
+    document.title = 'Grinyer · ' + CAT.name;
+    $('lede').textContent = CODE === 'shop'
+      ? 'Pine, rerail and valances: what is in stock, what the jobs coming up will use, and purchase orders (' + CAT.po_prefix + ').'
+      : 'What is in stock and purchase orders (' + CAT.po_prefix + '). Add the items you keep, their suppliers and standard orders.';
+  }
+  drawFresh(); drawStock(); drawOrderForm(); drawSchedule(); drawOrders(); drawSettings(); drawPanel();
+}
+
+/* ---- the little forms --------------------------------------------------------- */
+function opt(v, label, cur){ return '<option value="' + esc(v) + '"' + (String(cur == null ? '' : cur) === String(v) ? ' selected' : '') + '>' + esc(label) + '</option>'; }
+function drawPanel(){
+  var p = $('panel');
+  if(!panel){ p.innerHTML = ''; return; }
+  if(panel.type === 'count'){
+    var it = itemById(panel.id);
+    if(!it){ panel = null; p.innerHTML = ''; return; }
+    p.innerHTML = '<div class="panel"><h3>Count ' + esc(it.shop_name) + '</h3><div class="form">' +
+      '<div><label for="c-qty">' + esc(plural(2, it.unit)) + ' on hand</label><input id="c-qty" inputmode="decimal"></div>' +
+      '<div><label for="c-day">Counted at the end of</label><input id="c-day" type="date" value="' + TODAY + '"></div>' +
+      '<div class="wide"><label for="c-note">Note</label><input id="c-note" placeholder="Optional"></div>' +
+      '<div class="acts"><button class="save" id="c-save">Save count</button><button class="plain" data-close>Cancel</button></div></div></div>';
+    $('c-qty').focus();
+    return;
+  }
+  if(panel.type === 'supplier'){
+    var s = panel.id ? SUPPLIERS.filter(function(x){ return x.id === panel.id; })[0] || {} : {};
+    p.innerHTML = '<div class="panel"><h3>' + (panel.id ? 'Edit ' + esc(s.name) : 'New supplier') + '</h3><div class="form">' +
+      '<div class="wide"><label for="u-name">Supplier</label><input id="u-name" value="' + esc(s.name || '') + '"></div>' +
+      '<div class="wide"><label for="u-email">Email for orders, commas for several</label><input id="u-email" type="email" multiple value="' + esc(s.email || '') + '"></div>' +
+      '<div class="wide"><label for="u-note">Note</label><input id="u-note" value="' + esc(s.note || '') + '" placeholder="Optional: account number, contact"></div>' +
+      '<div class="acts"><button class="save" id="u-save">' + (panel.id ? 'Save' : 'Add supplier') + '</button><button class="plain" data-close>Cancel</button></div></div></div>';
+    $('u-name').focus();
+    return;
+  }
+  /* an item, new or edited */
+  var e = panel.id ? itemById(panel.id) || {} : {unit: 'piece', waste_pct: 10};
+  var uses = e.uses || '';
+  p.innerHTML = '<div class="panel"><h3>' + (panel.id ? 'Edit ' + esc(e.shop_name) : 'New item for ' + esc(CAT ? CAT.name : 'this list')) + '</h3><div class="form">' +
+    '<div class="wide"><label for="i-name">Shop name</label><input id="i-name" value="' + esc(e.shop_name || '') + '" placeholder="What the shop calls it"></div>' +
+    '<div class="wide"><label for="i-sitem">Supplier’s name for it</label><input id="i-sitem" value="' + esc(e.supplier_item || '') + '" placeholder="As it is on their invoice; goes on the PO"></div>' +
+    '<div><label for="i-sup">Supplier</label><select id="i-sup">' + opt('', 'None yet', e.supplier_id || '') +
+      SUPPLIERS.map(function(s){ return opt(s.id, s.name, e.supplier_id); }).join('') + '</select></div>' +
+    '<div><label for="i-unit">Unit</label><input id="i-unit" value="' + esc(e.unit || 'piece') + '" placeholder="piece, box, roll"></div>' +
+    '<div><label for="i-warn">Warn below</label><input id="i-warn" inputmode="decimal" value="' + esc(e.warn_qty == null ? '' : e.warn_qty) + '"></div>' +
+    '<div><label for="i-std">Standard order</label><input id="i-std" inputmode="decimal" value="' + esc(e.standard_order == null ? '' : e.standard_order) + '"></div>' +
+    '<div class="wide"><label for="i-uses">Predicted from</label><select id="i-uses">' + opt('', 'Not predicted: counted only', uses) +
+      Object.keys(USES).map(function(k){ return opt(k, USES[k].label, uses); }).join('') + '</select></div>' +
+    '<div id="i-perwrap"' + (uses ? '' : ' class="hide"') + '><label for="i-per" id="i-perlabel">' + esc(uses ? USES[uses].per : 'Length of one piece, inches') + '</label>' +
+      '<input id="i-per" inputmode="decimal" value="' + esc(e.per_unit == null ? '' : e.per_unit) + '"></div>' +
+    '<div id="i-wastewrap"' + (uses ? '' : ' class="hide"') + '><label for="i-waste">Waste allowance, %</label><input id="i-waste" inputmode="decimal" value="' + esc(e.waste_pct == null ? 10 : e.waste_pct) + '"></div>' +
+    (panel.id && askRemove !== e.id ? '' : '') +
+    '<div class="acts"><button class="save" id="i-save">' + (panel.id ? 'Save' : 'Add item') + '</button><button class="plain" data-close>Cancel</button>' +
+      (panel.id ? '<button class="plain" data-remove="' + esc(e.id) + '">Remove item</button>' : '') +
+      '<span class="total">Add suppliers under Settings.</span></div></div></div>';
+  $('i-name').focus();
+}
+function numOf(id){ var t = String($(id) && $(id).value || '').trim().replace(',', '.'); if(t === '') return null; var v = Number(t); return isFinite(v) ? v : NaN; }
+
+function saveCount(){
+  var q = numOf('c-qty'), day = $('c-day').value;
+  if(q == null || !(q >= 0)) return message('bad', 'Type how many are on hand.');
+  if(!day || day > TODAY) return message('bad', 'Pick the day it was counted, today or earlier.');
+  busy = true;
+  send('POST', '/rest/v1/supply_counts', {item_id: panel.id, qty: Math.round(q * 100) / 100, counted_on: day, note: $('c-note').value.trim() || null})
+    .then(function(row){
+      COUNTS.unshift(row); COUNTS.sort(function(a, b){ return a.counted_on < b.counted_on ? 1 : a.counted_on > b.counted_on ? -1 : (a.created_at < b.created_at ? 1 : -1); });
+      var it = itemById(row.item_id); panel = null; draw();
+      message('good', 'Counted ' + (it ? it.shop_name : '') + ': ' + qtyText(row.qty, it && it.unit) + '.');
+    })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function saveSupplier(){
+  var name = $('u-name').value.trim(), email = $('u-email').value.trim().replace(/\s*;\s*/g, ', ');
+  if(!name) return message('bad', 'Type the supplier’s name.');
+  if(email && !/^[^@\s,]+@[^@\s,]+\.[^@\s,]+(\s*,\s*[^@\s,]+@[^@\s,]+\.[^@\s,]+)*$/.test(email)) return message('bad', 'That email address does not look right. Use commas between several.');
+  busy = true;
+  var row = {name: name, email: email || null, note: $('u-note').value.trim() || null};
+  (panel.id ? send('PATCH', '/rest/v1/supply_suppliers?id=eq.' + encodeURIComponent(panel.id), row) : send('POST', '/rest/v1/supply_suppliers', row))
+    .then(function(saved){
+      SUPPLIERS = SUPPLIERS.filter(function(s){ return s.id !== saved.id; }).concat([saved])
+        .sort(function(a, b){ return a.name.toLowerCase() < b.name.toLowerCase() ? -1 : 1; });
+      var back = panel.back; panel = back || null; $('settings').open = true; draw();
+      message('good', 'Saved ' + saved.name + '.');
+    })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function saveItem(){
+  var name = $('i-name').value.trim(), uses = $('i-uses').value || null;
+  var warn = numOf('i-warn'), std = numOf('i-std'), per = numOf('i-per'), waste = numOf('i-waste');
+  if(!name) return message('bad', 'Type the shop name.');
+  if(isNaN(warn) || warn < 0 || isNaN(std) || std < 0) return message('bad', 'Warn below and standard order should be numbers, or left blank.');
+  if(uses && !(per > 0)) return message('bad', USES[uses].cut ? 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.' : 'Type how many doors one unit covers.');
+  if(uses && (waste == null || isNaN(waste) || waste < 0 || waste > 100)) return message('bad', 'The waste allowance is a percentage from 0 to 100.');
+  var row = {shop_name: name, supplier_item: $('i-sitem').value.trim() || null, supplier_id: $('i-sup').value || null,
+             unit: $('i-unit').value.trim() || 'piece', warn_qty: warn, standard_order: std,
+             uses: uses, per_unit: uses ? per : null, waste_pct: uses ? waste : 0};
+  if(!panel.id){ row.category = CODE; row.sort = (ITEMS.reduce(function(m, i){ return Math.max(m, i.sort || 0); }, 0) || 0) + 10; }
+  busy = true;
+  (panel.id ? send('PATCH', '/rest/v1/supply_items?id=eq.' + encodeURIComponent(panel.id), row) : send('POST', '/rest/v1/supply_items', row))
+    .then(function(saved){
+      ITEMS = ITEMS.filter(function(i){ return i.id !== saved.id; }).concat([saved])
+        .sort(function(a, b){ return (a.sort - b.sort) || (a.shop_name.toLowerCase() < b.shop_name.toLowerCase() ? -1 : 1); });
+      panel = null; draw(); message('good', 'Saved ' + saved.shop_name + '.');
+    })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function removeItem(id){
+  var it = itemById(id); busy = true;
+  send('DELETE', '/rest/v1/supply_items?id=eq.' + encodeURIComponent(id))
+    .then(function(){ askRemove = null; panel = null; delete QTY[id]; message('good', 'Took ' + (it ? it.shop_name : 'it') + ' off the list.'); return load(); })
+    .catch(function(err){ askRemove = null; draw(); message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function removeSupplier(id){
+  busy = true;
+  send('DELETE', '/rest/v1/supply_suppliers?id=eq.' + encodeURIComponent(id))
+    .then(function(row){ askRemove = null; message('good', 'Took ' + row.name + ' off the list.'); return load(); })
+    .catch(function(err){ askRemove = null; draw(); message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function saveCopy(){
+  var v = $('s-copy').value.trim().replace(/\s*;\s*/g, ', ');
+  if(v && !/^[^@\s,]+@[^@\s,]+\.[^@\s,]+(\s*,\s*[^@\s,]+@[^@\s,]+\.[^@\s,]+)*$/.test(v)) return message('bad', 'That email address does not look right. Use commas between several.');
+  busy = true;
+  send('PATCH', '/rest/v1/supply_categories?code=eq.' + encodeURIComponent(CODE), {copy_to: v || null})
+    .then(function(row){ CAT = row; draw(); $('settings').open = true; message('good', v ? 'Every order will copy ' + v + '.' : 'Nobody will be copied.'); })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+
+/* ---- sending: one PO per supplier --------------------------------------------
+   Each PO is on record first, with its number; then the email. A failed
+   email leaves the order showing "Email not sent" with a button to try
+   again. */
+function sendOrder(){
+  var list = picked();
+  if(!list.length) return message('bad', 'Type how many of something to order.');
+  var bad = ITEMS.filter(function(it){ var v = QTY[it.id]; return v != null && v !== '' && !(Number(v) >= 0); });
+  if(bad.length) return message('bad', 'The quantity for ' + bad[0].shop_name + ' should be a number.');
+  var gs = groupsOf(list), copy = copyList();
+  var nowhere = gs.filter(function(g){ return !(g.supplier && g.supplier.email) && !copy.length; });
+  if(nowhere.length) return message('bad', 'Nobody to send ' + (nowhere[0].supplier ? nowhere[0].supplier.name + '’s' : 'the no supplier') +
+    ' order to. Add the supplier’s email, or who is copied, under Settings.');
+  var by = $('o-by').value || null, note = $('o-note').value.trim() || null;
+  busy = true; $('o-send').disabled = true;
+  var done = [], failed = [];
+  gs.reduce(function(chain, g){
+    return chain.then(function(){
+      return rpc('supply_place_order', {p_category: CODE, p_supplier: g.supplier ? g.supplier.id : null,
+        p_lines: g.items.map(function(it){ return {item_id: it.id, qty: Math.round(Number(QTY[it.id]) * 100) / 100}; }),
+        p_needed_by: by, p_note: note})
+        .then(function(o){
+          g.items.forEach(function(it){ delete QTY[it.id]; });
+          return email(o.id).then(function(){ done.push(o.po_no); }, function(){ failed.push(o.po_no); });
+        });
+    });
+  }, Promise.resolve())
+    .then(function(){
+      $('o-by').value = ''; $('o-note').value = '';
+      return load().then(function(){
+        if(failed.length) message('bad', (done.length ? 'Sent ' + done.join(', ') + '. ' : '') + failed.join(', ') +
+          ' saved, but the email did not go. Use Send email under Orders, or send it to the supplier yourself.');
+        else message('good', 'Sent ' + done.join(', ') + (copy.length ? ', with ' + copy.join(', ') + ' copied.' : '.'));
+      });
+    })
+    .catch(function(err){
+      message('bad', (done.length || failed.length ? 'Made ' + done.concat(failed).join(', ') + ', then stopped: ' : '') + err.message);
+      return load();
+    })
+    .then(function(){ busy = false; $('o-send').disabled = false; });
+}
+function email(id){
+  return GIDCAuth.api('/functions/v1/supply-order', {method: 'POST', headers: GIDCAuth.headers(true), body: JSON.stringify({id: id})})
+    .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){
+      if(!r.ok) throw new Error(j.error || ('The email would not send (' + r.status + ')'));
+      return j;
+    }); });
+}
+function resend(id){
+  var o = ORDERS.filter(function(x){ return x.id === id; })[0];
+  busy = true;
+  email(id).then(function(){ message('good', (o ? o.po_no : 'The order') + ' sent.'); return load(); },
+                 function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function setStatus(id, status){
+  busy = true;
+  send('PATCH', '/rest/v1/supply_orders?id=eq.' + encodeURIComponent(id) + '&select=*,supply_order_lines(*)', {status: status})
+    .then(function(row){
+      ORDERS = ORDERS.map(function(o){ return o.id === row.id ? row : o; }); draw();
+      message('good', status === 'received' ? row.po_no + ' received, and added to stock.' : row.po_no + ' cancelled.');
+    })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+
+/* ---- what the page responds to ------------------------------------------ */
+function open(p){ panel = p; askRemove = null; message(null); drawPanel(); scrollTo(0, 0); }
+document.addEventListener('click', function(e){
+  var t = e.target, el;
+  if(!t.closest || busy) return;
+  if(t.closest('#newitem')){ open({type: 'item'}); return; }
+  if(t.closest('#newsupplier')){ open({type: 'supplier'}); return; }
+  if((el = t.closest('[data-count]'))){ open({type: 'count', id: el.dataset.count}); return; }
+  if((el = t.closest('[data-edit]'))){ open({type: 'item', id: el.dataset.edit}); return; }
+  if((el = t.closest('[data-supedit]'))){ open({type: 'supplier', id: el.dataset.supedit}); return; }
+  if(t.closest('[data-close]')){ panel = null; askRemove = null; drawPanel(); return; }
+  if(t.closest('#c-save')){ saveCount(); return; }
+  if(t.closest('#u-save')){ saveSupplier(); return; }
+  if(t.closest('#i-save')){ saveItem(); return; }
+  if((el = t.closest('[data-remove]'))){ askRemove = el.dataset.remove; panel = null; drawPanel(); drawStock();
+    var c = $$('[data-card="' + el.dataset.remove + '"]'); if(c) c.scrollIntoView({block: 'center'}); return; }
+  if(t.closest('[data-removeno]')){ askRemove = null; drawStock(); drawSettings(); return; }
+  if((el = t.closest('[data-removeyes]'))){ removeItem(el.dataset.removeyes); return; }
+  if((el = t.closest('[data-supremove]'))){ askRemove = 's' + el.dataset.supremove; drawSettings(); return; }
+  if((el = t.closest('[data-supremoveyes]'))){ removeSupplier(el.dataset.supremoveyes); return; }
+  if((el = t.closest('[data-add]'))){
+    QTY[el.dataset.add] = Number(el.dataset.q) || 1; drawOrderForm();
+    var q = $$('[data-qty="' + el.dataset.add + '"]'); if(q){ q.scrollIntoView({block: 'center'}); q.focus(); q.select(); }
+    return;
+  }
+  if(t.closest('#fillsuggest')){
+    var any = false;
+    ITEMS.forEach(function(it){ var s = stockOf(it); if(s.suggest){ QTY[it.id] = s.suggest; any = true; } });
+    drawOrderForm(); message(any ? null : 'good', any ? null : 'Nothing is low, so nothing is suggested.'); return;
+  }
+  if(t.closest('#fillstandard')){
+    ITEMS.forEach(function(it){ if(Number(it.standard_order) > 0) QTY[it.id] = Number(it.standard_order); });
+    drawOrderForm(); return;
+  }
+  if(t.closest('#clearorder')){ QTY = {}; drawOrderForm(); return; }
+  if(t.closest('#o-send')){ sendOrder(); return; }
+  if(t.closest('#showjobs')){ showJobs = !showJobs; drawSchedule(); return; }
+  if(t.closest('#s-savecopy')){ saveCopy(); return; }
+  if((el = t.closest('[data-received]'))){ setStatus(el.dataset.received, 'received'); return; }
+  if((el = t.closest('[data-cancel]'))){ setStatus(el.dataset.cancel, 'cancelled'); return; }
+  if((el = t.closest('[data-resend]'))){ resend(el.dataset.resend); return; }
+  if((el = t.closest('[data-uncount]'))){
+    busy = true;
+    send('DELETE', '/rest/v1/supply_counts?id=eq.' + encodeURIComponent(el.dataset.uncount))
+      .then(function(row){ COUNTS = COUNTS.filter(function(x){ return x.id !== row.id; }); draw(); $('settings').open = true; message('good', 'Count removed.'); })
+      .catch(function(err){ message('bad', err.message); })
+      .then(function(){ busy = false; });
+    return;
+  }
+});
+document.addEventListener('input', function(e){
+  var el = e.target;
+  if(el.dataset && el.dataset.qty){
+    var v = el.value.trim();
+    if(v === '') delete QTY[el.dataset.qty]; else QTY[el.dataset.qty] = v.replace(',', '.');
+    el.closest('tr').classList.toggle('picked', Number(QTY[el.dataset.qty]) > 0);
+    drawGroups();
+  }
+});
+document.addEventListener('change', function(e){
+  if(e.target.id === 'i-uses'){
+    var u = e.target.value;
+    $('i-perwrap').classList.toggle('hide', !u); $('i-wastewrap').classList.toggle('hide', !u);
+    if(u){ $('i-perlabel').textContent = USES[u].per; if(!$('i-per').value && USES[u].cut) $('i-per').value = 192; }
+  }
+});
+
+/* ---- start ------------------------------------------------------------------ */
+GIDCAuth.load();
+GIDCAuth.whoami().then(function(me){
+  ME = me;
+  if(!me) return;              /* the guard is already holding the page */
+  load();
+});
+})();
+</script>
+</body>
+</html>

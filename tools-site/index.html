@@ -244,6 +244,16 @@ const APPS = [
     who:  'team'
   },
   {
+    name: 'Order Supplies',
+    desc: 'Paint, shop, sanding and install supplies: stock, what the schedule needs, and purchase orders.',
+    url:  './supplies/',
+    icon: 'cart',
+    /* Andrew, 20 November: Paint moves under Order Supplies, beside Shop,
+       Sanding and Install Supplies. Production and administrators, as
+       Paint was: can_use_paint() and can_use_supplies() in the database. */
+    who:  'shop'
+  },
+  {
     name: 'In Home Measurement',
     desc: 'Measure a job on site, quote it, and download the sales contract workbook.',
     url:  'https://measurement.gidc.ca/?v=2',
@@ -299,7 +309,9 @@ const ICONS = {
   globe:  '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3a15 15 0 0 1 0 18a15 15 0 0 1 0-18z"/>',
   back:   '<path d="M9 14 4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 5 5v6"/>',
   list:   '<path d="M8 6h13M8 12h13M8 18h13"/><path d="M3 6h.01M3 12h.01M3 18h.01"/>',
-  gauge:  '<path d="M3 17a9 9 0 0 1 18 0"/><path d="M12 17l5-5"/><path d="M3 17h2M19 17h2"/>'
+  gauge:  '<path d="M3 17a9 9 0 0 1 18 0"/><path d="M12 17l5-5"/><path d="M3 17h2M19 17h2"/>',
+  paint:  '<rect x="3" y="3" width="15" height="6" rx="1"/><path d="M18 6h2v5h-8v3"/><rect x="10.5" y="14" width="3" height="7" rx="1"/>',
+  cart:   '<path d="M3 4h2l2.4 11h11.2L21 7H6.2"/><circle cx="9" cy="19" r="1.5"/><circle cx="17" cy="19" r="1.5"/>'
 };
 
 function esc(s){
@@ -783,6 +795,6 @@ GIDCAuth.whoami().then(function(me){
   showSignIn();
 });
 </script>
-<div class="gidc-build">Tools 3.3 · 12 Nov 2026</div>
+<div class="gidc-build">Tools 3.5 · 20 Nov 2026</div>
 </body>
 </html>
