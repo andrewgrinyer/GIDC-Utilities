@@ -867,7 +867,6 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 .cl-lab[data-cl]{cursor:pointer}
 .cl-hint{margin:6px 0 0}
 .cl-tools{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 8px}
-.cl-tools .cl-free.on{background:var(--brass-soft);border-color:var(--brass);color:var(--brass)}
 .cl-dims, .cl-mdims{display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:8px;margin:8px 0}
 .cl-dim{border:1px solid var(--rule);border-radius:12px;background:#fff;font:inherit;padding:8px 12px;min-height:56px;display:flex;flex-direction:column;align-items:flex-start;cursor:pointer;text-align:left}
 .cl-dim span{font-size:12px;color:var(--muted)}
@@ -5541,20 +5540,25 @@ function closetSvg(c, mode){
 /* Draw your own: the next corner, kept straight from the last one unless
    Angled walls is on. Carrying on the same way makes the line longer;
    turning starts the next wall. */
+const CL_SQUARE = 20;          // degrees either side of square that still count as square
 function closetAddPoint(c, gx, gy){
   c.pts = c.pts || [];
   if(!c.pts.length){ c.pts.push([gx, gy]); return true; }
   const L = c.pts[c.pts.length - 1];
   let dx = gx - L[0], dy = gy - L[1];
-  // Andrew 20 Nov: angled walls. Angled on: the line goes to the dot tapped.
-  if(!c.free){ if(Math.abs(dx) >= Math.abs(dy)) dy = 0; else dx = 0; }
+  /* 2.64.4, Andrew 20 Nov: straight and angled freehand, with no switch. A
+     line within CL_SQUARE degrees of across or up and down is squared up;
+     anything steeper than that stays at its angle, to the nearest dot. */
+  const ang = Math.atan2(Math.abs(dy), Math.abs(dx)) * 180 / Math.PI;
+  if(ang <= CL_SQUARE) dy = 0; else if(ang >= 90 - CL_SQUARE) dx = 0;
   if(!dx && !dy) return false;
   const np = [L[0] + dx, L[1] + dy];
-  if(c.pts.length >= 2 && !c.free){
-    const P = c.pts[c.pts.length - 2];
-    const px = Math.sign(L[0] - P[0]), py = Math.sign(L[1] - P[1]);
-    if(px === Math.sign(dx) && py === Math.sign(dy)){ c.pts[c.pts.length - 1] = np; return true; }
-    if(px === -Math.sign(dx) && py === -Math.sign(dy)){ toast('That goes back over the last wall. Tap Undo instead.'); return false; }
+  if(c.pts.length >= 2){
+    const P = c.pts[c.pts.length - 2], qx = L[0] - P[0], qy = L[1] - P[1];
+    if(Math.abs(qx * dy - qy * dx) < 1e-9){              // the same line as the last wall
+      if(qx * dx + qy * dy > 0){ c.pts[c.pts.length - 1] = np; return true; }   // carries on: longer
+      toast('That goes back over the last wall. Tap Undo instead.'); return false;
+    }
   }
   c.pts.push(np);
   return true;
@@ -5591,7 +5595,7 @@ function closetStroke(c, raw){
   if(!moved) return closetAddPoint(c, ...snap(raw[0]));
   /* with straight walls closetAddPoint squares each line up and joins lines
      that carry on the same way, so a corner is only where the finger turned */
-  const pts = clSimplify(raw, c.free ? 0.5 : 0.6);
+  const pts = clSimplify(raw, 0.55);
   let changed = false;
   if(!(c.pts || []).length){ c.pts = [snap(pts[0])]; changed = true; }
   pts.slice(1).forEach(p => { if(closetAddPoint(c, ...snap(p))) changed = true; });
@@ -5718,15 +5722,12 @@ function renderClosets(){
         const drawing = c.shape === 'custom' && !c.drawn;
         if(drawing)
           h += '<p class="hint cl-hint">Drag your finger along the walls (or tap each corner). Lift and drag again to carry on from the end. ' +
-               (c.free ? 'Angled walls: each line goes straight to the dot you tap.'
-                       : 'Lines go straight across or up and down. Tap Straight walls for an angled one.') +
-               ' Every time the line turns there is a new wall to size.</p>';
+               'A line that is nearly straight across or up and down is squared up; a line on an angle stays on its angle. ' +
+               'Every time the line turns there is a new wall to size.</p>';
         h += '<div class="cl-draw">' + closetSvg(c, drawing ? 'draw' : 'edit') + '</div>';
         if(c.shape === 'custom')
           h += '<div class="cl-tools">' + (drawing
-            ? '<button class="btn btn-sm cl-free' + (c.free ? ' on' : '') + '" data-cl="free" data-cid="' + c.id + '">' +
-                (c.free ? 'Angled walls on' : 'Straight walls') + '</button>' +
-              '<button class="btn btn-sm" data-cl="undo" data-cid="' + c.id + '"' + (c.pts.length ? '' : ' disabled') + '>Undo</button>' +
+            ? '<button class="btn btn-sm" data-cl="undo" data-cid="' + c.id + '"' + (c.pts.length ? '' : ' disabled') + '>Undo</button>' +
               '<button class="btn btn-sm" data-cl="restart" data-cid="' + c.id + '"' + (c.pts.length ? '' : ' disabled') + '>Start over</button>' +
               '<button class="btn btn-sm btn-primary" data-cl="drawn" data-cid="' + c.id + '"' + (c.pts.length > 1 ? '' : ' disabled') + '>Done drawing</button>'
             : '<button class="btn btn-sm" data-cl="redraw" data-cid="' + c.id + '">Change the drawing</button>') + '</div>';
@@ -5811,7 +5812,6 @@ document.addEventListener('click', async e => {
   if(act === 'undo'){ const p = c.pts || []; if(p.length){ p.pop(); if(c.dims) delete c.dims[clLetter(p.length - 1)]; } render(); return persistBg(); }
   if(act === 'restart'){ c.pts = []; c.dims = {}; render(); return persistBg(); }
   if(act === 'drawn'){ c.drawn = true; render(); persistBg(); const k = clPadOrder(c).find(x => !clVal(c, x)); if(k) openClosetPad(c, k); return; }
-  if(act === 'free'){ c.free = !c.free; return render(); }
   if(act === 'redraw'){ c.drawn = false; return render(); }
   if(act === 'dim') return openClosetPad(c, d.k);
   if(act === 'madd'){ const w = clSegs(c).find(g => !g.door);
@@ -7067,6 +7067,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.64.3 · 20 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.64.4 · 20 Nov 2026</div>
 </body>
 </html>

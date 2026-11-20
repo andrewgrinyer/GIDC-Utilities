@@ -122,10 +122,9 @@ const check = (name, ok, got) => {
   await tap(2, 8); await tap(2, 2); await tap(9, 2.3); await tap(12, 2);
   let pts = await page.evaluate(() => state.job.closets[2].pts);
   check('straight walls: a tap off line snaps straight and the same direction makes the wall longer', JSON.stringify(pts) === '[[2,8],[2,2],[12,2]]', pts);
-  await page.click('[data-cl="free"]');
   await tap(14, 5);
   pts = await page.evaluate(() => state.job.closets[2].pts);
-  check('angled walls: the line goes to the dot tapped', JSON.stringify(pts[3]) === '[14,5]', pts);
+  check('a steep tap stays angled, no switch needed', JSON.stringify(pts[3]) === '[14,5]', pts);
   // drag a finger: a wobbly U from scratch on a fourth closet, straight walls
   await page.click('[data-cl="add"]');
   await page.click('.cl-card.is-open [data-cl="shape"][data-k="custom"]');
@@ -140,10 +139,14 @@ const check = (name, ok, got) => {
   dp = await page.evaluate(() => state.job.closets[3].pts);
   check('a second drag carries on from the end', JSON.stringify(dp[4]) === '[11,10]', dp);
   await page.click('.cl-card.is-open [data-cl="undo"]');
-  await page.click('.cl-card.is-open [data-cl="free"]');
   await drag([[13,10],[10,12]]);
   dp = await page.evaluate(() => state.job.closets[3].pts);
-  check('angled walls drag to the dot', JSON.stringify(dp[4]) === '[10,12]', dp);
+  check('one drag: angled line kept at its angle', JSON.stringify(dp[4]) === '[10,12]', dp);
+  // one drag with square and angled walls together (no switch)
+  await page.click('.cl-card.is-open [data-cl="restart"]');
+  await drag([[2,11],[2.2,4],[5,1],[13,1.3],[13,11]]);
+  dp = await page.evaluate(() => state.job.closets[3].pts);
+  check('one drag: square walls squared, the corner cut kept angled', JSON.stringify(dp) === '[[2,11],[2,4],[5,1],[13,1],[13,11]]', dp);
   await page.click('.cl-card.is-open [data-cl="rm"]'); await page.click('[data-sure="yes"]');
   await page.click('.cl-card:nth-of-type(3) [data-cl="toggle"]').catch(() => {});
   await page.evaluate(() => { state.closetOpen = state.job.closets[2].id; render(); });
