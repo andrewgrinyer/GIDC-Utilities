@@ -112,7 +112,7 @@ const check = (name, ok, got) => {
     state.job.openings[1].options[0].v.doorStyle = 'Logan'; calcJob(state.job); render(); });
   const picks = await page.evaluate(() => doorPicks(state.job).map(p => [p.style, !!p.photo, p.qty]));
   check('door selections: one card per style, photo where there is one',
-        JSON.stringify(picks) === JSON.stringify([['1 Lite Rain', true, 1], ['Logan', true, 2], ['Samish (Smooth)', false, 1], ['Glissade Bifold Style 1', true, 1]]), picks);
+        JSON.stringify(picks) === JSON.stringify([['1 Lite Rain', true, 1], ['Logan', true, 2], ['Samish (Smooth)', false, 1], ['Glissade Bifold Style 1', true, 2]]), picks);   // 2.61: a 30" GDL bifold is a 2 door set
   const photosOk = await page.evaluate(async () => Promise.all(Object.values(DOOR_PHOTOS).map(async f => (await fetch(f)).status)));
   check('every door photo is there', photosOk.every(x => x === 200), photosOk);
 

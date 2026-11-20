@@ -397,6 +397,7 @@ table.pw > tbody > tr > td, table.pw > tfoot > tr > td{padding:0;border:0;vertic
 .chip.dim{opacity:.38}
 .gdl-hint{color:var(--brass);margin:4px 0 0}
 .gdl-cap{color:var(--brass)}
+.rv-special{color:#B5121B;font-weight:700;font-size:12px;margin:2px 0 4px}
 .chip.on.now{background:var(--brass);border-color:var(--brass);color:#fff}
 .chip.on.now .badge{color:#fff}
 /* a double tap is ours, not the browser's zoom */
@@ -1108,7 +1109,7 @@ function doorPicks(job){
   const by = new Map();
   (job.openings || []).forEach(op => op.options.filter(o => o.include && o.v.doorStyle).forEach(o => {
     // 2.59: a GDL door is told apart by its frame and insert colours too
-    const g = gdlWords(o), sub = g ? [g.frame, g.insert].filter(Boolean).join(', ') : '';
+    const g = gdlWords(o), sub = g ? [g.frame, g.insert, g.track].filter(Boolean).join(', ') : '';
     const k = o.v.doorStyle + (sub ? '|' + sub : '');
     if(!by.has(k)) by.set(k, {style:o.v.doorStyle, sub, photo:DOOR_PHOTOS[o.v.doorStyle] || '', edge:gdlEdge(o.v.doorStyle), where:[], qty:0});
     const e = by.get(k);
@@ -1751,14 +1752,14 @@ async function contractPdf(job, opts){
   const soList = specialOrders(job);
   // 2.56: a door's note in small red under its line, the order note above the pricing
   const noteW = LW - 56 - COLS[0][1] * scaleW - 6;
-  const noteLines = i => { const n = noteOf(lines[i].op);
-    return n && (i === 0 || lines[i - 1].op !== lines[i].op) ? wrap('Note: ' + n, F, 6.8, noteW) : []; };
+  const noteLines = i => { const n = lineNote(lines[i].op);     // 2.61: with the special case flag
+    return n && (i === 0 || lines[i - 1].op !== lines[i].op) ? wrap(n, F, 6.8, noteW) : []; };
   const noteH = i => { const n = noteLines(i).length; return n ? n * 8 + 3 : 0; };
   const orderNote = noteOf(job) ? wrap('Order notes: ' + noteOf(job), F, 7.5, LW - 68) : [];
   const cell = (ln, i) => { const {op, o} = ln, row = PAGE_ROWS[i], v = o.v;
     const base = [op.number, op.location, op.qty, v.doorType, styleName(v.doorStyle || ''), v.productType,
       lineSize(op, ln.o).height, lineSize(op, ln.o).width, orderedText(op, ln.o, i), v.jamb].concat(gdlWords(o)
-      ? [gdlWords(o).frame, gdlWords(o).insert, '', '']     // 2.59: frame and insert where the handle goes
+      ? [gdlWords(o).frame, gdlWords(o).insert, gdlWords(o).track, '']     // 2.59: frame and insert where the handle goes; 2.61 third track
       : [v.handleType, v.handleStyle, v.hwColour, v.paintColour]).concat([v.install]);
     return base.concat(prices ? [money(cv('R' + row)), money(cv('T' + row)), money(cv('U' + row))] : []).map(x => x == null ? '' : String(x)); };
   let li = 0, pageNo = 0;
@@ -2233,11 +2234,11 @@ function renderRemote(){
       lines.map((l, i) => { const v = l.o.v, row = PAGE_ROWS[i];
         return '<tr><td>' + esc(l.op.number) + '</td><td>' + esc(l.op.location || '') + '</td><td>' + esc(l.op.qty || 1) + '</td><td>' +
           esc(v.doorType || '') + '</td><td>' + esc(styleName(v.doorStyle || '')) + '</td><td>' + esc((lineSize(l.op, l.o).width || '') + ' x ' + (lineSize(l.op, l.o).height || '')) +
-          '</td><td>' + esc(gdlWords(l.o) ? [gdlWords(l.o).frame, gdlWords(l.o).insert].filter(Boolean).join(', ')
+          '</td><td>' + esc(gdlWords(l.o) ? [gdlWords(l.o).frame, gdlWords(l.o).insert, gdlWords(l.o).track].filter(Boolean).join(', ')
             : [v.handleType, v.handleStyle].filter(x => x && x !== 'N/A').join(', ')) + '</td><td>' + esc(v.hwColour || '') +
           '</td><td>' + esc(v.paintColour || '') + '</td><td class="num">' + esc(money(cv('T' + row))) + '</td><td class="num">' +
           esc(money(cv('U' + row))) + '</td></tr>' +
-          (noteOf(l.op) && (i === 0 || lines[i - 1].op !== l.op) ? '<tr><td></td><td colspan="10" style="color:#B5121B;font-size:12px">Note: ' + esc(noteOf(l.op)) + '</td></tr>' : ''); }).join('') + '</tbody></table></div>' +
+          (lineNote(l.op) && (i === 0 || lines[i - 1].op !== l.op) ? '<tr><td></td><td colspan="10" style="color:#B5121B;font-size:12px">' + esc(lineNote(l.op)) + '</td></tr>' : ''); }).join('') + '</tbody></table></div>' +
       (noteOf(job) ? '<p style="color:#B5121B;font-size:13px;white-space:pre-wrap">Order notes: ' + esc(noteOf(job)) + '</p>' : '');
     h += '<div class="print-kick rs-kick">Pricing summary</div><div class="rv-boxes">' + sumBoxes().map(b =>
       '<div class="rv-box"><h3>' + esc(b.title) + '</h3><table class="rv rv-small"><tbody>' + b.rows.map(r =>
@@ -2472,6 +2473,8 @@ const widthNum = op => { const w = parseFloat(sized(op) ? op.openW : op.width); 
 /* {fixed, why} when the type settles it, {choices, why} when the rep picks
    from a short list, null when it is typed in freely. */
 function qtyRule(op){
+  const g = gdlOpt(op);
+  if(g) return gdlQtyRule(op, g);             // 2.61: GDL door count from the price list
   const t = quoteType(op);
   if(t === 'Single Swing') return {fixed:1, why:'A single swing is always 1.'};
   if(DOUBLE_TYPES.indexOf(t) >= 0) return {fixed:2, why:'A double swing is always 2.'};
@@ -2488,6 +2491,7 @@ function qtyRule(op){
 /* Brings the stored quantity into line with the rule. A bypass left on a
    quantity it cannot have goes blank, so the rep has to pick one. */
 function applyQtyRule(op){
+  if(op.qtyOverride && gdlOpt(op)) return;    // 2.61: a count set by hand stays
   const r = qtyRule(op);
   if(!r){ if(!(Number(op.qty) >= 1)) op.qty = 1; return; }
   if(r.fixed) op.qty = r.fixed;
@@ -2678,6 +2682,9 @@ function openPlan(op, o){
 }
 // the width and height one line takes onto the workbook
 function lineSize(op, o){
+  /* 2.61: a GDL set is made to the opening and priced by it, so its line
+     carries the opening itself, never a door worked out from it */
+  if(isGdl(o) && sized(op)) return {width:op.openW || '', height:op.openH || '', plan:null};
   const P = openPlan(op, o);
   if(P && P.blankW) return {width:P.exportW, height:P.exportH, plan:P};
   if(sized(op)) return {width:'', height:'', plan:P};
@@ -2836,6 +2843,7 @@ function syncGdl(job){
       if(v.doorStyle && gdlStyles(v.doorType).indexOf(v.doorStyle) < 0) v.doorStyle = '';
       if(v.frameColour && frameChoices(o).indexOf(v.frameColour) < 0) v.frameColour = '';
       if(v.insertColour && GDL_INSERTS.indexOf(v.insertColour) < 0) v.insertColour = '';
+      if(v.thirdTrack && !canThirdTrack(o)) delete v.thirdTrack;
       o.gdlSeen = true;
     } else {
       if(o.gdlSeen){
@@ -2845,6 +2853,8 @@ function syncGdl(job){
       }
       if(v.frameColour) delete v.frameColour;
       if(v.insertColour) delete v.insertColour;
+      if(v.thirdTrack) delete v.thirdTrack;
+      if(op.qtyOverride) delete op.qtyOverride;
     }
   }));
 }
@@ -2861,16 +2871,87 @@ function syncInstall(job){
     if(installChoices(o).indexOf(o.v.install) < 0) o.v.install = 'YES';
   }));
 }
+/* 2.61, Andrew 19 Nov: GDL IS PRICED PER SET
+ *
+ * A GDL price is for the whole opening (Pricing - GDL MSRP: "Prices are per
+ * OPENING, not per door leaf"), so the workbook gets quantity 1 on a GDL
+ * line, while the review and the contract still show how many doors are in
+ * the set. The door count comes from the Panels column of the GDL price
+ * list by opening width, rounded up to the next listed width like the price:
+ *   Glissade bypass  36 to 72: 2.  96: 2 or 3 (asked).  108: 3.  120 to 192: 4.
+ *   Glissade bifold  24 to 36: 2.  48 to 72: 4.
+ *   Economy          bypass 2, bifold 2.
+ *   Wood line        the price list has no Panels column for it, so it is
+ *                    taken as the Glissade one (a guess, told to Andrew).
+ * Where the width allows more than one count the rep picks. The rep can
+ * also override the count (op.qtyOverride); such an opening is a SPECIAL
+ * CASE, flagged in red on the review, the printed order, the contract and
+ * the signing page so production sees it. */
+const GDL_PANELS = {
+  slider:[[72, [2]], [96, [2, 3]], [108, [3]], [192, [4]]],
+  bifold:[[36, [2]], [72, [4]]],
+  ecoSlider:[[72, [2]]], ecoBifold:[[36, [2]]],
+};
+const GDL_PANEL_MAX = 8;
+function gdlOpt(op){ return op.options.find(o => o.include && isGdl(o)) || null; }
+function gdlPanelTable(o){
+  const bi = o.v.doorType === 'GDL BiFold', eco = /^Economy/.test(o.v.doorStyle || '');
+  return GDL_PANELS[eco ? (bi ? 'ecoBifold' : 'ecoSlider') : (bi ? 'bifold' : 'slider')];
+}
+// the door counts the price list gives for this opening: [] before the width, null past the list
+function gdlPanels(op, o){
+  const w = widthNum(op);
+  if(!(w > 0)) return [];
+  const hit = gdlPanelTable(o).find(x => w <= x[0] + 1e-6);
+  return hit ? hit[1] : null;
+}
+const gdlSpecial = op => { const o = gdlOpt(op); return !!(o && (op.qtyOverride || gdlPanels(op, o) === null) && op.qty); };
+// the flag production reads, on the review, the printed order, the contract and the signing page
+function specialText(op){
+  if(!gdlSpecial(op)) return '';
+  const a = gdlPanels(op, gdlOpt(op));
+  return 'SPECIAL CASE: ' + op.qty + ' doors in this GDL set, set by hand' + (a && a.length ? ' (price list: ' + a.join(' or ') + ')' : ' (past the price list)') + '.';
+}
+// a door's note with the special case flag in front
+const lineNote = op => [specialText(op), noteOf(op) ? 'Note: ' + noteOf(op) : ''].filter(Boolean).join('  ');
+function gdlQtyRule(op, o){
+  const auto = gdlPanels(op, o);
+  const all = []; for(let n = 1; n <= GDL_PANEL_MAX; n++) all.push(n);
+  if(op.qtyOverride) return {choices:all, auto:auto || [], over:true, must:true,
+    why:'Special case: door count set by hand' + (auto && auto.length ? ' (price list: ' + auto.join(' or ') + ')' : '') + '. Production will see the flag.'};
+  if(auto === null) return {choices:all, auto:[], must:true, why:'This width is past the GDL price list. Pick the door count; it will be flagged as a special case.', past:true};
+  if(!auto.length) return {choices:[2, 3, 4], auto:[], must:true, why:'GDL is priced per set. The width sets the door count once it is in.'};
+  if(auto.length === 1) return {fixed:auto[0], auto, gdl:true, why:'GDL price list: ' + auto[0] + ' doors at this width, priced as one set.'};
+  return {choices:auto, auto, must:true, why:'GDL price list: ' + auto.join(' or ') + ' doors at this width. Pick one. Priced as one set.'};
+}
+/* 2.61, Andrew 19 Nov: a third track on a Glissade or Glissade Swept bypass.
+   The price list sells track by the linear foot: the set comes with the
+   double top and bottom track, so a third track is one single top track
+   ($33.33 a foot) and one single bottom track ($7.98 a foot), for the
+   opening width rounded up to the foot. It is added to the door's price
+   (Door Price, column S, through column AJ), in the calculator and the file. */
+const TRACK_TOP_FT = 33.33, TRACK_BOTTOM_FT = 7.98;
+const canThirdTrack = o => isGdl(o) && o.v.doorType === 'GDL ByPass' && /^Glissade (Square|Swept)/.test(o.v.doorStyle || '');
+function thirdTrackCost(op, o){
+  if(!o.v.thirdTrack || !canThirdTrack(o)) return 0;
+  const w = widthNum(op);
+  return w > 0 ? Math.round(Math.ceil(w / 12 - 1e-9) * (TRACK_TOP_FT + TRACK_BOTTOM_FT) * 100) / 100 : 0;
+}
+const trackFormula = (f, r) => String(f).replace('IF(D' + r + '="GDL",R' + r + ',',
+  'IF(D' + r + '="GDL",IF(ISNUMBER(R' + r + '),R' + r + '+N($AJ' + r + '),R' + r + '),');
 // the frame and insert words, for the contract and the signing page
 const gdlWords = o => isGdl(o) ? {frame:o.v.frameColour ? 'Frame: ' + o.v.frameColour : '',
-  insert:o.v.insertColour ? 'Insert: ' + o.v.insertColour : ''} : null;
+  insert:o.v.insertColour ? 'Insert: ' + o.v.insertColour : '', track:o.v.thirdTrack && canThirdTrack(o) ? 'Third track' : ''} : null;
 // the frame and insert chips (in-home card and the Edit screen)
 function gdlFields(o, opId, req){
   if(!isGdl(o)) return '';
   const row = (k, label, items) => '<div class="field gdl-f"><label>' + label +
     (req ? ' <span style="color:var(--brass)">required</span>' : '') + '</label>' +
     chips({k, chips:items}, o, opId).replace(' num"', '"') + '</div>';
-  return row('frameColour', 'Frame colour', frameChoices(o)) + row('insertColour', 'Insert colour', GDL_INSERTS);
+  return row('frameColour', 'Frame colour', frameChoices(o)) + row('insertColour', 'Insert colour', GDL_INSERTS) +
+    (canThirdTrack(o) ? '<div class="field gdl-f"><label>Third track</label><div class="chips"><button type="button" class="chip' +
+      (o.v.thirdTrack ? ' on' : '') + '" data-track3="' + o.id + '" data-op="' + opId + '">Add a third track</button></div>' +
+      '<p class="hint">Single top and bottom track, $' + (TRACK_TOP_FT + TRACK_BOTTOM_FT).toFixed(2) + ' a foot of width, added to the door price.</p></div>' : '');
 }
 /* 2.52, Andrew 19 Nov: SWING DIRECTION AND THE DOOR JAMB TAKE-OFF SHEET
  *
@@ -3534,7 +3615,7 @@ function buildXML(job){
       const v = o.v, p = [];
       p.push(['DoorOpeningNumber', op.number]);
       if(op.location) p.push(['DoorLocation', op.location]);
-      p.push(['DoorQuantity', op.qty]);
+      p.push(['DoorQuantity', isGdl(o) ? 1 : op.qty]);
       if(v.productType) p.push(['DoorCore', v.productType]);
       if(v.doorType)    p.push(['DoorType', v.doorType]);
       if(on(o,'size')){
@@ -3600,7 +3681,7 @@ function setCell(xml, ref, value, numeric){
   const self  = new RegExp('<c r="' + ref + '"[^>]*/>');
   const pair  = new RegExp('<c r="' + ref + '"[^>]*>[\\s\\S]*?</c>');
   let m = xml.match(self) || xml.match(pair);
-  if(!m) return xml;
+  if(!m) return addCell(xml, ref, value, numeric);
   const sm = m[0].match(/ s="(\d+)"/);
   const st = sm ? ' s="' + sm[1] + '"' : '';
   const body = numeric
@@ -3608,6 +3689,20 @@ function setCell(xml, ref, value, numeric){
     : '<c r="' + ref + '"' + st + ' t="inlineStr"><is><t xml:space="preserve">' +
       xesc(value) + '</t></is></c>';
   return xml.replace(m[0], body);
+}
+/* 2.61: a cell the template does not have (the third track cost in AJ) is
+   added to its row, in column order, as Excel requires */
+function addCell(xml, ref, value, numeric){
+  const row = +ref.replace(/^[A-Z]+/, ''), col = colNum(ref.replace(/\d+$/, ''));
+  const rm = xml.match(new RegExp('<row r="' + row + '"[^>]*>([\\s\\S]*?)</row>'));
+  if(!rm) return xml;
+  const body = numeric ? '<c r="' + ref + '"><v>' + value + '</v></c>'
+    : '<c r="' + ref + '" t="inlineStr"><is><t xml:space="preserve">' + xesc(value) + '</t></is></c>';
+  const cells = rm[1].match(/<c r="[A-Z]+\d+"[^>]*?(\/>|>[\s\S]*?<\/c>)/g) || [];
+  const after = cells.find(c => colNum(c.match(/<c r="([A-Z]+)/)[1]) > col);
+  const inner = after ? rm[1].replace(after, body + after) : rm[1] + body;
+  // the row's spans hint would no longer cover the new cell, so it goes
+  return xml.replace(rm[0], rm[0].replace(rm[1], inner).replace(/^(<row[^>]*?) spans="[^"]*"/, '$1'));
 }
 function clearCell(xml, ref){
   const self = new RegExp('<c r="' + ref + '"[^>]*/>');
@@ -3642,13 +3737,15 @@ function sheetInputs(job){
       Object.values(COLMAP).forEach(c => out.push([c + row, '']));
       out.push(['R' + row, null]);
       out.push(['U' + row, null]);
+      out.push(['AJ' + row, '']);
       return;
     }
     const {op, o} = line;
     const skipped = sec => !SECTIONS.find(s => s.id === sec).always && o.skipped[sec];
 
     out.push(['B' + row, String(op.location || '')]);
-    out.push(['C' + row, Number(op.qty || 1)]);
+    out.push(['C' + row, isGdl(o) ? 1 : Number(op.qty || 1)]);   // 2.61: a GDL price is for the set
+    { const tc = thirdTrackCost(op, o); out.push(['AJ' + row, tc ? tc : '']); }
     // height and width live on the opening now
     const ls = lineSize(op, o);              // 2.31: worked out from the door opening
     ['height','width'].forEach(k => {
@@ -3702,7 +3799,7 @@ function sheetInputs(job){
 const INPUT_REFS = (() => {
   const r = Object.values(HEADMAP);
   PAGE_ROWS.forEach(row => Object.values(COLMAP).forEach(c => r.push(c + row)));
-  PAGE_ROWS.forEach(row => r.push('R' + row, 'U' + row));   // 2.10 S/O; 2.23 typed prices
+  PAGE_ROWS.forEach(row => r.push('R' + row, 'U' + row, 'AJ' + row));   // 2.10 S/O; 2.23 typed prices; 2.61 third track
   [55, 56, 57].forEach(row => ['F','J','K'].forEach(c => r.push(c + row)));
   r.push('C47', 'K47');
   return r;
@@ -3732,6 +3829,10 @@ function fillSheet(xml, job){
   });
   if(xml.indexOf('COUNTIF(H9:H27, &quot;4 5/8&quot;)') >= 0 || xml.indexOf('COUNTIF(H9:H27, "4 5/8")') >= 0)
     Object.keys(JAMB_FORMULAS).forEach(ref => { xml = setFormula(xml, ref, JAMB_FORMULAS[ref]); });
+  // 2.61: a third track adds to a GDL door's price (S = R + AJ)
+  PAGE_ROWS.forEach(r => { const m = xml.match(new RegExp('<c r="S' + r + '"[^>]*><f>([^<]*)</f>'));
+    if(m && m[1].indexOf('R' + r + '+N(') < 0){ const raw = m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+      const f = trackFormula(raw, r); if(f !== raw) xml = setFormula(xml, 'S' + r, f); } });
   return xml;
 }
 
@@ -4336,6 +4437,9 @@ async function getCalc(){
     const c = {sheet: sid, row: +ref.slice(1) - 1, col: colNum(ref.replace(/\d+$/, '')) - 1};
     if(/COUNTIF\(H9:H27/i.test(String(hf.getCellFormula(c) || ''))) hf.setCellContents(c, [['=' + JAMB_FORMULAS[ref]]]);
   });
+  // 2.61: the third track, as in the file
+  PAGE_ROWS.forEach(r => { const c = {sheet: sid, row: r - 1, col: colNum('S') - 1}, f = String(hf.getCellFormula(c) || '');
+    const nf = trackFormula(f.replace(/^=/, ''), r); if(f && nf !== f.replace(/^=/, '')) hf.setCellContents(c, [['=' + nf]]); });
   calc = {hf, sid, orig:{}};
   INPUT_REFS.forEach(ref => { calc.orig[ref] = hf.getCellSerialized(cellAt(ref)); });
   return calc;
@@ -4469,6 +4573,12 @@ function reviewEditor(col, op, o){
   if(col.k === 'location') return reviewSelect('location', op.location, at);
   if(col.k === 'qty'){
     const r = qtyRule(op);
+    // 2.61: GDL: any count can be picked here; off the price list it is flagged
+    if(r && r.auto){ const all = []; for(let n = 1; n <= GDL_PANEL_MAX; n++) all.push(n);
+      return '<select ' + at + '>' + (op.qty ? '' : '<option value="" selected></option>') + all.map(n => '<option value="' + n + '"' +
+        (Number(op.qty) === n ? ' selected' : '') + '>' + n + (r.auto.indexOf(n) >= 0 ? '' : ' (special)') + '</option>').join('') + '</select>' +
+        '<span class="rv-note">1 set' + (gdlSpecial(op) ? '' : '') + '</span>' +
+        (gdlSpecial(op) ? '<span class="rv-now">SPECIAL CASE</span>' : ''); }
     if(r && r.fixed) return '<span class="rv-fixed" title="' + esc(r.why) + '">' + op.qty + '</span>';
     if(r) return '<select ' + at + '>' + (op.qty ? '' : '<option value="" selected></option>') +
       r.choices.map(n => '<option' + (Number(op.qty) === n ? ' selected' : '') + '>' + n +
@@ -4605,6 +4715,10 @@ function renderReview(){
           reviewSelect('frameColour', o.v.frameColour, at('frameColour'), frameChoices(o)) + '</td>';
         if(c.k === 'handleStyle') return '<td' + cs(n) + ' class="rv-gdl">' + gc('Insert') +
           reviewSelect('insertColour', o.v.insertColour, at('insertColour'), GDL_INSERTS) + '</td>';
+        // 2.61: the third track, on a Glissade or Glissade Swept bypass
+        if(c.k === 'hwColour' && canThirdTrack(o)) return '<td' + cs(n) + ' class="rv-gdl">' + gc('Third track') +
+          reviewSelect('install', o.v.thirdTrack ? 'YES' : 'NO', at('thirdTrack'), ['YES', 'NO']) +
+          (thirdTrackCost(op, o) ? '<span class="rv-note">+' + esc(money(thirdTrackCost(op, o))) + ' in door price</span>' : '') + '</td>';
         return '<td' + cs(n) + '>' + cap(c) + '<span class="rv-fixed" title="Not on a GDL door">N/A</span></td>';
       }
       return '<td' + cs(n) + '>' + cap(c) + reviewEditor(c, op, o) + '</td>';
@@ -4615,7 +4729,8 @@ function renderReview(){
            op.number + '">\u00d7</button></td>' +
            L1.map((c, k) => cell(c, S1[k])).join('') + '</tr>' +
          '<tr class="rv-l2' + flags + '"' + doorVars(op) + '>' + L2.map((c, k) => cell(c, S2[k])).join('') + '</tr>' +
-         '<tr class="rv-l3' + flags + (noteOf(op) ? '' : ' empty') + '"' + doorVars(op) + '><td colspan="' + span + '">' +
+         '<tr class="rv-l3' + flags + (lineNote(op) ? '' : ' empty') + '"' + doorVars(op) + '><td colspan="' + span + '">' +
+           (specialText(op) ? '<p class="rv-special">' + esc(specialText(op)) + '</p>' : '') +
            noteBox('data-opnote="' + op.id + '"', op.note, 'Note for door ' + op.number + ' (prints in red)') +
            '<div class="note-print">' + esc(noteOf(op) ? 'Note: ' + noteOf(op) : '') + '</div></td></tr>';
   });
@@ -4770,7 +4885,12 @@ async function reviewChange(t, d){
     if(!op || !o) return;
     const k = d.rv, val = t.value;
     if(k === 'location') op.location = val;
-    else if(k === 'qty') op.qty = val === '' ? '' : Math.max(1, parseInt(val, 10) || 1);
+    else if(k === 'qty'){
+      op.qty = val === '' ? '' : Math.max(1, parseInt(val, 10) || 1);
+      // 2.61: a GDL count off the price list is a special case
+      const r = gdlOpt(op) && qtyRule(op);
+      if(r && r.auto) { if(op.qty && r.auto.indexOf(op.qty) < 0) op.qtyOverride = true; else if(r.auto.length) delete op.qtyOverride; }
+    }
     else if(k === 'width'){
       if(isBifold(op) && parseFloat(val) > BIFOLD_MAX){
         t.value = op.width || '';
@@ -4783,6 +4903,7 @@ async function reviewChange(t, d){
       if(needsReRail(op)) op.options.forEach(x => { x.v.reRail = 'YES'; });
       else op.options.forEach(x => { if(x.v.reRail === 'YES' && !x.reRailByHand) x.v.reRail = ''; });
     }
+    else if(k === 'thirdTrack'){ if(val === 'YES') o.v.thirdTrack = true; else delete o.v.thirdTrack; }   // 2.61
     else {
       o.v[k] = val;
       if(k === 'reRail') o.reRailByHand = true;
@@ -4978,7 +5099,7 @@ function chips(f, o, opId){
 /* Quantity at the opening, shaped by the door type (see qtyRule). */
 function qtyField(op){
   const r = qtyRule(op);
-  let h = '<div class="field"><label>Quantity (door leaves)' +
+  let h = '<div class="field"><label>' + (r && r.auto ? 'Doors in the set' : 'Quantity (door leaves)') +
           (r && r.must && !op.qty ? ' <span style="color:var(--brass)">required</span>' : '') +
           '</label>';
   if(!r) return h + '<input type="number" min="1" data-f="qty" data-op="' + op.id +
@@ -4989,7 +5110,12 @@ function qtyField(op){
          (r.fixed ? ' disabled' : ' data-pickqty="' + n + '" data-op="' + op.id + '"') +
          '>' + n + '</button>';
   });
-  return h + '</div><p class="hint">' + esc(r.why) + '</p></div>';
+  h += '</div><p class="hint' + (r.over || r.past ? ' gdl-hint' : '') + '">' + esc(r.why) + '</p>';
+  // 2.61: the rep can set a GDL door count by hand, which flags the order for production
+  if(r.auto && !r.past) h += r.over
+    ? '<button type="button" class="btn btn-sm btn-ghost" data-qtyauto="1" data-op="' + op.id + '">Use the price list count</button>'
+    : '<button type="button" class="btn btn-sm btn-ghost" data-qtyover="1" data-op="' + op.id + '">Override door count</button>';
+  return h + '</div>';
 }
 
 /* Door type chips at the opening. The first tick is the door that is there
@@ -5138,14 +5264,17 @@ function openingFields(op){
   if(op.openW && op.openH){
     const opts = op.options.filter(o => o.v.doorType);
     if(!opts.length) h += '<p class="hint">Pick the door type to work out the door.</p>';
-    opts.forEach(o => { const P = openPlan(op, o); if(!P) return;
+    opts.forEach(o => {
+      if(isGdl(o)){ h += '<p class="plan">' + (opts.length > 1 ? '<b>' + esc(o.v.doorType) + ':</b> ' : '') + 'GDL set made to the ' +
+        esc(sizeText(op.openW)) + ' x ' + esc(sizeText(op.openH)) + ' opening' + (op.qty ? ', ' + op.qty + ' doors' : '') + ', priced as one set.</p>'; return; }
+      const P = openPlan(op, o); if(!P) return;
       h += '<p class="plan' + (P.so ? ' plan-so' : '') + '">' + (opts.length > 1 ? '<b>' + esc(o.v.doorType) + ':</b> ' : '') +
         esc(planText(P)) + '</p>';
       const g = floorGap(op, o);
       if(g != null) h += '<p class="gap-note">' + (opts.length > 1 ? esc(o.v.doorType) + ': ' : '') + esc(floorGapText(g)) + '</p>'; });
     /* 2.33, Andrew 18 Nov: the second pair of fields, the size of each door
        that will be ordered. Filled from the opening; tap to change it. */
-    const D = doorPlan(op);
+    const D = gdlOpt(op) ? null : doorPlan(op);
     if(D && (D.blankW || D.typedW || D.typedH)){
       const dbox = (f, label, auto) => { const typed = op[f] !== undefined && op[f] !== '', v = typed ? op[f] : auto;
         return '<div class="field"><label>' + label + (typed ? ' <i class="typed">typed</i>' : ' <i class="auto">worked out</i>') +
@@ -5687,7 +5816,7 @@ function renderJob(){
 const CLICK_KEYS = ['qrevise','qnew','qopt','qrm','qpdf','opnoteadd','open','del','new','back','toggle','inc','edit','skip','done',
   'addopt','rmopt','addop','rmop','xml','exp','setup','signin','signout','users',
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
-  'applydef','cleardef','repopen','pickqty','review','revback','revprint','padof',
+  'applydef','cleardef','repopen','pickqty','qtyover','qtyauto','track3','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','rvapplydef','sign','signpdf','signmail',
   'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote','cond','jambpick','swingdir','hingematch'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
@@ -6062,6 +6191,11 @@ document.addEventListener('click', async e => {
     op.qty = Number(d.pickqty); applyQtyRule(op);
     render(); return persistBg();
   }
+  if(d.qtyover){ op.qtyOverride = true; render(); return persistBg(); }                      // 2.61
+  if(d.qtyauto){ delete op.qtyOverride; op.qty = ''; applyQtyRule(op); render(); return persistBg(); }
+  if(d.track3){ const o = op.options.find(x => x.id === d.track3);
+    if(o){ if(o.v.thirdTrack) delete o.v.thirdTrack; else o.v.thirdTrack = true; }
+    render(); return persistBg(); }
   if(d.osize){
     op[d.osize] = (String(op[d.osize]) === d.val) ? '' : d.val;
     if(d.osize === 'width') applyQtyRule(op);
@@ -6178,7 +6312,7 @@ document.addEventListener('change', async e => {
     t.classList.toggle('set', !!noteOf(tgt));
     const pr = t.parentNode.querySelector('.note-print'), row = t.closest('.rv-l3, .rv-notes');
     if(pr) pr.textContent = noteOf(tgt) ? (tgt === job ? 'Order notes: ' : 'Note: ') + noteOf(tgt) : '';
-    if(row) row.classList.toggle('empty', !noteOf(tgt));
+    if(row) row.classList.toggle('empty', tgt === job ? !noteOf(tgt) : !lineNote(tgt));
     return persistBg();
   }
   if(d.rv || d.rvjob || d.rvfee || d.rvmat || d.rvprice) return reviewChange(t, d);
@@ -6370,6 +6504,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.60 · 19 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.61 · 19 Nov 2026</div>
 </body>
 </html>
