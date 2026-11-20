@@ -855,6 +855,7 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 .cl-switch small{display:inline-block;min-width:22px;padding:1px 6px;border-radius:10px;background:var(--rule-soft);color:var(--ink);font-size:12px;margin-left:4px}
 .cl-switch button.on small{background:#fff}
 .cl-empty{padding-top:16px;color:var(--muted);font-size:15px}
+.pad-head.pad-cl b{font-size:30px;color:var(--brass)}
 .cl-start{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.cl-start .btn{flex:1 1 160px;justify-content:center;min-height:48px}
 .cl-shapes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
 .cl-shape{border:2px solid var(--rule);border-radius:12px;background:#fff;padding:6px 4px 8px;font:inherit;font-size:13px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;min-height:44px}
@@ -4392,7 +4393,7 @@ function drawPad(){
   const v = padValue();
   const fr = ['1/8','1/4','3/8','1/2','5/8','3/4','7/8'];
   el.innerHTML = '<div class="pad-card" role="dialog" aria-label="Type a size">' +
-    '<div class="pad-head"><b>' + (pad.title ? esc(pad.title) : {width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height', doorW:'Each door width', doorH:'Each door height', jambW:'Jamb width'}[pad.f] || 'Size') + '</b>' +
+    '<div class="pad-head' + (pad.closet ? ' pad-cl' : '') + '"><b>' + (pad.title ? esc(pad.title) : {width:'Opening width', height:'Opening height', openW:'Door opening width', openH:'Door opening height', doorW:'Each door width', doorH:'Each door height', jambW:'Jamb width'}[pad.f] || 'Size') + '</b>' +
     '<span>' + (pad.sub ? esc(pad.sub) : 'Opening ' + (op ? op.number + (op.location ? ' · ' + esc(op.location) : '') : '')) + '</span></div>' +
     '<div class="pad-show">' + (v === '' ? '<i>0</i>' : esc(sizeText(v))) + '<small>in</small></div>' +
     '<div class="pad-fr">' + fr.map((x, i) =>
@@ -5659,10 +5660,9 @@ function closetPadDone(){
   if(mk) mk.m[mk.f] = v;
   else if(k === 'ceiling') c.ceiling = v; else { c.dims = c.dims || {}; if(v) c.dims[k] = v; else delete c.dims[k]; }
   persistBg();
-  const order = clPadOrder(c);
-  const next = !was && v && order.indexOf(k) >= 0 ? order.find(x => x !== k && !clGet(c, x)) : null;
-  render();
-  if(next) openClosetPad(c, next); else drawPad();
+  /* 2.64.5, Andrew 20 Nov: the pad closes after every size. Moving on by
+     itself left him not knowing which wall he was typing. */
+  render(); drawPad();
 }
 
 function closetSwitch(job, on){
@@ -5811,7 +5811,7 @@ document.addEventListener('click', async e => {
   }
   if(act === 'undo'){ const p = c.pts || []; if(p.length){ p.pop(); if(c.dims) delete c.dims[clLetter(p.length - 1)]; } render(); return persistBg(); }
   if(act === 'restart'){ c.pts = []; c.dims = {}; render(); return persistBg(); }
-  if(act === 'drawn'){ c.drawn = true; render(); persistBg(); const k = clPadOrder(c).find(x => !clVal(c, x)); if(k) openClosetPad(c, k); return; }
+  if(act === 'drawn'){ c.drawn = true; render(); return persistBg(); }
   if(act === 'redraw'){ c.drawn = false; return render(); }
   if(act === 'dim') return openClosetPad(c, d.k);
   if(act === 'madd'){ const w = clSegs(c).find(g => !g.door);
@@ -7067,6 +7067,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.64.4 · 20 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.64.5 · 20 Nov 2026</div>
 </body>
 </html>

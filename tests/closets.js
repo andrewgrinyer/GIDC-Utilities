@@ -91,9 +91,11 @@ const check = (name, ok, got) => {
   await page.click('.cl-dims [data-k="A"]');
   check('the big number pad opens, not the size picker', await page.locator('#pad .pad-keys').count() === 1 && await page.locator('#pad .pick-card').count() === 0);
   await keys(['2','4','f4','done']);
-  check('A saved 24 1/2 and the pad moved on to B', await page.evaluate(() => state.job.closets[0].dims.A === '24.5' && pad && pad.key === 'B'));
-  for(const v of ['30','96','30','24']) { await keys([...v, 'done']); }
-  await keys(['9','6','done']);
+  check('A saved 24 1/2 and the pad closes', await page.evaluate(() => state.job.closets[0].dims.A === '24.5' && !pad));
+  for(const [k, v] of [['B','30'],['C','96'],['D','30'],['E','24'],['ceiling','96']]) {
+    await page.click('.cl-dims [data-k="' + k + '"]');
+    if(k === 'C') check('the pad says which wall', await page.locator('#pad .pad-head b').textContent() === 'Wall C');
+    await keys([...v, 'done']); }
   const c0 = await page.evaluate(() => state.job.closets[0]);
   check('every wall and the ceiling in', c0.dims.E === '24' && c0.ceiling === '96' && !await page.evaluate(() => !!pad), c0);
   // a window on wall C
@@ -151,8 +153,7 @@ const check = (name, ok, got) => {
   await page.click('.cl-card:nth-of-type(3) [data-cl="toggle"]').catch(() => {});
   await page.evaluate(() => { state.closetOpen = state.job.closets[2].id; render(); });
   await page.click('[data-cl="drawn"]');
-  check('Done drawing opens the pad on wall A', await page.evaluate(() => pad && pad.key === 'A'));
-  await page.click('#pad [data-pk="cancel"]');
+  check('Done drawing leaves the pad closed', await page.evaluate(() => !pad && state.job.closets[2].drawn));
   check('three walls, three sizes plus ceiling', await page.locator('.cl-card.is-open .cl-dims .cl-dim').count() === 4);
   // fits the iPhone: no sideways scroll
   check('no sideways scroll on iPhone', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1),
