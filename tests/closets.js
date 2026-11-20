@@ -42,6 +42,18 @@ const check = (name, ok, got) => {
     const j = newJob(); j.customer = 'Closet Test'; j.address = '1 Main St'; j.city = 'Cambridge'; j.openings = [];
     state.job = j; state.view = 'job'; render();
   });
+  // 2.64.3: New job starts with no door; Add a closet or Add a door opening
+  await page.evaluate(() => { state.job = null; state.view = 'jobs'; render(); });
+  await page.click('[data-new]');
+  check('New job starts with no door', await page.evaluate(() => state.job.openings.length === 0 && /Start with a door or a closet/.test(document.getElementById('app').textContent)));
+  await page.click('.cl-start [data-cl="newcloset"]');
+  check('Add a closet goes to the closet screen with one closet open', await page.evaluate(() =>
+    state.view === 'closets' && state.job.closets.length === 1 && state.closetOpen === state.job.closets[0].id && state.job.openings.length === 0));
+  await page.evaluate(() => { state.job = null; state.view = 'jobs'; render(); });
+  await page.click('[data-new]');
+  await page.click('.cl-start [data-addop]');
+  check('Add a door opening adds opening 1 and opens it', await page.evaluate(() =>
+    state.job.openings.length === 1 && state.openOpening === state.job.openings[0].id && !!document.querySelector('.card.door.is-open')));
   // 2.64.2: a closets only job. The new job's empty opening comes off with the first closet
   await page.evaluate(() => { state.job = newJob(); state.job.customer = 'Closets Only'; state.view = 'job'; render(); });
   check('a new job starts with one empty opening', await page.evaluate(() => state.job.openings.length === 1 && blankOpening(state.job.openings[0])));

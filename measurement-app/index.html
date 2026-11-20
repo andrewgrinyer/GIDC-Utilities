@@ -855,6 +855,7 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 .cl-switch small{display:inline-block;min-width:22px;padding:1px 6px;border-radius:10px;background:var(--rule-soft);color:var(--ink);font-size:12px;margin-left:4px}
 .cl-switch button.on small{background:#fff}
 .cl-empty{padding-top:16px;color:var(--muted);font-size:15px}
+.cl-start{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}.cl-start .btn{flex:1 1 160px;justify-content:center;min-height:48px}
 .cl-shapes{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:10px 0}
 .cl-shape{border:2px solid var(--rule);border-radius:12px;background:#fff;padding:6px 4px 8px;font:inherit;font-size:13px;font-weight:600;display:flex;flex-direction:column;align-items:center;gap:4px;cursor:pointer;min-height:44px}
 .cl-shape.on{border-color:var(--brass);background:var(--brass-soft)}
@@ -5787,7 +5788,8 @@ document.addEventListener('click', async e => {
   const act = d.cl;
   if(act === 'closets'){ state.view = 'closets'; window.scrollTo(0, 0); return render(); }
   if(act === 'doors'){ state.view = 'job'; window.scrollTo(0, 0); return render(); }
-  if(act === 'add'){
+  if(act === 'newcloset'){ state.view = 'closets'; window.scrollTo(0, 0); }
+  if(act === 'add' || act === 'newcloset'){
     /* 2.64.2: a closets only job. The empty opening a new job starts with is
        taken off when the first closet goes on, so nothing asks for a door. */
     if(!closetsOf(job).length && job.openings.length && job.openings.every(blankOpening)){
@@ -6147,8 +6149,11 @@ function renderJob(){
 
   // 2.64.2, Andrew 20 Nov: a job may be closets only, with no doors
   if(!job.openings.length)
-    h += '<div class="card"><div class="card-body cl-empty" style="border-top:0">No doors on this job' +
-         (closetsOf(job).length ? ': it is closets only. Add opening if there are doors too.' : '. Add opening for a door, or tap Closets.') + '</div></div>';
+    h += '<div class="card"><div class="card-body cl-empty" style="border-top:0">' +
+         (closetsOf(job).length ? 'No doors on this job: it is closets only. Add a door opening if there are doors too.'
+                                : 'Nothing measured yet. Start with a door or a closet.') +
+         '<div class="cl-start"><button class="btn btn-primary" data-addop="1">Add a door opening</button>' +
+         '<button class="btn" data-cl="newcloset">Add a closet</button></div></div></div>';
   job.openings.forEach((op, oi) => {
     applyQtyRule(op);              // older jobs, imports and a changed tick
     const isOpen = state.openOpening === op.id;
@@ -6658,9 +6663,10 @@ document.addEventListener('click', async e => {
     state.users = state.users.filter(x => x.name !== d.rmuser);
     await saveUsers(state.users); toast('Account removed'); return render();
   }
-  if(d.new !== undefined){ state.job = newJob(); state.view = 'job'; state.repOpen = false; state.custOpen = true;
-    state.openOpening = state.job.openings[0].id;
-    state.editOption = state.job.openings[0].options[0].id;
+  /* 2.64.3, Andrew 20 Nov: a new job starts with no door, so a closets only
+     job never has one to take off. Add a door opening or Add a closet. */
+  if(d.new !== undefined){ state.job = newJob(); state.job.openings = []; state.view = 'job'; state.repOpen = false; state.custOpen = true;
+    state.openOpening = null; state.editOption = null;
     render(); return persistBg(); }
   if(d.open){ const j = await loadJob(d.open);
     state.job = j; state.view = 'job'; state.repOpen = false;
@@ -7061,6 +7067,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.64.2 · 20 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.64.3 · 20 Nov 2026</div>
 </body>
 </html>
