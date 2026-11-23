@@ -1019,7 +1019,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.13 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.14 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -6432,7 +6432,9 @@ function invoiceRecord(o, i){
   if(t.discount > 0) out.push({item: itemFor("extra:discount", INV_EXTRA_ITEMS.discount),
     desc: "Discount (" + s.discount_pct + "% of products)", qty: 1, rate: t.discount,
     amount: t.discount, po: po, terms: s.terms, tax: s.tax_code});
-  if(t.tariff > 0) out.push({item: itemFor("extra:tariff", INV_EXTRA_ITEMS.tariff),
+  /* Andrew, 23 November: the tariff item is always just "Tariff", never a
+     remembered pick */
+  if(t.tariff > 0) out.push({item: "Tariff",
     desc: "Tariff (" + s.tariff_pct + "% of the net products)", qty: 1, rate: t.tariff,
     amount: t.tariff, po: po, terms: s.terms, tax: s.tax_code});
   return {order_id: o.id, dealer_id: o.dealer_id, pallet_id: String(v.pallet.id),
