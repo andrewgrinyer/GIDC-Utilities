@@ -1019,7 +1019,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.14 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.15 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -6385,9 +6385,19 @@ function invField(label, k, val, cls, type, hint){
 
 /* ---- the file, always drawn from the stored invoices ---- */
 function csvCell(v){ v = v == null ? "" : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+/* Andrew, 23 November: an invoice made before 2.14 is stored with the old
+   tariff item and a negative discount, and "QuickBooks files" draws from
+   that record. So the file itself always says "Tariff" for the tariff line
+   and never carries a negative number, whenever the invoice was made. */
+function csvLine(l){
+  const d = String(l.desc || "");
+  const tariff = /^Tariff \(/.test(d) || /(^|:)\s*Tariff$/i.test(String(l.item || ""));
+  return Object.assign({}, l, tariff ? {item: "Tariff"} : {},
+    {rate: Math.abs(Number(l.rate) || 0), amount: Math.abs(Number(l.amount) || 0)});
+}
 function invoicesCsv(list){
   const rows = [INV_CSV_HEAD.join(",")];
-  list.forEach(inv => (inv.lines || []).forEach(l => rows.push([inv.invoice_no, inv.customer,
+  list.forEach(inv => (inv.lines || []).map(csvLine).forEach(l => rows.push([inv.invoice_no, inv.customer,
     inv.currency, l.po, inv.invoice_date, inv.invoice_date, l.terms, l.item, l.desc, l.qty, l.rate, l.amount,
     l.tax].map(csvCell).join(","))));
   return "﻿" + rows.join("\r\n");

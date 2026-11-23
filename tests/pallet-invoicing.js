@@ -98,7 +98,8 @@ let WHO = ME;
         if(u.search.includes('id=eq')) return j(CUSTOMS.filter(c => u.search.includes('id=eq.' + c.id)));
         return j(CUSTOMS.map(c => Object.assign({}, c, {html: undefined})));
       case '/rest/v1/qbo_items': if(m === 'POST'){ ADDED = body(); return j([], 201); } return j(QBO.map(name => ({name})));
-      case '/rest/v1/qbo_item_map': if(m === 'POST'){ MAP = body(); return j([]); } return j([]);
+      case '/rest/v1/qbo_item_map': if(m === 'POST'){ MAP = body(); return j([]); }
+        return j([{key:'extra:tariff', item:'GMD-Wholesale:Tariff'}]);   // an old pick, as Andrew's database has
       case '/rest/v1/invoice_settings': if(m === 'POST'){ SETTINGS = body(); return j([]); } return j([]);
       case '/rest/v1/dealer_invoices':
         if(WHO !== ME) return j({message:'permission denied'}, 401);
@@ -202,6 +203,12 @@ let WHO = ME;
 
   await page.waitForSelector('.pal-card');
   console.log('pallet after:', await page.$eval('.pal-h .nm', x => x.innerText), '/', await btns());
+  /* invoices made before 2.14 are stored with the old tariff item and a
+     negative discount; the files drawn from them must still be right */
+  INVOICES.forEach(inv => (inv.lines || []).forEach(l => {
+    if(/^Tariff/.test(l.desc)) l.item = 'GMD-Wholesale:Tariff';
+    if(/^Discount/.test(l.desc)){ l.rate = -l.rate; l.amount = -l.amount; }
+  }));
   const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('button[data-invagain="P1"]')]);
   console.log('files again:', dl2.suggestedFilename(), unzip(await dl2.path()) === csv);
 
