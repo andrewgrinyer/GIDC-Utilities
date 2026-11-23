@@ -20,8 +20,10 @@
 --      email is different from what was saved before (phone and email
 --      added the same day: Andrew, "email and phone number changes need
 --      to trigger 100%")
---    * a job not linked to Access has nothing in Access to update yet,
---      so it is left out
+--    * a job not linked to Access sends one too, with a big note at the
+--      top that it is not linked, as a reminder to link it (Andrew, same
+--      day). Only a job marked "Not in Access" (a test or a duplicate)
+--      is left out.
 --
 --  ONE EMAIL PER BURST OF TYPING
 --    The app saves after every field. Changes to the same job that have
@@ -84,7 +86,7 @@ declare
 begin
   -- the hourly sync and the link screens write as no one; only people count
   if auth.uid() is null then return new; end if;
-  if new.access_estimate_id is null then return new; end if;
+  if new.access_link = 'none' then return new; end if;     -- marked Not in Access
   if oc = nc and oa = na and oy = ny and op = np and oe = ne then return new; end if;
   who := coalesce((select nullif(name, '') from public.profiles where id = auth.uid()),
                   (select email from auth.users where id = auth.uid()), 'someone');
@@ -135,7 +137,7 @@ begin
        and (u.claimed_at is null or u.claimed_at < now() - interval '10 minutes')
     returning u.*)
   select coalesce(jsonb_agg(jsonb_build_object(
-           'id', c.id, 'job_id', c.job_id, 'estimate_id', c.estimate_id,
+           'id', c.id, 'job_id', c.job_id, 'estimate_id', j.access_estimate_id,
            'order_no', j.access_order_no, 'status', j.access_status,
            'old_customer', c.old_customer, 'old_address', c.old_address, 'old_city', c.old_city,
            'new_customer', c.new_customer, 'new_address', c.new_address, 'new_city', c.new_city,

@@ -3578,7 +3578,7 @@ async function loadJob(id){
   }
   return JSON.parse(await Local.get(jobKey(id)));
 }
-/* 2.67, Andrew 23 Nov: a name, address, city, phone or email changed on a job linked to Access
+/* 2.67, Andrew 23 Nov: a name, address, city, phone or email changed on a job (linked to Access or not)
    emails the office (info@grinyer.ca, "Customer Profile Update Required"),
    so they change it in Access too. The database records the change when the
    job saves (sql/customer-profile-update.sql); this only says when to send:
@@ -3589,7 +3589,8 @@ const PROFILE_WAIT_MS = 60000;
 let profileT = null, profileDue = false;
 const profileKey = j => ['customer', 'address', 'city', 'phone', 'email'].map(k => String((j && j[k]) || '').trim().replace(/\s+/g, ' ')).join('|');
 function profileWatch(before, job){
-  if(!before || !before.accEst || profileKey(before) === profileKey(job)) return;
+  // linked or not: an unlinked job's email reminds the office to link it. Not in Access is left out.
+  if(!before || before.accLink === 'none' || profileKey(before) === profileKey(job)) return;
   profileDue = true;
   clearTimeout(profileT);
   profileT = setTimeout(profileSend, PROFILE_WAIT_MS);

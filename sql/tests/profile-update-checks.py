@@ -69,7 +69,14 @@ save(linked, "sales", customer=old["customer"], address=old.get("address") or ""
 check("put back the way it was, nothing is sent", pending() == [], pending())
 
 save(loose, "sales", customer="Somebody Else")
-check("a job not linked to Access sends nothing", pending() == [], pending())
+p = pending()
+check("a job not linked to Access sends one too, with no estimate", len(p) == 1 and p[0]["estimate_id"] is None, p)
+got = json.loads(sql("set role service_role; select gidc_claim_profile_updates()"))
+check("and the email is told it is not linked", len(got) == 1 and got[0]["estimate_id"] is None, got)
+sql("set role service_role; select gidc_profile_update_done(%d, true)" % got[0]["id"])
+sql("update jobs set access_link = 'none' where id = '%s'" % loose)
+save(loose, "sales", customer="Somebody Else Again")
+check("a job marked Not in Access sends nothing", pending() == [], pending())
 
 sql("update jobs set data = jsonb_set(data, '{city}', '\"Elsewhere\"') where id = '%s'" % linked)
 check("the hourly sync (no one signed in) sends nothing", pending() == [], pending())

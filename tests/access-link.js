@@ -206,7 +206,7 @@ const pills = page => page.evaluate(() => Object.fromEntries([...document.queryS
   if(await page.$('[data-j="customer"]')){
     await page.fill('[data-j="customer"]', 'Someone New'); await page.dispatchEvent('[data-j="customer"]', 'change');
     await page.waitForTimeout(800); await page.evaluate(() => { state.view = 'jobs'; render(); }); await page.waitForTimeout(500);
-    check('a job not linked to Access does not email', mails() === 1, mails());
+    check('a job marked Not in Access does not email', mails() === 1, mails());
   }
   check('no page errors for the administrator', errors.length === 0, errors);
 

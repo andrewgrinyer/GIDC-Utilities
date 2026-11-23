@@ -87,9 +87,15 @@ export function emailFor(u: Update) {
     ["Email", u.old_email ?? "", u.new_email ?? ""],
   ];
   const changed = rows.filter(([, a, b]) => String(a ?? "").trim() !== String(b ?? "").trim());
-  const access = "Access estimate " + (u.estimate_id ?? "?") + (u.order_no ? ", job " + u.order_no : "");
+  // Andrew: an unlinked job still emails, with a big note, so staff link it
+  const linked = !!u.estimate_id;
+  const NOTE = "THIS JOB IS NOT LINKED TO ACCESS. Find the customer in Access, make the change, " +
+    "then link the job in the measurement app (Link to Access, type the estimate number).";
+  const access = linked ? "Access estimate " + u.estimate_id + (u.order_no ? ", job " + u.order_no : "")
+                        : "Not linked to Access";
   const by = show(u.changed_by) + ", " + when(u.changed_at);
   const text = [
+    ...(linked ? [] : ["*** " + NOTE + " ***", ""]),
     "A customer's details were changed in the measurement app. Please make the same change in Access.",
     "",
     access,
@@ -106,6 +112,8 @@ export function emailFor(u: Update) {
   ].join("\n");
   const td = 'style="padding:6px 10px;border:1px solid #ddd;vertical-align:top"';
   const html =
+    (linked ? "" : `<div style="background:#B00020;color:#fff;font:bold 20px Arial,sans-serif;padding:16px 18px;` +
+      `border-radius:6px;margin:0 0 16px">${esc(NOTE)}</div>`) +
     `<p>A customer's details were changed in the measurement app. Please make the same change in Access.</p>` +
     `<p><b>${esc(access)}</b><br>Customer: ${esc(show(u.new_customer))}<br>Changed by: ${esc(by)}</p>` +
     `<table style="border-collapse:collapse;font:14px Arial,sans-serif">` +
