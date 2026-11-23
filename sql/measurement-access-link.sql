@@ -673,8 +673,10 @@ begin
   return coalesce((
     select jsonb_agg(to_jsonb(r) - 'exact_no' order by r.exact_no desc, r.created_on desc nulls last, r.estimate_id desc)
       from (select a.estimate_id, a.order_no, concat_ws(' ', a.first_name, a.last_name) as name,
-                   -- a typed Access job number comes first, above phones that contain it
-                   coalesce(a.order_no = any(w), false) as exact_no,
+                   -- a typed Access estimate or job number comes first, above phones
+                   -- that contain it (2.67: every customer has an estimate number,
+                   -- only a sold one has a job number too)
+                   (a.estimate_id::text = any(w) or coalesce(a.order_no = any(w), false)) as exact_no,
                    a.address, a.city, a.phone, a.email, a.created_on, st.status, a.rep,
                    (select coalesce(nullif(o.customer, ''), 'another job') from public.jobs o
                      where o.access_estimate_id = a.estimate_id) as taken_by
@@ -684,10 +686,11 @@ begin
                      select 1 from unnest(w) q
                       where position(q in lower(concat_ws(' ', a.first_name, a.last_name, a.address,
                                      a.city, a.email, a.order_no))) = 0
+                        and q <> a.estimate_id::text
                         and not (length(regexp_replace(q, '\D', '', 'g')) >= 3 and q ~ '^[\d()+. -]+$'
                                  and position(regexp_replace(q, '\D', '', 'g') in
                                      regexp_replace(coalesce(a.phone, '') || ' ' || coalesce(a.phone2, ''), '\D', '', 'g')) > 0))
-             order by coalesce(a.order_no = any(w), false) desc, a.created_on desc nulls last, a.estimate_id desc
+             order by (a.estimate_id::text = any(w) or coalesce(a.order_no = any(w), false)) desc, a.created_on desc nulls last, a.estimate_id desc
              limit 40) r), '[]'::jsonb);
 end $$;
 
@@ -728,11 +731,11 @@ begin
   end if;
 
   select * into a from public.access_customers where estimate_id = p_estimate;
-  if not found then raise exception 'That customer is not in the Access list any more.'; end if;
+  if not found then raise exception 'There is no retail estimate % in Access.', p_estimate; end if;
   select coalesce(nullif(customer, ''), 'another job') into other from public.jobs
    where access_estimate_id = p_estimate and id <> p_job;
   if other is not null and not p_move then
-    raise exception 'Access job % is already linked to %.', coalesce(a.order_no, p_estimate::text), other;
+    raise exception 'Access estimate % is already linked to %.', p_estimate, other;
   end if;
   if other is not null then
     update public.jobs set access_estimate_id = null, access_order_no = null, access_status = null,
@@ -746,7 +749,7 @@ begin
          access_completed = a.completed_on is not null, access_link = 'manual',
          access_flag = null, access_linked_at = now(), access_linked_by = who
    where id = p_job;
-  return jsonb_build_object('linked', true, 'order_no', a.order_no, 'status', st.status,
+  return jsonb_build_object('linked', true, 'estimate_id', p_estimate, 'order_no', a.order_no, 'status', st.status,
                             'name', concat_ws(' ', a.first_name, a.last_name));
 end $$;
 

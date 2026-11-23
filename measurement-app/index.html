@@ -852,6 +852,7 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 .acc-row .t span{display:block;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
 .acc-row .t em{font-style:normal;color:#3C6B2E;font-weight:600}
 .acc-row .t i{font-style:normal;color:#8A5A10}
+.acc-est{display:flex;gap:8px;align-items:center}.acc-est .acc-q{flex:1}
 .acc-q{width:100%;min-height:46px;font-size:16px;padding:10px 12px;border:1px solid var(--rule);border-radius:12px;background:#fff}
 .acc-empty{padding:12px;color:var(--muted);font-size:14px}
 .empty{text-align:center;padding:48px 20px;color:var(--muted)}
@@ -6137,7 +6138,8 @@ function sortJobs(list){
    the search looks through the whole Access list. */
 function accText(a){
   // Access gives a job number only once it is sold (TRY, 23 Nov: 1,388 of 3,305)
-  if(a && a.accEst) return (a.accNo ? 'Access job ' + a.accNo : 'In Access, job number once sold') +
+  // 2.67: every Access customer starts as an estimate, so the estimate number always shows
+  if(a && a.accEst) return 'Access estimate ' + a.accEst + (a.accNo ? ' · job ' + a.accNo : '') +
                            (a.accStatus ? ' · ' + a.accStatus : '');
   if(a && a.accLink === 'none') return 'Not in Access';
   return 'Not linked to Access yet';
@@ -6177,7 +6179,7 @@ function accDay(d){
 function accCandHtml(c, cur){
   const here = cur && cur.accEst === c.estimate_id;
   return '<div class="acc-row"><div class="t"><b>' + esc(c.name || '(no name)') + '</b>' +
-    (c.order_no ? ' · Access job ' + esc(c.order_no) : '') +
+    ' · Estimate ' + esc(c.estimate_id) + (c.order_no ? ' · job ' + esc(c.order_no) : '') +
     '<span>' + esc([c.address, c.city].filter(Boolean).join(', ')) + '</span>' +
     '<span>' + esc([c.phone, c.email].filter(Boolean).join(' · ')) + '</span>' +
     '<span>' + esc(['Created ' + accDay(c.created_on), c.status, c.rep].filter(Boolean).join(' · ')) + '</span>' +
@@ -6186,7 +6188,7 @@ function accCandHtml(c, cur){
     '</div>' +
     (here ? '<b>Linked</b>'
           : '<button class="btn btn-sm' + (c.taken_by ? '' : ' btn-primary') + '" data-accpick="' + c.estimate_id + '"' +
-            (c.taken_by ? ' data-accmove="1"' : '') + ' data-accno="' + esc(c.order_no || '') + '" data-accwho="' + esc(c.taken_by || '') + '">' +
+            (c.taken_by ? ' data-accmove="1"' : '') + ' data-accno="' + esc(c.estimate_id) + '" data-accwho="' + esc(c.taken_by || '') + '">' +
             (c.taken_by ? 'Move here' : 'Link') + '</button>') + '</div>';
 }
 function renderAccLink(){
@@ -6200,13 +6202,18 @@ function renderAccLink(){
     (j.accFlag && !j.accEst ? '<p class="acc-who" style="color:#8A5A10">' + esc(j.accFlag) + '</p>' : '') +
     '</div></div>';
   if(a.err) h += '<div class="accnote">' + esc(a.err) + '</div>';
+  /* 2.67, Andrew 23 Nov: type the Access estimate number to link it straight away */
+  h += '<div class="acc-h">Link by Access estimate number</div>' +
+    '<div class="acc-est"><input class="acc-q" type="text" inputmode="numeric" data-accestq="1" enterkeyhint="go" ' +
+    'autocomplete="off" placeholder="Estimate number" value="' + esc(a.est || '') + '">' +
+    '<button class="btn btn-primary" data-accest="1">Link</button></div>';
   h += '<div class="acc-h">Suggested from Access</div><div class="card">' +
     (a.sug == null ? '<div class="acc-empty">Looking in Access…</div>'
       : a.sug.length ? a.sug.map(c => accCandHtml(c, j)).join('')
       : '<div class="acc-empty">Nothing in Access shares a name, address, phone or email with this job. Search below.</div>') + '</div>';
   h += '<div class="acc-h">Search Access</div>' +
     '<input class="acc-q" type="search" data-accq="1" enterkeyhint="search" autocomplete="off" autocorrect="off" ' +
-    'placeholder="Name, address, phone or Access job number" value="' + esc(a.q || '') + '">';
+    'placeholder="Name, address, phone, estimate or job number" value="' + esc(a.q || '') + '">';
   h += '<div id="accfound">' + accFoundHtml() + '</div>';
   $('#app').innerHTML = h;
   $('#dock').innerHTML =
@@ -6215,8 +6222,15 @@ function renderAccLink(){
     '<button class="btn btn-primary" data-accback="1">Done</button>';
 }
 let accQT;
+document.addEventListener('keydown', e => {
+  if(e.key === 'Enter' && e.target && e.target.dataset && e.target.dataset.accestq !== undefined){
+    e.preventDefault(); accClick({accest:'1'});
+  }
+});
 document.addEventListener('input', e => {
-  const t = e.target; if(!t || !t.dataset || t.dataset.accq === undefined) return;
+  const t = e.target; if(!t || !t.dataset) return;
+  if(t.dataset.accestq !== undefined){ if(state.acc) state.acc.est = t.value; return; }
+  if(t.dataset.accq === undefined) return;
   clearTimeout(accQT); const v = t.value;
   accQT = setTimeout(() => accSearch(v), 350);
 });
@@ -6237,12 +6251,29 @@ async function accClick(d){
   try{
     if(d.accpick){
       if(d.accmove){
-        const ok = await sure({title:'Move this Access customer?', what:'Access job ' + (d.accno || '') + ' is linked to ' + d.accwho + '.',
+        const ok = await sure({title:'Move this Access customer?', what:'Access estimate ' + (d.accno || '') + ' is linked to ' + d.accwho + '.',
           why:'It comes off that job, which goes back on the list to link, and onto this one.', final:'You can link it back later.', go:'Move it here', goClass:'btn-primary'});
         if(!ok) return;
       }
       const res = await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:+d.accpick, p_none:false, p_move:!!d.accmove});
-      return accDone('Linked to Access job ' + (res.order_no || d.accno || ''));
+      return accDone('Linked to Access estimate ' + (res.estimate_id || d.accpick));
+    }
+    if(d.accest !== undefined){
+      const box = document.querySelector('[data-accestq]');
+      const n = String(box ? box.value : a.est || '').replace(/\D/g, '');
+      if(!n) return toast('Type the Access estimate number first');
+      const found = await accRpc('gidc_access_search', {p_q:n});
+      const c = (found || []).find(x => String(x.estimate_id) === n);
+      if(!c) return toast('There is no retail estimate ' + n + ' in Access');
+      const j = state.jobs.find(x => x.id === a.job) || {};
+      if(j.accEst === c.estimate_id) return toast('This job is already linked to estimate ' + n);
+      if(c.taken_by){
+        const ok = await sure({title:'Move this Access customer?', what:'Access estimate ' + n + ' (' + (c.name || 'no name') + ') is linked to ' + c.taken_by + '.',
+          why:'It comes off that job, which goes back on the list to link, and onto this one.', final:'You can link it back later.', go:'Move it here', goClass:'btn-primary'});
+        if(!ok) return;
+      }
+      await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:+n, p_none:false, p_move:!!c.taken_by});
+      return accDone('Linked to Access estimate ' + n + (c.name ? ', ' + c.name : ''));
     }
     if(d.accnone !== undefined){
       await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:null, p_none:true, p_move:false});
@@ -6657,7 +6688,7 @@ const CLICK_KEYS = ['qrevise','qnew','qopt','qrm','qpdf','opnoteadd','open','del
   'applydef','cleardef','repopen','pickqty','qtyover','qtyauto','track3','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','rvapplydef','sign','signpdf','signmail',
   'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote','cond','jambpick','swingdir','hingematch',
-  'acclink','accshow','accback','accpick','accnone','accun','accsearch'];
+  'acclink','accshow','accback','accpick','accnone','accun','accsearch','accest'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 /* 2.30, Andrew 18 Nov: "the door type buttons stick and won't let us click
@@ -6702,7 +6733,7 @@ document.addEventListener('click', async e => {
   const d = t.dataset;
   const job = state.job;
   if(d.acclink || d.accshow !== undefined || d.accback !== undefined || d.accpick || d.accnone !== undefined ||
-     d.accun !== undefined || d.accsearch !== undefined){ e.stopImmediatePropagation(); return accClick(d); }
+     d.accun !== undefined || d.accsearch !== undefined || d.accest !== undefined){ e.stopImmediatePropagation(); return accClick(d); }
   if(d.review !== undefined) return openReview();
   if(d.padof){ const o = job && job.openings.find(x => x.id === d.op); if(o) openPad(o, d.padof); return; }
   if(d.doorauto){ const o = job && job.openings.find(x => x.id === d.doorauto);
@@ -7343,6 +7374,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.66 · 23 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.67 · 23 Nov 2026</div>
 </body>
 </html>

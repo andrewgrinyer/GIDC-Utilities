@@ -50,6 +50,7 @@ const server = http.createServer(async (q, r) => {
   if(u.startsWith('/rest/v1/rpc/')){
     const fn = u.slice(13), b = JSON.parse(await body(q) || '{}'); calls.push({fn, b});
     if(fn === 'gidc_access_suggest') return send(200, SUG);
+    if(fn === 'gidc_access_search' && b.p_q === '8400') return send(200, [{estimate_id: 8400, order_no: null, name: 'Dana Kelly', address: '3 Oak St', city: 'Paris', phone: '', email: '', created_on: '2026-11-20', status: 'Initial Visit Booked', taken_by: null}]);
     if(fn === 'gidc_access_search') return send(200, /patel/i.test(b.p_q) ? [{estimate_id: 8300, order_no: '8300', name: 'Raj Patel', address: '9 Pine Rd', city: 'Ayr', phone: '', email: '', created_on: '2026-10-02', status: 'Sold', taken_by: null}] : []);
     if(fn === 'gidc_link_job_access'){
       const j = db.find(x => x.id === b.p_job);
@@ -150,10 +151,23 @@ const pills = page => page.evaluate(() => Object.fromEntries([...document.queryS
   await page.click('[data-accnone]'); await page.waitForSelector('#joblist');
   check('Not in Access marks it and clears it from the list to link', (await pills(page))['Kelly'] === 'Not in Access' && !(await page.$('.accnote')));
 
+  // 2.67: link by typing the Access estimate number
+  await page.evaluate(() => openAccLink('j666666')); await page.waitForSelector('[data-accestq]');
+  check('the link screen has a box for the estimate number', await page.locator('[data-accest]').textContent() === 'Link');
+  await page.fill('[data-accestq]', '9999'); await page.press('[data-accestq]', 'Enter');
+  await page.waitForTimeout(300);
+  check('an estimate number Access does not have is refused, nothing linked', /no retail estimate 9999/.test(await page.textContent('body')) &&
+    !calls.some(c => c.fn === 'gidc_link_job_access' && c.b.p_estimate === 9999));
+  await page.fill('[data-accestq]', '8400'); await page.click('[data-accest]');
+  await page.waitForSelector('#joblist');
+  const byEst = calls.filter(c => c.fn === 'gidc_link_job_access').pop();
+  check('a typed estimate number links the job to it', byEst.b.p_job === 'j666666' && byEst.b.p_estimate === 8400 && !byEst.b.p_move && !byEst.b.p_none, byEst);
+  check('and it shows linked on the list', (await pills(page))['Kelly'] === 'Initial Visit Booked', await pills(page));
+
   // the job screen
   await page.click('[data-open="j1"]'); await page.waitForSelector('.jobcard, .custline');
   if(await page.$('[data-custopen="1"]')) await page.click('[data-custopen="1"]');
-  check('the job shows its Access job number and status', /Access job 8101 · Initial Visit Booked/.test(await page.textContent('#app')), await page.textContent('.jf-status'));
+  check('the job shows its Access job number and status', /Access estimate 8101 · job 8101 · Initial Visit Booked/.test(await page.textContent('#app')), await page.textContent('.jf-status'));
   check('and there is no way to change the status', !(await page.$('[data-jstatus]')) && !(await page.$('.jf-status select')));
   check('an administrator can change the link from the job', await page.locator('.jf-status [data-acclink]').textContent() === 'Change link');
   await page.fill('[data-j="phone"]', '519 555 0199'); await page.dispatchEvent('[data-j="phone"]', 'change');
@@ -172,7 +186,7 @@ const pills = page => page.evaluate(() => Object.fromEntries([...document.queryS
   check('but can still delete their own job that is not linked', del['Wong'] === true, del);
   await page.click('[data-open="j22"]'); await page.waitForSelector('.jobcard, .custline');
   if(await page.$('[data-custopen="1"]')) await page.click('[data-custopen="1"]');
-  check('a rep sees the status on the job, read only', /Access job 8102 · In Production/.test(await page.textContent('#app')) &&
+  check('a rep sees the status on the job, read only', /Access estimate 8102 · job 8102 · In Production/.test(await page.textContent('#app')) &&
     !(await page.$('.jf-status button')) && !(await page.$('[data-jstatus]')));
   check('no page errors for the rep', errors.length === 0, errors);
 

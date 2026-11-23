@@ -166,6 +166,12 @@ check("search by a phone typed with punctuation finds them", any(f["estimate_id"
 num = sql("select order_no from access_customers where order_no is not null order by estimate_id limit 1")
 found = json.loads(sql("select gidc_access_search('%s')" % num, who="admin"))
 check("search by the Access job number finds it", found and found[0]["order_no"] == num, found[:1])
+# 2.67: every customer has an estimate number, sold or not
+unsold = int(sql("select estimate_id from access_customers where order_no is null order by estimate_id desc limit 1"))
+found = json.loads(sql("select gidc_access_search('%d')" % unsold, who="admin"))
+check("search by an estimate number that is not sold yet finds it first", found and found[0]["estimate_id"] == unsold, found[:1])
+r = sql("select gidc_link_job_access('%s', 99999999, false, false)" % flagged, who="admin", ok=False)
+check("a typed estimate number Access does not have is refused", "no retail estimate 99999999" in r, r)
 ok = json.loads(sql("select gidc_link_job_access('%s', %d, false, false)" % (flagged, sug[0]["estimate_id"]), who="admin"))
 check("an administrator links it", ok["linked"] and sql(
     "select access_link || ' ' || coalesce(access_flag, 'no flag') || ' ' || access_linked_by from jobs where id = '%s'" % flagged)

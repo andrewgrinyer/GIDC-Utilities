@@ -1,6 +1,6 @@
 # Measurement app jobs linked to Access
 
-Written 23 November 2026, for measurement app 2.66.
+Written 23 November 2026, for measurement app 2.66, and 2.67 (link by typing the Access estimate number; the estimate number shows on every linked job).
 
 ## What Andrew asked for
 
