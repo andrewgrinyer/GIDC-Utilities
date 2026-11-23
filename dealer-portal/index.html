@@ -264,6 +264,48 @@ tr.moved:hover > td{background:var(--info-soft)}
   font-variant-numeric:tabular-nums}
 .pal-empty{color:var(--muted);font-size:13px;padding:10px 0}
 
+/* ---- invoicing a pallet ---- */
+.inv-steps{display:flex;gap:8px;flex-wrap:wrap;margin:0 0 14px}
+.inv-steps span{font-size:12.5px;font-weight:600;color:var(--muted);padding:5px 12px;
+  border:1px solid var(--rule);border-radius:999px;background:var(--card)}
+.inv-steps span.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.inv-set{margin:0 0 14px}
+.inv-grid{display:grid;gap:10px 14px;grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+.inv-grid label{display:flex;flex-direction:column;gap:4px;font-size:12px;font-weight:600;color:var(--muted)}
+.inv-grid label.wide{grid-column:span 2}
+.inv-grid input{width:100%;font-size:14px;padding:8px 10px}
+.inv-pick td{vertical-align:top}
+.inv-pick .sub,.inv-h .sub,.inv-foot .sub{color:var(--muted);font-size:12.5px;margin-top:2px}
+.inv-pick tr.ask > td{background:var(--warn-soft)}
+.inv-pick tr.free > td{background:var(--ok-soft)}
+.inv-seg{display:inline-flex;border:1px solid var(--rule);border-radius:9px;overflow:hidden}
+.inv-seg button{border:0;border-right:1px solid var(--rule);background:var(--card);font:inherit;
+  font-size:13px;padding:6px 12px;cursor:pointer;color:var(--muted)}
+.inv-seg button:last-child{border-right:0}
+.inv-seg button.on{color:#fff;font-weight:600;background:var(--ink)}
+.inv-seg button.on.charge{background:var(--dgreen)}
+.inv-seg button.on.no_charge{background:var(--info)}
+.inv-q{font-size:12.5px;color:var(--warn);font-weight:600;margin-top:5px}
+.inv-reason{display:block;margin-top:6px;width:100%;max-width:340px;font-size:13px;padding:6px 9px}
+.inv-done{font-size:13px}
+.inv-card{margin:0 0 14px}
+.inv-card.free{border-color:var(--info)}
+.inv-h{display:flex;align-items:flex-start;gap:12px;margin:0 0 10px}
+.inv-h b{font-size:15.5px}
+.inv-tot{margin-left:auto;font-size:18px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
+.inv-lines td{vertical-align:top;padding:4px 6px}
+.inv-lines input.inline{width:100%;min-width:0;font-size:13px;padding:6px 8px}
+.inv-lines input.num{text-align:right}
+.inv-lines input.amber{border-color:#E0A96D;background:#FFF7ED}
+.inv-lines tr.miss > td{background:var(--red-soft)}
+.inv-lines td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.inv-warn{color:var(--red);font-size:12.5px;font-weight:600;margin-top:4px}
+.inv-note{color:var(--muted);font-size:12.5px;margin:4px 0 0}
+.inv-sum{margin-left:auto;min-width:240px;font-variant-numeric:tabular-nums}
+.inv-sum div{display:flex;justify-content:space-between;gap:20px;font-size:13.5px;padding:2px 0}
+.inv-sum div.g{border-top:1px solid var(--rule);margin-top:4px;padding-top:6px;font-size:15px;font-weight:700}
+.inv-foot{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+
 /* filters */
 /* the tally of what is on the screen, above the filters that decide it */
 .tally{display:flex;gap:10px;flex-wrap:wrap;margin:0 0 7px}
@@ -963,7 +1005,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.07 · 19 Nov 2026";
+const BUILD  = "Dealer portal 2.08 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -1474,6 +1516,8 @@ const state = {
   packing: null,      // the pallet whose packing list is on screen
   palOpen: {},        // which pallets are expanded on the pallet screen
   palShowShipped: false,   // shipped pallets are out of the way by default
+  invoices: null,     // every invoice made (dealer_invoices); null until that file is run
+  inv: null,          // the invoicing screen for one pallet, while it is open
   hideShipped: false,      // the orders list, remembered per browser (below)
   /* what this person was last shown, so a status or a date that moved
      since can be marked once. Keyed by order id. */
@@ -1513,6 +1557,7 @@ function clearPersonal(){
   state.seen = {}; state.moved = {}; state.reopenRead = {};
   state.ticked = {}; state.palOpen = {}; state.packing = null;
   state.palShowShipped = false;
+  state.invoices = null; state.inv = null;
   state.order = null; state.ask = null; state.expanded = null;
   state.redo = null; state.notice = null;
   const vb = document.getElementById("verify-banner"); if(vb) vb.remove();
@@ -1948,7 +1993,20 @@ async function loadPallets(){
       sb("/rest/v1/pallet_orders?select=order_id,pallet_id,position", {headers: headers()})
     ]);
     if(!a.ok || !b.ok) return {pallets: [], rows: []};
-    return {pallets: await a.json(), rows: await b.json()};
+    const pallets = await a.json();
+    /* THE READY TO SHIP MARK
+       Asked for on its own, from the table rather than the totals view,
+       because the view was made before the column and does not carry it.
+       Before dealer-invoicing.sql has run this fails and nothing is ready. */
+    try{
+      const c = await sb("/rest/v1/pallets?select=id,ready_at", {headers: headers()});
+      if(c.ok){
+        const ready = {};
+        (await c.json()).forEach(x => { ready[x.id] = x.ready_at; });
+        pallets.forEach(p => { p.ready_at = ready[p.id] || null; });
+      }
+    }catch(_){}
+    return {pallets: pallets, rows: await b.json()};
   }catch(_){ return {pallets: [], rows: []}; }
 }
 const palletOf = id => state.palletOrders.find(p => p.order_id === id) || null;
@@ -4933,6 +4991,7 @@ function render(){
   if(state.view === "users")  return renderUsers();
   if(state.view === "pallets") return renderPallets();
   if(state.view === "packing") return renderPacking();
+  if(state.view === "invoice") return renderInvoice();
   if(state.view === "list")   { const r = renderList(); markSeen(); return r; }
   if(state.view === "order"){ renderOrder(); markSeen(); return renderAsk(); }
   renderAsk();
@@ -5074,7 +5133,7 @@ async function addToPallet(btn){
      have all shipped, which is the same thing in practice and is how
      this read until a test put a shipped pallet in front of it. */
   const open   = state.pallets.filter(p =>
-    p.dealer_id === dealerId && !p.closed_at && !palletShipped(p));
+    p.dealer_id === dealerId && !p.closed_at && !palletShipped(p) && !palletReady(p));
 
   let choice = "new";
   if(open.length){
@@ -5301,6 +5360,7 @@ function renderPallets(){
     const over   = limit != null && doors > limit;
     const open = !!state.palOpen[p.id];
     const ship = palletShipped(p);
+    const billed = on.filter(o => liveInvoice(o.id)).length;
     /* THE WHOLE HEADER IS THE HANDLE
        Collapsed is the normal state, because what you usually want off
        this screen is the row count, and that is in the header. Opening
@@ -5310,7 +5370,10 @@ function renderPallets(){
       '<div class="pal-h" data-palopen="' + p.id + '">' +
         '<span class="pal-tw" aria-hidden="true">' + (open ? "\u25be" : "\u25b8") + "</span>" +
         '<div><div class="nm">' + esc(p.name) +
-        (ship ? ' <span class="chip shipped">Shipped</span>' : "") + "</div>" +
+        (ship ? ' <span class="chip shipped">Shipped</span>' : "") +
+        (palletReady(p) && !ship ? ' <span class="chip ready_to_ship">Ready to ship</span>' : "") +
+        (billed ? ' <span class="chip complete_invoiced">Invoiced ' + billed + " of " + on.length + "</span>" : "") +
+        "</div>" +
         '<div class="who">' + esc(p.dealer || "") + " · built " + fmtDate(p.built_on) +
         "</div></div>" +
         '<div class="pal-n">' +
@@ -5345,12 +5408,706 @@ function renderPallets(){
       '<button class="btn sm" data-palname="' + p.id + '">Rename</button>' +
       '<button class="btn sm" data-pallimit="' + p.id + '">Row limit</button>' +
       '<button class="btn sm" data-palxl="' + p.id + '">Packing list</button>' +
+      /* ANDREW, 23 NOVEMBER: INVOICE A PALLET ONCE IT IS READY TO SHIP
+         The mark comes first and Invoice only appears with it, so a pallet
+         still being loaded cannot be billed by a stray click. */
+      (on.length
+        ? '<button class="btn sm' + (palletReady(p) ? "" : " primary") + '" data-palready="' + p.id + '">' +
+          (palletReady(p) ? "Not ready" : "Ready to ship") + "</button>" : "") +
+      (palletReady(p) && on.length && billed < on.length
+        ? '<button class="btn sm primary" data-invopen="' + p.id + '">Invoice</button>' : "") +
+      (billed ? '<button class="btn sm" data-invagain="' + p.id + '">QuickBooks file</button>' : "") +
       '<button class="btn sm danger" data-paldel="' + p.id + '">Delete pallet</button>' +
       "</div>";
     h += "</div></div>";
   });
   $("app").innerHTML = h;
 }
+
+/* ================= INVOICING A PALLET =================
+ *
+ * Andrew, 23 November: once a pallet is built and marked ready to ship,
+ * invoice every dealer project on it, one invoice per project. The first
+ * version makes a file QuickBooks Online imports. The goal is to write the
+ * invoices straight into QuickBooks, so everything here is kept as a
+ * record in the database (dealer_invoices) and the file is drawn from
+ * that record, not from the screen. Writing to QuickBooks later is a
+ * second way out of the same record.
+ *
+ * Two screens.
+ *
+ *   Which orders are charged. Every order on the pallet, with Charge,
+ *   No charge or Not now. A normal order starts on Charge. A redo starts
+ *   on nothing, so somebody has to say whether that remake is billed:
+ *   that is the question Andrew asked to be put every time. An order
+ *   already invoiced says so and cannot be billed twice; voiding the old
+ *   invoice is what frees it.
+ *
+ *   Check each invoice. The lines, the QuickBooks item each goes to, the
+ *   discount and the tariff, for every order being invoiced. A line with
+ *   no price is red and stops the file until it has one.
+ *
+ * OUR NAMES, NEVER THE DEALER'S
+ *
+ * South Florida sells from his own contract and calls every door
+ * something else. What is stored on an order line is always our name;
+ * the dealer's word is only ever put on at the edge of the screen. The
+ * invoice reads the stored line and never goes through styleOut or
+ * nameOut, so it cannot pick up his words. As a safety net, a line whose
+ * style or type is not one of ours is looked up in that dealer's own
+ * names and turned back into ours, and if that fails too the line says
+ * so in red rather than sending his word to QuickBooks.
+ *
+ * Grinyer administrators only, as the pallets are. The database says the
+ * same in can_invoice().
+ */
+/* the QuickBooks customer names, as the wholesale tool carries them, so a
+   first invoice for a dealer starts on the right one. Remembered per
+   dealer from then on. */
+const QBO_CUSTOMERS = ["Brad Hughes", "Cincinnati Doors & Closets",
+  "Pittsburg Doors and Closets", "South Florida Doors & Closets",
+  "Indianapolis Doors & Closets"];
+/* what a new dealer's invoice starts with: the wholesale tool's figures */
+const INV_DEFAULTS = {currency: "USD", terms: "Due on receipt", discount_pct: 20,
+                      tariff_pct: 50, tax_code: "E"};
+const INV_EXTRA_ITEMS = {
+  rerail:    "GMD Doors:Rerail",
+  restile:   "GMD Doors:Re Stile",
+  astragal:  "GMD Doors:Astragal",
+  tastragal: "GMD Doors:Astragal",
+  paintset:  "GMD Doors:Custom Paint",
+  paintdoor: "GMD Doors:Custom Paint",
+  discount:  "GMD-Wholesale:Discount",
+  tariff:    "GMD-Wholesale:Tariff"
+};
+const INV_CSV_HEAD = ["InvoiceNo","Customer","Currency","PONumber","InvoiceDate","Terms",
+  "Item(Product/Service)","ItemDescription","ItemQuantity","ItemRate","ItemAmount","ItemTaxCode"];
+const INV_CHOICES = [["charge", "Charge"], ["no_charge", "No charge"], ["skip", "Not now"]];
+const cents = n => Math.round((Number(n) + Number.EPSILON) * 100) / 100;
+
+/* every invoice made, voided ones too, so the next number is never one
+   already used. null means the table is not there yet. */
+async function loadInvoices(){
+  if(!isAdmin()) return null;
+  try{
+    const r = await sb("/rest/v1/dealer_invoices?select=id,order_id,pallet_id,pallet_name," +
+                       "invoice_no,charge,total,currency,invoice_date,created_at,voided_at" +
+                       "&order=created_at.desc&limit=5000", {headers: headers()});
+    return r.ok ? await r.json() : null;
+  }catch(_){ return null; }
+}
+const liveInvoice = orderId => (state.invoices || [])
+  .find(v => v.order_id === orderId && !v.voided_at) || null;
+const palletReady = p => !!(p && p.ready_at);
+
+/* the next invoice number: the highest number seen, plus one, keeping any
+   letters in front and the zeros it was padded with */
+function nextInvoiceNo(after){
+  let best = null;
+  (state.invoices || []).forEach(v => {
+    const m = String(v.invoice_no || "").match(/^(.*?)(\d+)$/);
+    if(m && (!best || Number(m[2]) > Number(best[2]))) best = m;
+  });
+  if(after) best = String(after).match(/^(.*?)(\d+)$/);
+  if(!best) return "";
+  const n = String(Number(best[2]) + 1);
+  return best[1] + (n.length < best[2].length ? "0".repeat(best[2].length - n.length) : "") + n;
+}
+function invoiceNoAt(first, i){
+  const m = String(first || "").trim().match(/^(.*?)(\d+)$/);
+  if(!m) return null;
+  const n = String(Number(m[2]) + i);
+  return m[1] + (n.length < m[2].length ? "0".repeat(m[2].length - n.length) : "") + n;
+}
+
+/* ---- which QuickBooks item a door goes to ----
+   The wholesale items are named loosely ("4 Panel Shaker S & R",
+   "Kingston HC", "Deman Modern HC"), so a door is matched on the words
+   that mean something, and the core decides between HC, SC and Bi Fold.
+   Anything not found keeps the wholesale tool's default and shows amber
+   until somebody picks the right one, which is then remembered. */
+const INV_STOP = ["true","smooth","textured","s","r","hc","sc","bi","fold","bifold",
+                  "modern","door","glass","sided","2"];
+function invSig(s){
+  return String(s || "").toLowerCase().replace(/&/g, " ").replace(/[^a-z0-9 ]/g, " ")
+    .split(/\s+/).filter(w => w && INV_STOP.indexOf(w) === -1).sort().join(" ");
+}
+function invCoreMark(name){
+  const n = " " + String(name).toLowerCase().replace(/[^a-z0-9]+/g, " ") + " ";
+  if(/ bi ?fold /.test(n)) return "Bifold";
+  if(/ hc /.test(n)) return "Hollow";
+  if(/ sc /.test(n)) return "Solid";
+  return "";
+}
+function guessItem(style, core){
+  const items = (state.inv && state.inv.items) || [];
+  const want = invSig(style);
+  if(want){
+    const hits = items.filter(x => x.indexOf("GMD-Wholesale:") === 0 &&
+                                   invSig(x.slice(14)) === want);
+    const exact = hits.find(x => invCoreMark(x) === core);
+    if(exact) return exact;
+    const plain = hits.find(x => !invCoreMark(x));
+    if(plain) return plain;
+  }
+  return "GMD-Wholesale:" + (style || "Door");
+}
+const itemFor = (key, fallback) => (state.inv && state.inv.map[key]) || fallback;
+
+/* ---- the core a line prices at, exactly as unitPrice decides it ---- */
+function invCore(r){
+  let core = coreKey(r);
+  const pl = state.pl;
+  if(pl && pl.ok && (core === "Hollow" || !core)){
+    let st = pnorm(r.doorStyle);
+    if(pl.alias[st]) st = pl.alias[st];
+    const cores = pricedCores(st);
+    if(!cores.Hollow && cores.Solid) core = "Solid";
+  }
+  return core;
+}
+const INV_BUILD  = {Hollow: "Hollow", Solid: "Solid", "1.75": "1.75", Bifold: ""};
+const INV_HEIGHT = {"6'8": "6/8"};
+
+/* A LINE IN OUR WORDS
+   The stored line is already ours. If it is not (an old order, or a word
+   that came in before the dealer's names were set up), the dealer's own
+   table is tried backwards, and failing that the line is flagged. */
+function oursFor(list, v, back){
+  const s = String(v == null ? "" : v).trim();
+  if(!s) return {name: "", ours: false};
+  if(list === "doorStyle" && isCustomStyle(s)) return {name: s, ours: true};
+  const items = LISTS[list] || [];
+  if(items.indexOf(s) !== -1) return {name: s, ours: true};
+  const flat = x => String(x).toLowerCase().replace(/[^a-z0-9]/g, "");
+  const loose = items.find(x => flat(x) === flat(s));
+  if(loose) return {name: loose, ours: true};
+  const b = back && back[list] && back[list][s.toLowerCase()];
+  if(b && items.indexOf(b) !== -1) return {name: b, ours: true, was: s};
+  return {name: s, ours: false};
+}
+
+/* every line on one order, grouped the way the wholesale tool groups them:
+   one line per style, door type, height and core, then the extras */
+function buildInvoiceLines(o, back){
+  const groups = {}, out = [], extras = {};
+  let paintDoors = 0;
+  const rows = ((o.form && o.form.rows) || []).filter(r =>
+    r.doorStyle || r.doorType || num(r.height) || num(r.width));
+  rows.forEach(r => {
+    const st = oursFor("doorStyle", r.doorStyle, back);
+    const ty = oursFor("doorType", r.doorType, back);
+    /* price the line as ours, whatever it was stored as */
+    const rr = Object.assign({}, r, {doorStyle: st.name, doorType: ty.name});
+    const lp = linePrice(rr);
+    const core = invCore(rr);
+    const hk = heightKey(rr.height, core === "Bifold");
+    const style = isCustomStyle(st.name) ? styleOf(rr) : st.name;
+    const parts = [style || "No door style", ty.name || "Door"];
+    if(hk) parts.push(INV_HEIGHT[hk] || hk);
+    if(INV_BUILD[core]) parts.push(INV_BUILD[core]);
+    const desc = parts.join(" · ");
+    const gk = pnorm(style) + "|" + pnorm(ty.name) + "|" + hk + "|" + core + "|" + lp.unit;
+    if(!groups[gk]){
+      const key = "door:" + pnorm(st.name) + "|" + core;
+      groups[gk] = {key: key, item: itemFor(key, guessItem(st.name, core)), desc: desc,
+        qty: 0, rate: lp.unit == null ? null : cents(lp.unit), missing: lp.unit == null,
+        notOurs: (!st.ours && st.name) ? st.name : (!ty.ours && ty.name ? ty.name : ""),
+        was: st.was || ty.was || ""};
+      out.push(groups[gk]);
+    }
+    groups[gk].qty += lp.qty;
+    lp.extras.forEach(x => {
+      const k = x[0] === "Re-rail" ? "rerail" : x[0] === "Re-stile" ? "restile"
+              : x[0] === "T astragal" ? "tastragal" : "astragal";
+      const per = k === "rerail" || k === "restile";
+      if(!extras[k]) extras[k] = {qty: 0, amt: 0};
+      extras[k].qty += per ? lp.qty : 1;
+      extras[k].amt += x[1];
+    });
+    if(isPaidPaint(r.paintColour)) paintDoors += lp.qty;
+  });
+  const EX = {rerail: "Re rail", restile: "Re stile", astragal: "Astragal",
+              tastragal: "T astragal"};
+  ["rerail", "restile", "astragal", "tastragal"].forEach(k => {
+    if(!extras[k]) return;
+    out.push({key: "extra:" + k, item: itemFor("extra:" + k, INV_EXTRA_ITEMS[k]),
+      desc: EX[k], qty: extras[k].qty, rate: cents(extras[k].amt / extras[k].qty), missing: false});
+  });
+  const ex = (state.pl && state.pl.extras) || {};
+  if(paintDoors > 0){
+    const colour = customPaint(o) || rows.map(r => r.paintColour).find(isPaidPaint) || "";
+    if(ex.customPaintOrder)
+      out.push({key: "extra:paintset", item: itemFor("extra:paintset", INV_EXTRA_ITEMS.paintset),
+        desc: "Custom paint, order setup" + (colour ? " (" + colour + ")" : ""),
+        qty: 1, rate: cents(ex.customPaintOrder), missing: false});
+    if(ex.customPaintPerDoor)
+      out.push({key: "extra:paintdoor", item: itemFor("extra:paintdoor", INV_EXTRA_ITEMS.paintdoor),
+        desc: "Custom paint, per door", qty: paintDoors, rate: cents(ex.customPaintPerDoor),
+        missing: false});
+  }
+  return out;
+}
+
+const lineAmount = l => cents((Number(l.qty) || 0) * (Number(l.rate) || 0));
+/* the discount comes off everything, and the tariff goes on what is left,
+   as the wholesale tool has always done it */
+function invoiceTotals(lines, s, free){
+  if(free) return {sub: 0, discount: 0, after: 0, tariff: 0, total: 0};
+  const sub = cents(lines.reduce((a, l) => a + lineAmount(l), 0));
+  const discount = cents(sub * Math.max(0, Number(s.discount_pct) || 0) / 100);
+  const after = cents(sub - discount);
+  const tariff = cents(after * Math.max(0, Number(s.tariff_pct) || 0) / 100);
+  return {sub: sub, discount: discount, after: after, tariff: tariff, total: cents(after + tariff)};
+}
+
+/* ---- opening the invoice screen for one pallet ---- */
+async function openInvoicing(palletId, btn){
+  const p = palletById(palletId); if(!p) return;
+  if(state.invoices === null)
+    return toast("The database does not have dealer_invoices yet. Run dealer-invoicing.sql in Supabase first.");
+  if(!palletReady(p)) return toast("Mark the pallet ready to ship first");
+  const on = ordersOnPallet(palletId);
+  if(!on.length) return toast("Nothing is on that pallet yet");
+  if(!state.pl || !state.pl.ok) return toast("The price list did not load, so nothing can be priced");
+  if(btn){ btn.disabled = true; btn.textContent = "Reading…"; }
+  try{
+    const ids = on.map(o => o.id).join(",");
+    const [a, s, it, mp, dn] = await Promise.all([
+      sb("/rest/v1/dealer_orders?select=*&id=in.(" + ids + ")", {headers: headers()}),
+      sb("/rest/v1/invoice_settings?select=*&dealer_id=eq." + p.dealer_id, {headers: headers()}),
+      sb("/rest/v1/qbo_items?select=name&order=name&limit=5000", {headers: headers()}),
+      sb("/rest/v1/qbo_item_map?select=key,item&limit=5000", {headers: headers()}),
+      sb("/rest/v1/dealer_door_names?select=field,our_name,their_name&dealer_id=eq." +
+         encodeURIComponent(p.dealer_id) + "&limit=500", {headers: headers()})
+    ]);
+    if(!a.ok) throw new Error("Could not read the orders on that pallet");
+    const full = await a.json();
+    /* in the order they sit on the pallet list */
+    full.sort((x, y) => on.findIndex(o => o.id === x.id) - on.findIndex(o => o.id === y.id));
+    const saved = s.ok ? (await s.json())[0] : null;
+    const items = it.ok ? (await it.json()).map(x => x.name) : [];
+    const map = {};
+    if(mp.ok) (await mp.json()).forEach(x => { map[x.key] = x.item; });
+    /* this dealer's own words, read backwards: theirs to ours */
+    const back = {doorStyle: {}, doorType: {}, productType: {}};
+    if(dn.ok) (await dn.json()).forEach(x => {
+      if(!x || !x.our_name || !x.their_name) return;
+      const f = back[x.field] ? x.field : "doorStyle";
+      back[f][String(x.their_name).trim().toLowerCase()] = x.our_name;
+    });
+    const dealer = state.dealers.find(d => d.id === p.dealer_id) || {};
+    const word = pnorm(String(dealer.name || "").split(/\s+/)[0]);
+    const guess = QBO_CUSTOMERS.find(c => word && pnorm(c).indexOf(word) === 0) || dealer.name || "";
+    const settings = Object.assign({}, INV_DEFAULTS, {qbo_customer: guess},
+      saved ? Object.fromEntries(Object.entries(saved).filter(e => e[1] != null)) : {});
+    state.inv = {pallet: p, dealer: dealer, orders: full, items: items,
+      itemSet: new Set(items), map: map, mapSeen: Object.assign({}, map), back: back,
+      settings: settings, date: new Date().toISOString().slice(0, 10),
+      firstNo: nextInvoiceNo(), step: 1, choice: {}, reason: {}, lines: {}};
+    full.forEach(o => {
+      const done = liveInvoice(o.id);
+      /* a redo starts on nothing: whether a remake is billed is asked
+         every time, not assumed */
+      state.inv.choice[o.id] = done ? "done" : isRedo(o) ? null : "charge";
+      state.inv.reason[o.id] = isRedo(o) ? (REDO_LABEL[o.redo_reason] || "Remake") : "";
+      state.inv.lines[o.id] = buildInvoiceLines(o, back);
+    });
+    state.view = "invoice";
+    render();
+  }catch(err){
+    toast(err.message);
+  }finally{
+    if(btn){ btn.disabled = false; btn.textContent = "Invoice"; }
+  }
+}
+
+const invPicked = () => state.inv.orders.filter(o =>
+  state.inv.choice[o.id] === "charge" || state.inv.choice[o.id] === "no_charge");
+
+function renderInvoice(){
+  const v = state.inv;
+  if(!v){ state.view = "pallets"; return renderPallets(); }
+  const s = v.settings;
+  let h = "<h1>Invoice " + esc(v.pallet.name) + "</h1>" +
+    '<p class="lede">' + esc(v.dealer.name || v.pallet.dealer || "") + " · " +
+    v.orders.length + (v.orders.length === 1 ? " order" : " orders") +
+    " · one invoice per order, for QuickBooks Online.</p>" +
+    '<div class="inv-steps"><span class="' + (v.step === 1 ? "on" : "") + '">1. Which orders are charged</span>' +
+    '<span class="' + (v.step === 2 ? "on" : "") + '">2. Check each invoice</span></div>';
+
+  if(v.step === 1){
+    h += '<div class="card inv-set"><div class="card-b"><div class="inv-grid">' +
+      invField("QuickBooks customer", "qbo_customer", s.qbo_customer, "wide") +
+      invField("Invoice date", "date", v.date, "", "date") +
+      invField("First invoice number", "firstNo", v.firstNo, "", "text",
+               "The next number in QuickBooks") +
+      invField("Terms", "terms", s.terms) +
+      invField("Currency", "currency", s.currency) +
+      invField("Discount %", "discount_pct", s.discount_pct, "", "number") +
+      invField("Tariff %", "tariff_pct", s.tariff_pct, "", "number") +
+      invField("Tax code", "tax_code", s.tax_code) +
+      "</div></div></div>";
+    h += '<div class="tablewrap"><table class="inv-pick"><thead><tr>' +
+      "<th>Order</th><th>Access #</th><th class=\"num\">Doors</th>" +
+      (canSeePrices() ? '<th class="num">Estimate</th>' : "") +
+      "<th>Charge it?</th></tr></thead><tbody>";
+    v.orders.forEach(o => {
+      const done = liveInvoice(o.id);
+      const c = v.choice[o.id];
+      h += '<tr class="' + (c === null ? "ask" : c === "no_charge" ? "free" : "") + '">' +
+        "<td><b>" + esc(o.order_ref || "No customer named") + "</b>" +
+        (isRedo(o) ? ' <span class="chip redo">Redo' +
+          (o.redo_reason ? ": " + esc(REDO_LABEL[o.redo_reason] || o.redo_reason) : "") + "</span>" : "") +
+        '<div class="sub">' + esc(o.customer_name || "") + " · " + statusText(o.status) + "</div></td>" +
+        "<td>" + esc(o.access_order_no || "") + "</td>" +
+        '<td class="num">' + (o.door_count || 0) + "</td>" +
+        (canSeePrices() ? '<td class="num">' + (o.order_total == null ? "—" : money(o.order_total)) + "</td>" : "") +
+        "<td>";
+      if(done){
+        h += '<span class="inv-done">Invoiced as <b>' + esc(done.invoice_no) + "</b> on " +
+          esc(fmtDate(done.created_at)) + (done.charge === "no_charge" ? ", no charge" : "") +
+          '</span> <button class="btn sm ghost" data-invvoid="' + esc(done.id) + '">Void</button>';
+      }else{
+        h += '<div class="inv-seg">' + INV_CHOICES.map(x =>
+          '<button class="' + (c === x[0] ? "on " + x[0] : "") + '" data-invpick="' + o.id +
+          '" data-v="' + x[0] + '">' + x[1] + "</button>").join("") + "</div>" +
+          (c === null ? '<div class="inv-q">A remake. Is it charged, or no charge?</div>' : "") +
+          (c === "no_charge"
+            ? '<input class="inline inv-reason" data-invreason="' + o.id + '" value="' +
+              esc(v.reason[o.id]) + '" placeholder="Why, for example Shipping damage">' : "");
+      }
+      h += "</td></tr>";
+    });
+    h += "</tbody></table></div>";
+    const open = v.orders.filter(o => v.choice[o.id] === null).length;
+    const n = invPicked().length;
+    h += '<div class="row" style="margin:16px 0;gap:8px;align-items:center;flex-wrap:wrap">' +
+      '<button class="btn" data-pallets="1">Back to pallets</button>' +
+      '<button class="btn primary" data-invstep="2"' + (open || !n ? " disabled" : "") + ">" +
+      "Next: check " + n + (n === 1 ? " invoice" : " invoices") + "</button>" +
+      (open ? '<span class="muted">' + open + (open === 1 ? " redo needs" : " redos need") +
+              " an answer first.</span>"
+            : !n ? '<span class="muted">Nothing is set to be invoiced.</span>' : "") +
+      "</div>";
+    $("app").innerHTML = h;
+    return;
+  }
+
+  /* step 2: every invoice, its lines and its total */
+  let grand = 0, blocked = 0, amber = 0, notOurs = 0;
+  invPicked().forEach((o, i) => {
+    const free = v.choice[o.id] === "no_charge";
+    const lines = v.lines[o.id];
+    const t = invoiceTotals(lines, s, free);
+    grand += t.total;
+    const no = invoiceNoAt(v.firstNo, i);
+    h += '<div class="card inv-card' + (free ? " free" : "") + '"><div class="card-b">' +
+      '<div class="inv-h"><div><b>' + (no ? "Invoice " + esc(no) : "Invoice") + "</b> · " +
+      esc(o.order_ref || "No customer named") +
+      (free ? ' <span class="chip ready_to_ship">No charge' +
+              (v.reason[o.id] ? ": " + esc(v.reason[o.id]) : "") + "</span>" : "") +
+      '<div class="sub">PO ' + esc(o.order_ref || "") +
+      (o.access_order_no ? " · Access " + esc(o.access_order_no) : "") + "</div></div>" +
+      '<div class="inv-tot">' + money(t.total) + " " + esc(s.currency || "") + "</div></div>" +
+      '<div class="tablewrap"><table class="inv-lines"><thead><tr><th style="width:27%">QuickBooks item</th>' +
+      '<th>Description</th><th class="num" style="width:7%">Qty</th>' +
+      '<th class="num" style="width:12%">Rate</th><th class="num" style="width:12%">Amount</th><th></th></tr></thead><tbody>';
+    lines.forEach((l, j) => {
+      const miss = !free && !(Number(l.rate) > 0);
+      const unknown = l.item && v.itemSet.size && !v.itemSet.has(l.item);
+      /* a dealer's word still in the description stops the file: it has
+         to be one of our names before it goes to QuickBooks */
+      const foreign = l.notOurs && String(l.desc).toLowerCase().indexOf(l.notOurs.toLowerCase()) !== -1;
+      if(miss) blocked++;
+      if(unknown) amber++;
+      if(foreign){ notOurs++; blocked++; }
+      const at = o.id + "|" + j;
+      h += '<tr class="' + (miss ? "miss" : "") + '">' +
+        '<td><input class="inline' + (unknown ? " amber" : "") + '" list="inv-items" data-invl="' + at +
+          '" data-k="item" value="' + esc(l.item) + '"></td>' +
+        '<td><input class="inline" data-invl="' + at + '" data-k="desc" value="' + esc(l.desc) + '">' +
+        (foreign ? '<div class="inv-warn">"' + esc(l.notOurs) + '" is not one of our names. ' +
+           "Pick the door style on the order, or type the description in our words.</div>" : "") +
+        (l.was ? '<div class="inv-note">The order said "' + esc(l.was) + '", which is the dealer\'s word for this.</div>' : "") +
+        "</td>" +
+        '<td class="num"><input class="inline num" data-invl="' + at + '" data-k="qty" value="' + esc(l.qty) + '"></td>' +
+        '<td class="num">' + (free ? '<span class="muted">0.00</span>'
+          : '<input class="inline num" data-invl="' + at + '" data-k="rate" value="' +
+            (l.rate == null ? "" : esc(l.rate)) + '" placeholder="price">') + "</td>" +
+        '<td class="num">' + (free ? money(0) : miss ? "S/O" : money(lineAmount(l))) + "</td>" +
+        '<td><button class="btn sm ghost" data-invrm="' + at + '" title="Take this line off">&times;</button></td></tr>';
+    });
+    h += '</tbody></table></div><div class="row" style="margin-top:8px;align-items:flex-start">' +
+      '<button class="btn sm" data-invadd="' + o.id + '">Add a line</button>' +
+      '<div class="inv-sum">' + (free
+        ? "<div><span>No charge</span><b>" + money(0) + "</b></div>"
+        : "<div><span>Subtotal</span><b>" + money(t.sub) + "</b></div>" +
+          "<div><span>Discount " + esc(s.discount_pct) + "%</span><b>" +
+            (t.discount ? "\u2212" + money(t.discount) : money(0)) + "</b></div>" +
+          "<div><span>Tariff " + esc(s.tariff_pct) + "%</span><b>" + money(t.tariff) + "</b></div>" +
+          '<div class="g"><span>Total</span><b>' + money(t.total) + "</b></div>") +
+      ((!free && o.order_total != null && Math.abs(Number(o.order_total) - t.sub) > 0.01)
+        ? '<p class="inv-note">The order\'s estimate is ' + money(o.order_total) +
+          " before discount and tariff. This invoice comes to " + money(t.sub) + ".</p>" : "") +
+      "</div></div></div></div>";
+  });
+  h += '<datalist id="inv-items">' + v.items.map(x => '<option value="' + esc(x) + '">').join("") + "</datalist>";
+  h += '<div class="card"><div class="card-b inv-foot">' +
+    "<div><b>" + invPicked().length + (invPicked().length === 1 ? " invoice" : " invoices") +
+    ", " + money(cents(grand)) + " " + esc(s.currency || "") + "</b>" +
+    '<div class="sub">To ' + esc(s.qbo_customer || "nobody yet") + ", dated " + esc(v.date) +
+    (invoiceNoAt(v.firstNo, 0) ? ", numbers " + esc(invoiceNoAt(v.firstNo, 0)) +
+       (invPicked().length > 1 ? " to " + esc(invoiceNoAt(v.firstNo, invPicked().length - 1)) : "") : "") +
+    "</div>" +
+    (blocked - notOurs ? '<div class="inv-warn">' + (blocked - notOurs) +
+       (blocked - notOurs === 1 ? " line needs" : " lines need") +
+       " a price before the file can be made.</div>" : "") +
+    (notOurs ? '<div class="inv-warn">' + notOurs + (notOurs === 1 ? " line uses" : " lines use") +
+       " a name that is not ours. Put it in our words before the file can be made.</div>" : "") +
+    (amber ? '<div class="inv-note">' + amber + (amber === 1 ? " item is" : " items are") +
+       " not in the QuickBooks list (amber). QuickBooks will stop on an item it does not have.</div>" : "") +
+    "</div>" +
+    '<div class="row" style="gap:8px;margin-left:auto">' +
+    '<button class="btn" data-invstep="1">Back</button>' +
+    '<button class="btn primary" data-invmake="1"' + (blocked ? " disabled" : "") +
+    ">Make the QuickBooks file</button></div></div></div>";
+  $("app").innerHTML = h;
+}
+function invField(label, k, val, cls, type, hint){
+  return '<label class="' + (cls || "") + '">' + esc(label) +
+    '<input class="inline" data-invf="' + k + '" type="' + (type || "text") + '" value="' +
+    esc(val == null ? "" : val) + '"' + (hint ? ' placeholder="' + esc(hint) + '"' : "") + "></label>";
+}
+
+/* ---- the file, always drawn from the stored invoices ---- */
+function csvCell(v){ v = v == null ? "" : String(v); return /[",\r\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; }
+function invoicesCsv(list){
+  const rows = [INV_CSV_HEAD.join(",")];
+  list.forEach(inv => (inv.lines || []).forEach(l => rows.push([inv.invoice_no, inv.customer,
+    inv.currency, l.po, inv.invoice_date, l.terms, l.item, l.desc, l.qty, l.rate, l.amount,
+    l.tax].map(csvCell).join(","))));
+  return "﻿" + rows.join("\r\n");
+}
+function saveCsv(text, name){
+  const blob = new Blob([text], {type: "text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 3000);
+}
+const csvName = (pallet, n) => String(pallet || "Pallet").replace(/[^\w]+/g, "_") +
+  "_QuickBooks_" + n + (n === 1 ? "_invoice" : "_invoices") + ".csv";
+
+/* the rows as they go into the file and into dealer_invoices.lines */
+function invoiceRecord(o, i){
+  const v = state.inv, s = v.settings;
+  const free = v.choice[o.id] === "no_charge";
+  const lines = v.lines[o.id];
+  const t = invoiceTotals(lines, s, free);
+  const po = o.order_ref || "";
+  const why = free ? "No charge" + (v.reason[o.id] ? " (" + v.reason[o.id] + ")" : "") + ": " : "";
+  const out = lines.map(l => ({item: l.item, desc: why + l.desc, qty: Number(l.qty) || 0,
+    rate: free ? 0 : cents(l.rate), amount: free ? 0 : lineAmount(l), po: po, terms: s.terms,
+    tax: s.tax_code}));
+  if(t.discount > 0) out.push({item: itemFor("extra:discount", INV_EXTRA_ITEMS.discount),
+    desc: "Discount (" + s.discount_pct + "% of products)", qty: 1, rate: -t.discount,
+    amount: -t.discount, po: po, terms: s.terms, tax: s.tax_code});
+  if(t.tariff > 0) out.push({item: itemFor("extra:tariff", INV_EXTRA_ITEMS.tariff),
+    desc: "Tariff (" + s.tariff_pct + "% after discount)", qty: 1, rate: t.tariff,
+    amount: t.tariff, po: po, terms: s.terms, tax: s.tax_code});
+  return {order_id: o.id, dealer_id: o.dealer_id, pallet_id: String(v.pallet.id),
+    pallet_name: v.pallet.name, invoice_no: invoiceNoAt(v.firstNo, i),
+    charge: free ? "no_charge" : "charge", reason: free ? (v.reason[o.id] || null) : null,
+    customer: s.qbo_customer, currency: s.currency, invoice_date: v.date,
+    total: t.total, lines: out};
+}
+
+async function makeInvoices(btn){
+  const v = state.inv, s = v.settings, picked = invPicked();
+  if(!picked.length) return;
+  if(!String(s.qbo_customer || "").trim())
+    return toast("Type the customer exactly as QuickBooks has it");
+  if(!invoiceNoAt(v.firstNo, 0))
+    return toast("The first invoice number has to end in digits, like 1043");
+  const taken = new Set((state.invoices || []).map(x => String(x.invoice_no)));
+  const nos = picked.map((o, i) => invoiceNoAt(v.firstNo, i));
+  const clash = nos.find(n => taken.has(n));
+  if(clash) return toast("Invoice " + clash + " has been used already. Start from " + nextInvoiceNo() + ".");
+  const recs = picked.map(invoiceRecord);
+  const total = cents(recs.reduce((a, x) => a + x.total, 0));
+  const free = recs.filter(x => x.charge === "no_charge").length;
+  const ok = await sure({
+    title: "Make " + recs.length + (recs.length === 1 ? " invoice?" : " invoices?"),
+    what: s.qbo_customer + ", " + money(total) + " " + (s.currency || "") + ", numbers " +
+          nos[0] + (nos.length > 1 ? " to " + nos[nos.length - 1] : "") +
+          (free ? ". " + free + " of them no charge." : "."),
+    detail: "They are recorded against each order so none can be billed twice, " +
+            "and the file for QuickBooks downloads. Import it in QuickBooks under " +
+            "Settings, Import data, Invoices.",
+    final: "A recorded invoice can be voided from this screen, not deleted.",
+    go: "Make them"
+  });
+  if(!ok) return;
+  if(btn){ btn.disabled = true; btn.textContent = "Making…"; }
+  try{
+    const r = await sb("/rest/v1/dealer_invoices", {method: "POST",
+      headers: Object.assign(headers(true), {Prefer: "return=representation"}),
+      body: JSON.stringify(recs)});
+    if(!r.ok){
+      if(r.status === 409) throw new Error("One of these orders was invoiced a moment ago. Nothing was made. Open the pallet again.");
+      throw new Error(await friendlyError(r, "record the invoices"));
+    }
+    const made = await r.json();
+    /* remembered for next time, and for everybody. Neither stops the file. */
+    const st = {dealer_id: v.pallet.dealer_id, qbo_customer: s.qbo_customer, currency: s.currency,
+      terms: s.terms, discount_pct: Number(s.discount_pct) || 0, tariff_pct: Number(s.tariff_pct) || 0,
+      tax_code: s.tax_code, updated_at: new Date().toISOString()};
+    const mapRows = [];
+    picked.forEach(o => v.lines[o.id].forEach(l => {
+      /* never remembered against a word that is not ours */
+      if(l.key && l.item && !l.notOurs && v.mapSeen[l.key] !== l.item &&
+         (!v.itemSet.size || v.itemSet.has(l.item))) mapRows.push({key: l.key, item: l.item});
+    }));
+    const uniq = Object.values(Object.fromEntries(mapRows.map(x => [x.key, x])));
+    try{
+      await sb("/rest/v1/invoice_settings?on_conflict=dealer_id", {method: "POST",
+        headers: Object.assign(headers(true), {Prefer: "resolution=merge-duplicates"}),
+        body: JSON.stringify(st)});
+      if(uniq.length) await sb("/rest/v1/qbo_item_map?on_conflict=key", {method: "POST",
+        headers: Object.assign(headers(true), {Prefer: "resolution=merge-duplicates"}),
+        body: JSON.stringify(uniq)});
+    }catch(_){}
+    made.sort((a, b) => nos.indexOf(a.invoice_no) - nos.indexOf(b.invoice_no));
+    saveCsv(invoicesCsv(made), csvName(v.pallet.name, made.length));
+    state.invoices = await loadInvoices();
+    state.inv = null;
+    state.view = "pallets";
+    render();
+    toast(made.length + (made.length === 1 ? " invoice" : " invoices") + " made. The file is in your downloads.");
+  }catch(err){
+    toast(err.message);
+    if(btn){ btn.disabled = false; btn.textContent = "Make the QuickBooks file"; }
+  }
+}
+
+/* the same file again, for a pallet already invoiced */
+async function invoiceFileAgain(palletId, btn){
+  const p = palletById(palletId); if(!p) return;
+  if(btn){ btn.disabled = true; }
+  try{
+    const r = await sb("/rest/v1/dealer_invoices?select=*&voided_at=is.null&pallet_id=eq." +
+                       encodeURIComponent(String(palletId)) + "&order=invoice_no", {headers: headers()});
+    if(!r.ok) throw new Error("Could not read the invoices");
+    const list = await r.json();
+    if(!list.length) throw new Error("Nothing on this pallet has been invoiced");
+    saveCsv(invoicesCsv(list), csvName(p.name, list.length));
+  }catch(err){ toast(err.message); }
+  finally{ if(btn) btn.disabled = false; }
+}
+
+async function voidInvoice(id){
+  const inv = (state.invoices || []).find(x => x.id === id); if(!inv) return;
+  const ok = await sure({
+    title: "Void invoice " + inv.invoice_no + "?",
+    what: "The order can be invoiced again. The number is not used again.",
+    detail: "This only changes the portal's record. If the invoice is already in " +
+            "QuickBooks, void it there as well.",
+    final: "", go: "Void it"
+  });
+  if(!ok) return;
+  const r = await sb("/rest/v1/dealer_invoices?id=eq." + id, {method: "PATCH",
+    headers: Object.assign(headers(true), {Prefer: "return=representation"}),
+    body: JSON.stringify({voided_at: new Date().toISOString(), voided_by: state.me.id})});
+  if(!r.ok || !(await r.json()).length) return toast("Could not void it");
+  state.invoices = await loadInvoices();
+  if(state.inv){
+    state.inv.choice[inv.order_id] = isRedo(state.inv.orders.find(o => o.id === inv.order_id)) ? null : "charge";
+    if(!state.inv.firstNo) state.inv.firstNo = nextInvoiceNo();
+  }
+  render();
+}
+
+async function setPalletReady(palletId){
+  const p = palletById(palletId); if(!p) return;
+  const now = !palletReady(p);
+  if(!now && (state.invoices || []).some(x => !x.voided_at && String(x.pallet_id) === String(p.id))){
+    const ok = await sure({title: "Take the ready mark off " + p.name + "?",
+      what: "Some of its orders are invoiced already. The invoices stay as they are.",
+      final: "", go: "Not ready"});
+    if(!ok) return;
+  }
+  const r = await sb("/rest/v1/pallets?id=eq." + p.id, {method: "PATCH",
+    headers: Object.assign(headers(true), {Prefer: "return=representation"}),
+    body: JSON.stringify(now ? {ready_at: new Date().toISOString(), ready_by: state.me.id}
+                             : {ready_at: null, ready_by: null})});
+  if(!r.ok || !(await r.json()).length)
+    return toast(r.ok ? "Could not change that pallet"
+      : "The database has no ready mark yet. Run dealer-invoicing.sql in Supabase.");
+  await refreshPallets();
+  render();
+}
+
+/* the screen's own clicks and fields */
+document.addEventListener("click", e => {
+  if(sureGo || !e.target.closest || e.target.closest("#sure")) return;
+  const t = e.target.closest("[data-palready],[data-invopen],[data-invagain],[data-invpick]," +
+    "[data-invstep],[data-invmake],[data-invrm],[data-invadd],[data-invvoid]");
+  if(!t) return;
+  /* this listener is added before the page's main one, which closes any
+     open question on a click outside it. Without this, a question asked
+     here would be shut by the very click that asked it. */
+  e.stopImmediatePropagation();
+  const d = t.dataset, v = state.inv;
+  if(d.palready !== undefined) return setPalletReady(d.palready);
+  if(d.invopen !== undefined) return openInvoicing(d.invopen, t);
+  if(d.invagain !== undefined) return invoiceFileAgain(d.invagain, t);
+  if(d.invvoid !== undefined) return voidInvoice(d.invvoid);
+  if(!v) return;
+  if(d.invpick !== undefined){ v.choice[d.invpick] = d.v; return render(); }
+  if(d.invstep !== undefined){ v.step = Number(d.invstep); render(); return window.scrollTo(0, 0); }
+  if(d.invmake !== undefined) return makeInvoices(t);
+  if(d.invrm !== undefined){
+    const [oid, j] = d.invrm.split("|"); v.lines[oid].splice(Number(j), 1); return render();
+  }
+  if(d.invadd !== undefined){
+    v.lines[d.invadd].push({key: "", item: "", desc: "", qty: 1, rate: null, missing: true});
+    return render();
+  }
+});
+document.addEventListener("input", e => {
+  const d = e.target.dataset || {}, v = state.inv;
+  if(!v) return;
+  if(d.invf !== undefined){
+    if(d.invf === "date") v.date = e.target.value;
+    else if(d.invf === "firstNo") v.firstNo = e.target.value.trim();
+    else v.settings[d.invf] = e.target.value;
+  }
+  if(d.invreason !== undefined) v.reason[d.invreason] = e.target.value;
+  if(d.invl !== undefined){
+    const [oid, j] = d.invl.split("|"), l = v.lines[oid][Number(j)];
+    if(d.k === "qty")  l.qty = e.target.value.trim() === "" ? 0 : Number(e.target.value) || 0;
+    else if(d.k === "rate"){ const n = parseFloat(e.target.value); l.rate = isFinite(n) ? n : null; l.missing = !(n > 0); }
+    else l[d.k] = e.target.value;
+  }
+});
+/* numbers and items redraw once the field is left, so totals and the amber
+   mark catch up without moving the cursor while typing.
+   NOT UNDER A BUTTON BEING PRESSED
+   Typing a price and going straight for Make fires the change between the
+   press and the release. Redrawing then would swap the button out from under
+   the pointer and the click would land on nothing, so the first press of
+   Make did nothing at all. While a press is held the redraw waits for it. */
+let invPress = false, invRedraw = false;
+document.addEventListener("pointerdown", () => { invPress = true; }, true);
+document.addEventListener("pointerup", () => setTimeout(() => {
+  invPress = false;
+  if(invRedraw){ invRedraw = false; if(state.view === "invoice") render(); }
+}, 0), true);
+document.addEventListener("change", e => {
+  const d = e.target.dataset || {};
+  if(state.view !== "invoice" || (d.invl === undefined && d.invf === undefined)) return;
+  if(invPress) invRedraw = true; else render();
+});
 
 function renderSignin(){
   $("app").innerHTML =
@@ -8969,6 +9726,7 @@ async function afterSignin(){
   try{ state.unlocks = await loadUnlocks(); }catch(err){ state.unlocks = null; }
   const pal = await loadPallets();
   state.pallets = pal.pallets; state.palletOrders = pal.rows;
+  state.invoices = await loadInvoices();
   /* read what they were last shown, work out what moved, and only then
      draw. The marking is written after, in render.
      Not for administrators: they are the ones moving these, and a mark
