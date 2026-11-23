@@ -6,7 +6,8 @@
 #    * gives every linked job its Access status and job number, one way
 #    * links the jobs not linked yet where one customer clearly matches,
 #      and flags the rest for an administrator to link by hand
-#    * makes a job for every new customer from 24 November on
+#    * makes a job for every customer at Initial Visit Booked whose visit
+#      date (MeasureDate) is today or later, unless a job already has them
 #  Every one of those rules lives in Supabase (measurement-access-link.sql),
 #  so this script only reads and sends.
 #
@@ -281,8 +282,13 @@ if ($joinOrders) { Say ("  job number from Orders.OrderNo, on {0} of them" -f (C
 else             { Say "  Estimates has no OrderID, so there is no job number to send" "Yellow" }
 Say ("  sales rep name on {0} (from def_Employees.CalendarName)" -f (CountOf { $_.rep }))
 Say ("  sold (Orders.SalesDate) {0}, completed (Orders.CompletedDate) {1}" -f (CountOf { $_.sold_on }), (CountOf { $_.completed_on }))
-$newOnes = CountOf { $_.created_on -ge "2026-11-24" }
-Say ("  created on or after 24 November, so they become new jobs: {0}" -f $newOnes)
+# Andrew, 23 November: every customer at Initial Visit Booked with a visit
+# date today or later gets a job. The visit date is Estimates.MeasureDate.
+$todayS = (Get-Date).ToString("yyyy-MM-dd")
+$ivbAhead  = CountOf { $_.estimate_status_id -eq 1 -and $_.measure_on -and $_.measure_on -ge $todayS }
+$ivbNoDate = CountOf { $_.estimate_status_id -eq 1 -and -not $_.measure_on }
+Say ("  Initial Visit Booked with a visit (MeasureDate) today or later, so each gets a job: {0}" -f $ivbAhead)
+if ($ivbNoDate) { Say ("  Initial Visit Booked with no MeasureDate at all: {0}" -f $ivbNoDate) "Yellow" }
 
 Say ""
 Say "THE ACCESS STATUS LISTS, AND HOW MANY CUSTOMERS SIT AT EACH" "Cyan"

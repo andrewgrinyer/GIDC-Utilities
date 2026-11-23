@@ -35,6 +35,7 @@ def links():
     return json.loads(rows)
 
 
+sql("update access_job_settings set today_override = '2026-11-23'")
 before = sql("select md5(string_agg(j::text, ',' order by id)) from jobs j")
 
 # ---- the preview changes nothing ----------------------------------
@@ -75,7 +76,21 @@ check("linked jobs carry the Access status", all(L[j]["status"] for j, e in EXP[
 
 # ---- new customers from 24 November ---------------------------------
 made = sql("select json_agg(access_estimate_id order by access_estimate_id) from jobs where access_link = 'new'")
-check("the six new Access customers became jobs", json.loads(made) == sorted(EXP["new"]), made)
+check("the new Initial Visit Booked customers became jobs", set(EXP["new"]) <= set(json.loads(made)), made)
+check("every job made is Initial Visit Booked with a visit today or later", sql(
+    "select bool_and(a.estimate_status_id = 1 and a.measure_on >= '2026-11-23') from jobs j join access_customers a "
+    "on a.estimate_id = j.access_estimate_id where j.access_link = 'new'") == "t")
+check("a visit that was yesterday, or a Showroom Booked, is not made", sql(
+    "select count(*) from jobs where access_estimate_id in (%s)" % ",".join(map(str, EXP["not_made"]))) == "0")
+check("every Initial Visit Booked customer with a visit ahead has a job, or waits on a flagged one",
+      sql("select count(*) from access_customers a where a.estimate_status_id = 1 and a.measure_on >= '2026-11-23' "
+          "and coalesce(a.sale_type_id, 0) <> 4 and not exists (select 1 from jobs j where j.access_estimate_id = a.estimate_id) "
+          "and not exists (select 1 from jobs j, gidc_access_candidates_for(j.id) x where j.access_estimate_id is null "
+          "and x.estimate_id = a.estimate_id and x.score >= 50)") == "0")
+check("no job is made for a customer a flagged job might be", sql(
+    "select count(*) from jobs n join jobs j on j.access_estimate_id is null and coalesce(j.access_link, '') <> 'none' "
+    "cross join lateral gidc_access_candidates_for(j.id) x where n.access_link = 'new' and x.estimate_id = n.access_estimate_id "
+    "and x.score >= 50") == "0")
 check("a wholesale customer did not", sql("select count(*) from jobs where access_estimate_id = %d" % EXP["wholesale"]) == "0")
 nj = json.loads(sql("select data from jobs where access_link = 'new' order by access_estimate_id limit 1"))
 check("a new job gets one email address, not the Access list", all("@" in e and " " not in e and ";" not in e for e in
@@ -84,9 +99,11 @@ check("a new job has the shape the app makes", all(k in nj for k in
       ["id", "owner", "created", "updated", "defaults", "sizing", "openings", "materials", "customer", "address",
        "city", "phone", "email", "date", "salesRep", "leadTime", "docType", "status"]) and nj["openings"] == []
       and nj["sizing"] == 2 and len(nj["materials"]) == 3, nj)
-reps = sql("select json_agg(owner_name order by access_estimate_id) from jobs where access_link = 'new'")
-check("the rep comes over as the app's name for them", json.loads(reps) ==
-      ["Nick Matsias", "Michael Sparaco", "Andrew", "", "Nick Matsias", "Michael Sparaco"], reps)
+reps = sql("select json_agg(j.owner_name || '=' || coalesce(a.rep, '')) from jobs j join access_customers a "
+           "on a.estimate_id = j.access_estimate_id where j.access_link = 'new'")
+check("the rep comes over as the app's name for them", all(
+    {"Nick": "Nick Matsias", "Michael": "Michael Sparaco", "Andrew": "Andrew", "": ""}[r.split("=")[1]] == r.split("=")[0]
+    for r in json.loads(reps)), reps)
 
 # ---- a second run changes nothing ----------------------------------
 again = json.loads(sql("select gidc_sync_measurement_jobs(true)"))
@@ -163,7 +180,7 @@ check("and the sync leaves it alone after", sql("select access_link || coalesce(
 check("a manual link survives the next sync", sql("select access_link from jobs where id = '%s'" % other) == "manual")
 
 # ---- a deleted Access job is not made again ------------------------
-sql("delete from jobs where access_link = 'new' and access_estimate_id = %d" % json.loads(made)[1])
+sql("delete from jobs where access_link = 'new' and access_estimate_id = %d" % json.loads(made)[0])
 again = json.loads(sql("select gidc_sync_measurement_jobs(true)"))
 check("a new job somebody deleted is not made again", again["made_count"] == 0, again)
 

@@ -29,9 +29,9 @@
 --    2. every job not linked yet is matched against Access (name, street
 --       number, phone, email, and the date). One clear match links it.
 --       Anything else is flagged with the reason, for an administrator.
---    3. every Access customer created on or after the start date
---       (access_job_settings.new_jobs_from, 24 November) that no job is
---       linked to becomes a new job in the app, already linked
+--    3. every Access customer at Initial Visit Booked with a visit date
+--       today or later that no job has becomes a new job in the app,
+--       already linked (Andrew, 23 November, after the first send)
 --
 --  Step 2 runs before step 3 on purpose: a rep who starts a job by hand
 --  before the hour comes round gets that job linked, rather than a
@@ -103,12 +103,18 @@ comment on table public.access_customers is
 -- ---------- 2. settings ----------------------------------------------
 create table if not exists public.access_job_settings (
   id              integer primary key default 1 check (id = 1),
-  new_jobs_from   date    not null default date '2026-11-24',
+  new_jobs_from   date    not null default date '2026-11-24',   -- no longer used, see below
+  -- WHICH ACCESS CUSTOMERS BECOME JOBS (Andrew, 23 November, after the
+  -- first send): everyone at Initial Visit Booked (estimate status 1)
+  -- whose visit date (Estimates.MeasureDate) is today or later.
   -- how far from the job's own date an Access customer may be created
   -- and still count as the same visit
   days_before     integer not null default 180,
   days_after      integer not null default 45
 );
+alter table public.access_job_settings add column if not exists new_job_statuses integer[] not null default '{1}';
+-- only for tests: what today is. Empty means today in Ontario.
+alter table public.access_job_settings add column if not exists today_override date;
 insert into public.access_job_settings (id) values (1) on conflict (id) do nothing;
 alter table public.access_job_settings enable row level security;
 revoke all on public.access_job_settings from anon, authenticated;
@@ -304,6 +310,8 @@ alter table public.access_customers add column if not exists k_street text
   generated always as ((public.gidc_acc_street(address)).street) stored;
 alter table public.access_customers add column if not exists k_last   text[]
   generated always as (public.gidc_acc_words(last_name)) stored;
+alter table public.access_customers add column if not exists k_first  text[]
+  generated always as (public.gidc_acc_words(first_name)) stored;
 alter table public.access_customers add column if not exists k_city   text
   generated always as (public.gidc_acc_norm(city)) stored;
 create index if not exists access_customers_k_emails on public.access_customers using gin (k_emails);
@@ -319,9 +327,12 @@ create index if not exists access_customers_k_last   on public.access_customers 
 --   surname is a word of the job name   30
 --   street number and street the same   40   (number alone 15)
 --   city the same                        5
--- 70 or more is a match: a name with an address, a phone or an email,
--- or a phone with an email. A phone or an email on its own is not, since
--- a family shares them.
+--   first name too, with the surname    40, or 20 when the job also has
+--                                       a phone, email or street number
+-- 70 or more is a match: the whole name, a surname with an address, a
+-- phone or an email, or a phone with an email. A phone or an email on its
+-- own is not, since a family shares them. The date window and the check
+-- for a second match near the same date apply to every one of them.
 create or replace function public.gidc_access_candidates_for(p_job text)
 returns table (estimate_id integer, score integer, why text, day_gap integer,
                in_window boolean, taken_by text)
@@ -362,13 +373,21 @@ begin
            (case when c.k_emails && jem then 50 else 0 end) +
            (case when c.k_phones && jph then 50 else 0 end) +
            (case when c.k_last && jwords then 30 else 0 end) +
+           -- the first name too: with the surname that is the whole name,
+           -- which is all a rep often types (Andrew's send, 23 November)
+           -- 40 when the job has nothing else to go on, 20 when it has a
+           -- phone, email or street number that then has to agree too
+           (case when c.k_last && jwords and c.k_first && jwords
+                 then case when cardinality(jph) > 0 or cardinality(jem) > 0 or jnum is not null then 20 else 40 end
+                 else 0 end) +
            (case when jnum is not null and c.k_num = jnum and jst is not null and c.k_street = jst then 40
                  when jnum is not null and c.k_num = jnum then 15 else 0 end) +
            (case when jcity is not null and c.k_city = jcity then 5 else 0 end) as score,
            concat_ws(', ',
              case when c.k_emails && jem then 'email' end,
              case when c.k_phones && jph then 'phone' end,
-             case when c.k_last && jwords then 'name' end,
+             case when c.k_last && jwords and c.k_first && jwords then 'full name'
+                  when c.k_last && jwords then 'name' end,
              case when jnum is not null and c.k_num = jnum and jst is not null and c.k_street = jst then 'address'
                   when jnum is not null and c.k_num = jnum then 'street number' end,
              case when jcity is not null and c.k_city = jcity then 'city' end) as why,
@@ -400,6 +419,8 @@ declare
   st        record;
   reason    text;
   nfound    integer;
+  held      integer[] := '{}';
+  today     date;
   n_status  integer := 0;
   linked    jsonb := '[]';
   flagged   jsonb := '[]';
@@ -443,7 +464,7 @@ begin
     for c in
       select * from public.gidc_access_candidates_for(j.id) x
        where x.score >= 70
-       order by x.taken_by is not null, x.in_window desc, abs(coalesce(x.day_gap, 99999)), x.score desc
+       order by x.taken_by is not null, x.in_window desc, x.score desc, abs(coalesce(x.day_gap, 99999))
        limit 2
     loop
       nfound := nfound + 1;
@@ -461,10 +482,25 @@ begin
                 coalesce(to_char((select created_on from public.access_customers where estimate_id = best.estimate_id), 'FMMonth YYYY'), 'another time');
     elsif nfound = 2 then
       -- a second match nobody has, near the same date: a person decides
-      if nxt.taken_by is null and nxt.in_window
-         and abs(coalesce(nxt.day_gap, 99999)) - abs(coalesce(best.day_gap, 99999)) < 14 then
+      -- (one with weaker evidence, like a namesake without the phone, is no rival)
+      -- Two as strong, in the window: the nearest date wins only when they
+      -- are plainly one person typed twice (a phone or street number in
+      -- common) and the dates are a fortnight apart. Two people with the
+      -- same name are for a person to decide.
+      if nxt.taken_by is null and nxt.in_window and nxt.score = best.score
+         and (abs(coalesce(nxt.day_gap, 99999)) - abs(coalesce(best.day_gap, 99999)) < 14
+              or not exists (select 1 from public.access_customers p, public.access_customers q
+                              where p.estimate_id = best.estimate_id and q.estimate_id = nxt.estimate_id
+                                and (p.k_phones && q.k_phones or p.k_num = q.k_num))) then
         reason := 'More than one customer in Access matches';
       end if;
+    end if;
+
+    -- anything that might be this job's customer is not made into a job
+    -- of its own while this job waits for a person, or there would be two
+    if reason is not null then
+      held := held || coalesce((select array_agg(x.estimate_id) from public.gidc_access_candidates_for(j.id) x
+                                 where x.score >= 50 and x.taken_by is null), '{}');
     end if;
 
     if reason is null then
@@ -486,14 +522,18 @@ begin
     end if;
   end loop;
 
-  -- 3. new customers in Access become jobs, from the start date on
+  -- 3. every customer at Initial Visit Booked with a visit today or later
+  --    becomes a job, unless a job already has them or might
+  today := coalesce(s.today_override, (now() at time zone 'America/Toronto')::date);
   for ac in
     select a.* from public.access_customers a
-     where a.created_on >= s.new_jobs_from
+     where a.estimate_status_id = any(s.new_job_statuses)
+       and a.measure_on >= today
+       and not (a.estimate_id = any(held))
        and coalesce(a.sale_type_id, 0) <> 4
        and not exists (select 1 from public.jobs jb where jb.access_estimate_id = a.estimate_id)
        and not exists (select 1 from public.access_jobs_made m where m.estimate_id = a.estimate_id)
-     order by a.created_on, a.estimate_id
+     order by a.measure_on, a.estimate_id
   loop
     newid := 'ax' || substr(md5('gidc access ' || ac.estimate_id), 1, 10);
     -- the rep as the app knows them: the one team login whose first name
@@ -536,7 +576,7 @@ begin
     'access_customers', (select count(*) from public.access_customers),
     'jobs_linked', (select count(*) from public.jobs where access_estimate_id is not null),
     'jobs_total', (select count(*) from public.jobs),
-    'new_jobs_from', s.new_jobs_from);
+    'held_for_a_person', cardinality(held));
 end $$;
 
 create or replace function public.gidc_sync_measurement_jobs(p_apply boolean default true)

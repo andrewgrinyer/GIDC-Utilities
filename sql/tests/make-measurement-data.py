@@ -19,6 +19,9 @@ FIRST = "James Mary John Patricia Robert Jennifer Michael Linda David Elizabeth 
 LAST = ("Smith Brown Tremblay Martin Roy Wilson MacDonald Gagnon Johnson Taylor Campbell Anderson Leblanc Lee White Thompson "
         "Patel Singh Nguyen Wong Chen Kowalski Novak DeSousa Ferreira Rossi Bianchi Muller Schmidt Bauer Van-Dyk O'Brien "
         "Murphy Kelly Walsh Byrne Ryan Grant Fraser Stewart Reid Clarke Hughes Morrison Sparks Cortes Aris Disanti Abraham").split()
+# real surnames hardly repeat: about 700 here, so two people sharing a
+# whole name is as rare as it is in Access, and done on purpose below
+LAST = LAST + [b + x for b in LAST for x in ["son", "ford", "ley", "ton", "berg", "wood", "field", "er", "s", "e", "ini", "ova", "ek"]]
 STREETS = "King Queen Main Water Dundas Hespeler Franklin Elgin Concession Victoria Weber Fischer-Hallman Erb Ottawa Highland Pioneer Doon Blair Coronation Myers".split()
 KINDS = ["St", "Street", "Rd", "Road", "Ave", "Dr", "Cres", "Blvd"]
 CITIES = ["Cambridge", "Kitchener", "Waterloo", "Guelph", "Elmira", "Ayr", "Paris", "Brantford"]
@@ -116,7 +119,10 @@ for k in range(170):
     booked = day - timedelta(days=R.randint(2, 20))
     addr_a = "%d %s %s" % (p["num"], p["street"], p["kind"])
     kind = R.random()
-    if kind < .50:          # typed the way the office did, phone punctuated differently
+    if kind < .15:          # the whole name and nothing else, which is what reps often type (Andrew's send, 23 Nov)
+        c = add_customer(p["first"], p["last"], addr_a, p["city"], p["phone"], p["email"], booked)
+        job(p["first"] + " " + p["last"], "", "", "", "", day, c["estimate_id"], "full name only")
+    elif kind < .50:        # typed the way the office did, phone punctuated differently
         c = add_customer(p["first"], p["last"], addr_a, p["city"], p["phone"], p["email"], booked, sold=R.random() < .4)
         job(p["first"] + " " + p["last"], addr_a.replace("Street", "St"), p["city"], fmt_phone(p["phone"], R.randint(1, 4)),
             p["email"] if R.random() < .6 else "", day, c["estimate_id"], "plain")
@@ -146,6 +152,11 @@ for k in range(170):
     elif kind < .96:        # same surname, same street, a neighbour's number: must not link to the neighbour
         add_customer(R.choice(FIRST), p["last"], "%d %s %s" % (p["num"] + 2, p["street"], p["kind"]), p["city"], phone(), None, booked)
         job(p["first"] + " " + p["last"], addr_a, p["city"], "", "", day, None, "neighbour only")
+    elif kind < .975:       # two people with the same whole name in Access, the job has only the name: a person decides
+        add_customer(p["first"], p["last"], addr_a, p["city"], p["phone"], None, booked)
+        add_customer(p["first"], p["last"], "%d %s" % (p["num"] + 40, R.choice(STREETS)), R.choice(CITIES), phone(), None,
+                     booked - timedelta(days=40))
+        job(p["first"] + " " + p["last"], "", "", "", "", day, None, "namesake")
     else:                   # email only, nothing else typed
         c = add_customer(p["first"], p["last"], addr_a, p["city"], p["phone"], p["email"], booked)
         job(p["first"], "", "", "", p["email"], day, None, "email alone is not enough")
@@ -172,6 +183,20 @@ for k in range(6):
 # a wholesale one on the same day never becomes a job
 w = add_customer("Wholesale", "Builder", "1 Industrial Rd", "Cambridge", phone(), None, date(2026, 11, 24))
 w["sale_type_id"] = 4
+w["estimate_status_id"], w["estimate_status"], w["estimate_status_sort"] = EST[0]
+w["measure_on"] = "2026-11-26"
+# Initial Visit Booked but the visit was yesterday, and Showroom Booked next week: neither is made
+y = add_customer("Yesterday", "Visit", "5 Past Rd", "Ayr", phone(), None, date(2026, 11, 10))
+y["estimate_status_id"], y["estimate_status"], y["estimate_status_sort"] = EST[0]
+y["measure_on"] = "2026-11-22"
+sb = add_customer("Showroom", "Later", "6 Later Rd", "Ayr", phone(), None, date(2026, 11, 20))
+sb["estimate_status_id"], sb["estimate_status"], sb["estimate_status_sort"] = EST[3]
+sb["measure_on"] = "2026-11-30"
+# booked today for a visit next week, created before the 24th: made (Andrew's rule is the status and the visit date)
+nb = add_customer("Booked", "Today", "7 Soon Rd", "Ayr", phone(), None, date(2026, 11, 23))
+nb["estimate_status_id"], nb["estimate_status"], nb["estimate_status_sort"] = EST[0]
+nb["measure_on"] = "2026-11-28"
+new.append(nb["estimate_id"])
 
 
 def q(v):
@@ -191,5 +216,5 @@ with open(sys.argv[1], "w") as f:
     for j in jobs:
         f.write("insert into public.jobs(id,owner_name,customer,openings,data,updated) values (%s,%s,%s,%d,%s::jsonb,%s);\n" % (
             q(j["id"]), q(j["owner_name"]), q(j["customer"]), j["openings"], q(json.dumps(j["data"])), q(j["updated"])))
-json.dump(dict(jobs=expect, new=new, wholesale=w["estimate_id"], access=len(access)), open(sys.argv[2], "w"), indent=1)
+json.dump(dict(jobs=expect, new=new, wholesale=w["estimate_id"], not_made=[y["estimate_id"], sb["estimate_id"]], access=len(access)), open(sys.argv[2], "w"), indent=1)
 print("access customers %d, jobs %d" % (len(access), len(jobs)))

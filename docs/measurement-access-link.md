@@ -10,7 +10,10 @@ Written 23 November 2026, for measurement app 2.66.
   where they can be, and the rest are flagged for linking by hand.
 * The status comes one way from Access, in Access's own status names.
   Changing the status in the app is gone.
-* New customers start coming in from 24 November.
+* New customers start coming in from 24 November. Changed the same
+  evening, after the first send: every customer at Initial Visit Booked
+  whose visit date (Estimates.MeasureDate) is today or later gets a job,
+  unless a job already has them or a flagged job might.
 
 ## The path
 
@@ -34,7 +37,11 @@ Written 23 November 2026, for measurement app 2.66.
 * The status shown is the estimate status until Access has a SalesDate
   and an order status, then the order status
   (`gidc_acc_status()`, one function to change).
-* Matching: email 50, phone 50, surname in the job name 30, street number
+* Matching: the whole name (first and surname) adds 40 when the job has
+  nothing else typed, 20 when it has a phone, email or street number
+  (added after the first send: reps often type only the name). Two
+  equally strong matches near the job's date are flagged unless they
+  share a phone or street number. Email 50, phone 50, surname in the job name 30, street number
   and street 40 (number alone 15), city 5. 70 or more counts. The Access
   customer must be created between 180 days before and 45 days after the
   job's date. Two such matches within 14 days of each other, a match
