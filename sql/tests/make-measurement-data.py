@@ -49,7 +49,17 @@ def add_customer(first, last, addr, city, ph, email, created, sold=False, stage=
     est = R.choice(EST[:4]) if not sold else EST[4]
     if stage == "notsold":
         est = EST[5]
-    row = dict(estimate_id=eid, order_id=eid + 2, order_no=str(eid), first_name=first, last_name=last,
+    # Access keeps PhoneNumbers and EmailAddresses as lists in one field
+    # (TRY, 23 Nov), and only a sold estimate has an order and a job number
+    if ph and R.random() < .45:
+        ph = R.choice(["%s cell, %s home", "%s / %s", "Home %s Work %s", "%s; %s"]) % (
+            fmt_phone(ph, R.randint(0, 4)), fmt_phone(phone(), R.randint(0, 4)))
+    elif ph:
+        ph = fmt_phone(ph, R.randint(0, 4))
+    if email and R.random() < .25:
+        email = email + R.choice(["; ", ", ", " "]) + "other%d@example.com" % R.randint(1, 999)
+    row = dict(estimate_id=eid, order_id=(eid + 2) if sold else None, order_no=str(eid - 2) if sold else None,
+               first_name=first, last_name=last,
                address=addr, city=city, phone=ph, phone2=None, email=email, rep=R.choice(REPS),
                created_on=created.isoformat(), measure_on=(created + timedelta(days=R.randint(2, 12))).isoformat(),
                sold_on=None, completed_on=None, estimate_status_id=est[0], estimate_status=est[1],

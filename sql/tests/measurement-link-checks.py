@@ -78,6 +78,8 @@ made = sql("select json_agg(access_estimate_id order by access_estimate_id) from
 check("the six new Access customers became jobs", json.loads(made) == sorted(EXP["new"]), made)
 check("a wholesale customer did not", sql("select count(*) from jobs where access_estimate_id = %d" % EXP["wholesale"]) == "0")
 nj = json.loads(sql("select data from jobs where access_link = 'new' order by access_estimate_id limit 1"))
+check("a new job gets one email address, not the Access list", all("@" in e and " " not in e and ";" not in e for e in
+      json.loads(sql("select json_agg(data->>'email') from jobs where access_link = 'new' and data->>'email' <> ''")) or ["x@y"]))
 check("a new job has the shape the app makes", all(k in nj for k in
       ["id", "owner", "created", "updated", "defaults", "sizing", "openings", "materials", "customer", "address",
        "city", "phone", "email", "date", "salesRep", "leadTime", "docType", "status"]) and nj["openings"] == []
@@ -135,10 +137,10 @@ check("an administrator gets suggestions, the two Access copies first",
 cust = sql("select customer from jobs where id = '%s'" % flagged)
 found = json.loads(sql("select gidc_access_search(%s)" % ("'" + cust.split()[-1].replace("'", "''") + "'"), who="admin"))
 check("search by surname finds them", any(f["estimate_id"] == sug[0]["estimate_id"] for f in found), len(found))
-ph = sql("select phone from access_customers where estimate_id = %d" % sug[0]["estimate_id"])
+ph = sql("select k_phones[1] from access_customers where estimate_id = %d" % sug[0]["estimate_id"])
 found = json.loads(sql("select gidc_access_search('(%s) %s-%s')" % (ph[:3], ph[3:6], ph[6:]), who="admin"))
 check("search by a phone typed with punctuation finds them", any(f["estimate_id"] == sug[0]["estimate_id"] for f in found))
-num = sql("select order_no from access_customers where estimate_id = %d" % sug[0]["estimate_id"])
+num = sql("select order_no from access_customers where order_no is not null order by estimate_id limit 1")
 found = json.loads(sql("select gidc_access_search('%s')" % num, who="admin"))
 check("search by the Access job number finds it", found and found[0]["order_no"] == num, found[:1])
 ok = json.loads(sql("select gidc_link_job_access('%s', %d, false, false)" % (flagged, sug[0]["estimate_id"]), who="admin"))

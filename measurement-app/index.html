@@ -6136,7 +6136,9 @@ function sortJobs(list){
    the Access customers that share something with the job, best first;
    the search looks through the whole Access list. */
 function accText(a){
-  if(a && a.accEst) return 'Access job ' + (a.accNo || '(no number yet)') + (a.accStatus ? ' · ' + a.accStatus : '');
+  // Access gives a job number only once it is sold (TRY, 23 Nov: 1,388 of 3,305)
+  if(a && a.accEst) return (a.accNo ? 'Access job ' + a.accNo : 'In Access, job number once sold') +
+                           (a.accStatus ? ' · ' + a.accStatus : '');
   if(a && a.accLink === 'none') return 'Not in Access';
   return 'Not linked to Access yet';
 }

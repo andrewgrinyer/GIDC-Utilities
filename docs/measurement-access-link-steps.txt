@@ -14,6 +14,13 @@ What this does, once it is all in:
     appears in the app as a new job within the hour, already linked,
     with the sales rep from Access.
 
+UPDATED AFTER YOUR TRY (23 November, evening). The try looked right.
+Access keeps phone numbers and emails as lists in one field, so the
+matching now reads every number and every email in them, and a new job
+takes the first email only. If you already did steps 1 and 2 with the
+first zip, do them again with these files (both are safe to repeat).
+Step 3 does not need doing again.
+
 Steps 1 to 4 change no job. Please send me the two result files from
 steps 3 and 4 before going on to step 5.
 

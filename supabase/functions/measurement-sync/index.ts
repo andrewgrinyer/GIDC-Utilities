@@ -146,8 +146,9 @@ Deno.serve(async (req) => {
         order_no: text(c.order_no, 40),
         first_name: text(c.first_name, 120), last_name: text(c.last_name, 120),
         address: text(c.address, 200), city: text(c.city, 80),
-        phone: text(c.phone, 40), phone2: text(c.phone2, 40),
-        email: text(c.email, 160), rep: text(c.rep, 120),
+        // PhoneNumbers and EmailAddresses in Access hold lists, so room for several
+        phone: text(c.phone, 300), phone2: text(c.phone2, 300),
+        email: text(c.email, 500), rep: text(c.rep, 120),
         estimate_status: text(c.estimate_status, 80), order_status: text(c.order_status, 80),
         pulled_at: now,
       });

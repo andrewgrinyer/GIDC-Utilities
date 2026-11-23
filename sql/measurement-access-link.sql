@@ -214,6 +214,30 @@ returns text language sql immutable as $$
   select nullif(lower(btrim(coalesce(t, ''))), '')
 $$;
 
+-- EVERY PHONE NUMBER AND EVERY EMAIL IN ONE ACCESS FIELD
+-- Access keeps them as PhoneNumbers and EmailAddresses (the TRY on 23
+-- November), so one field can hold more than one: "519 555 1234 cell,
+-- 519 555 9876 home". Each number is its last ten digits; a field with
+-- no ten digit number but seven to eleven digits in all counts as one.
+create or replace function public.gidc_acc_phones(t text)
+returns text[] language sql immutable as $$
+  select coalesce(
+    (select array_agg(distinct right(d, 10))
+       from (select regexp_replace(m[1], '\D', '', 'g') as d
+               from regexp_matches(coalesce(t, ''),
+                    '((?:\+?1[\s.-]*)?\(?\d{3}\)?[\s.-]*\d{3}[\s.-]*\d{4})', 'g') as m) x
+      where length(d) >= 10),
+    (select array[right(d, 10)] from (select regexp_replace(coalesce(t, ''), '\D', '', 'g') as d) y
+      where length(d) between 7 and 11),
+    '{}')
+$$;
+
+create or replace function public.gidc_acc_emails(t text)
+returns text[] language sql immutable as $$
+  select coalesce(array_agg(distinct m[1]), '{}')
+    from regexp_matches(lower(coalesce(t, '')), '([a-z0-9._%+''-]+@[a-z0-9.-]+\.[a-z]{2,})', 'g') as m
+$$;
+
 -- THE STREET NUMBER, AND THE FIRST WORD OF THE STREET
 -- "Unit 4, 123 Main St", "4-123 Main St", "#4 123 Main", "123 Main St
 -- Unit 4" all give 123 and main.
@@ -261,12 +285,19 @@ $$;
 -- the same keys, worked out once per row of the Access list rather than
 -- once per job, and indexed, so matching a few hundred jobs against a few
 -- thousand customers stays quick
-alter table public.access_customers add column if not exists k_email  text
-  generated always as (public.gidc_acc_email(email)) stored;
-alter table public.access_customers add column if not exists k_phone  text
-  generated always as (public.gidc_acc_phone(phone)) stored;
-alter table public.access_customers add column if not exists k_phone2 text
-  generated always as (public.gidc_acc_phone(phone2)) stored;
+-- (the first copy of this file had one phone and one email per row; the
+-- TRY showed Access keeps lists, so those three keys became two lists.
+-- Dropping them only touches the copy of Access, never a job.)
+drop index if exists public.access_customers_k_email;
+drop index if exists public.access_customers_k_phone;
+drop index if exists public.access_customers_k_phone2;
+alter table public.access_customers drop column if exists k_email;
+alter table public.access_customers drop column if exists k_phone;
+alter table public.access_customers drop column if exists k_phone2;
+alter table public.access_customers add column if not exists k_emails text[]
+  generated always as (public.gidc_acc_emails(email)) stored;
+alter table public.access_customers add column if not exists k_phones text[]
+  generated always as (public.gidc_acc_phones(coalesce(phone, '') || ' , ' || coalesce(phone2, ''))) stored;
 alter table public.access_customers add column if not exists k_num    text
   generated always as ((public.gidc_acc_street(address)).num) stored;
 alter table public.access_customers add column if not exists k_street text
@@ -275,9 +306,8 @@ alter table public.access_customers add column if not exists k_last   text[]
   generated always as (public.gidc_acc_words(last_name)) stored;
 alter table public.access_customers add column if not exists k_city   text
   generated always as (public.gidc_acc_norm(city)) stored;
-create index if not exists access_customers_k_email  on public.access_customers (k_email);
-create index if not exists access_customers_k_phone  on public.access_customers (k_phone);
-create index if not exists access_customers_k_phone2 on public.access_customers (k_phone2);
+create index if not exists access_customers_k_emails on public.access_customers using gin (k_emails);
+create index if not exists access_customers_k_phones on public.access_customers using gin (k_phones);
 create index if not exists access_customers_k_num    on public.access_customers (k_num);
 create index if not exists access_customers_k_last   on public.access_customers using gin (k_last);
 
@@ -302,8 +332,8 @@ declare
   s      public.access_job_settings%rowtype;
   jday   date;
   jwords text[];
-  jph    text;
-  jem    text;
+  jph    text[];
+  jem    text[];
   jnum   text;
   jst    text;
   jcity  text;
@@ -313,31 +343,31 @@ begin
   select * into s from public.access_job_settings where id = 1;
   jday   := public.gidc_job_day(j.data::jsonb, j.updated::timestamptz);
   jwords := public.gidc_acc_words(coalesce(j.data->>'customer', j.customer));
-  jph    := public.gidc_acc_phone(j.data->>'phone');
-  jem    := public.gidc_acc_email(j.data->>'email');
+  jph    := public.gidc_acc_phones(j.data->>'phone');
+  jem    := public.gidc_acc_emails(j.data->>'email');
   select x.num, x.street into jnum, jst from public.gidc_acc_street(j.data->>'address') x;
   jcity  := public.gidc_acc_norm(j.data->>'city');
 
   return query
   with c as (
-    select a.* from public.access_customers a where jem is not null and a.k_email = jem
+    select a.* from public.access_customers a where cardinality(jem) > 0 and a.k_emails && jem
     union
-    select a.* from public.access_customers a where jph is not null and (a.k_phone = jph or a.k_phone2 = jph)
+    select a.* from public.access_customers a where cardinality(jph) > 0 and a.k_phones && jph
     union
     select a.* from public.access_customers a where jnum is not null and a.k_num = jnum
     union
     select a.* from public.access_customers a where cardinality(jwords) > 0 and a.k_last && jwords
   ), scored as (
     select c.estimate_id,
-           (case when jem is not null and c.k_email = jem then 50 else 0 end) +
-           (case when jph is not null and jph in (c.k_phone, c.k_phone2) then 50 else 0 end) +
+           (case when c.k_emails && jem then 50 else 0 end) +
+           (case when c.k_phones && jph then 50 else 0 end) +
            (case when c.k_last && jwords then 30 else 0 end) +
            (case when jnum is not null and c.k_num = jnum and jst is not null and c.k_street = jst then 40
                  when jnum is not null and c.k_num = jnum then 15 else 0 end) +
            (case when jcity is not null and c.k_city = jcity then 5 else 0 end) as score,
            concat_ws(', ',
-             case when jem is not null and c.k_email = jem then 'email' end,
-             case when jph is not null and jph in (c.k_phone, c.k_phone2) then 'phone' end,
+             case when c.k_emails && jem then 'email' end,
+             case when c.k_phones && jph then 'phone' end,
              case when c.k_last && jwords then 'name' end,
              case when jnum is not null and c.k_num = jnum and jst is not null and c.k_street = jst then 'address'
                   when jnum is not null and c.k_num = jnum then 'street number' end,
@@ -481,7 +511,7 @@ begin
       'materials', '[{"desc":"","price":"","qty":""},{"desc":"","price":"","qty":""},{"desc":"","price":"","qty":""}]'::jsonb,
       'customer', btrim(concat_ws(' ', nullif(btrim(ac.first_name), ''), nullif(btrim(ac.last_name), ''))),
       'address', coalesce(ac.address, ''), 'city', coalesce(ac.city, ''),
-      'phone', coalesce(nullif(ac.phone, ''), ac.phone2, ''), 'email', coalesce(ac.email, ''),
+      'phone', coalesce(nullif(ac.phone, ''), ac.phone2, ''), 'email', coalesce((public.gidc_acc_emails(ac.email))[1], ac.email, ''),
       'date', to_char(coalesce(ac.measure_on, ac.created_on), 'YYYY-MM-DD'),
       'salesRep', repname, 'leadTime', '', 'docType', 'Estimate - Financing',
       'status', 'active', 'inHome', false, 'fromAccess', ac.estimate_id);
@@ -555,8 +585,10 @@ begin
   w := array(select x from regexp_split_to_table(lower(btrim(coalesce(p_q, ''))), '\s+') x where x <> '');
   if cardinality(w) = 0 then return '[]'::jsonb; end if;
   return coalesce((
-    select jsonb_agg(to_jsonb(r) order by r.created_on desc nulls last, r.estimate_id desc)
+    select jsonb_agg(to_jsonb(r) - 'exact_no' order by r.exact_no desc, r.created_on desc nulls last, r.estimate_id desc)
       from (select a.estimate_id, a.order_no, concat_ws(' ', a.first_name, a.last_name) as name,
+                   -- a typed Access job number comes first, above phones that contain it
+                   coalesce(a.order_no = any(w), false) as exact_no,
                    a.address, a.city, a.phone, a.email, a.created_on, st.status, a.rep,
                    (select coalesce(nullif(o.customer, ''), 'another job') from public.jobs o
                      where o.access_estimate_id = a.estimate_id) as taken_by
@@ -569,7 +601,7 @@ begin
                         and not (length(regexp_replace(q, '\D', '', 'g')) >= 3 and q ~ '^[\d()+. -]+$'
                                  and position(regexp_replace(q, '\D', '', 'g') in
                                      regexp_replace(coalesce(a.phone, '') || ' ' || coalesce(a.phone2, ''), '\D', '', 'g')) > 0))
-             order by a.created_on desc nulls last, a.estimate_id desc
+             order by coalesce(a.order_no = any(w), false) desc, a.created_on desc nulls last, a.estimate_id desc
              limit 40) r), '[]'::jsonb);
 end $$;
 
