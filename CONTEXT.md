@@ -143,7 +143,7 @@ fact. `DailyLog_EstimateStatus` skips days the office machine did not
 run, and those are left absent, because nobody wrote them down.
 
 **An invoice is its own record, not an order status.** Decided 23
-November with pallet invoicing (portal 2.08). Statuses come from Access
+November with pallet invoicing (portal 2.09). Statuses come from Access
 every hour, so an invoiced mark on the status would be overwritten.
 `dealer_invoices` holds one live invoice per order and the QuickBooks file
 is drawn from it. Invoices use Grinyer's door names, never a dealer's.

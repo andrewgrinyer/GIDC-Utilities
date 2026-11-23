@@ -5,17 +5,15 @@
 --  anything that exists today.
 -- ====================================================================
 --
---  Andrew, 23 November: once a pallet is built and marked ready to ship,
---  invoice every dealer project on it, one invoice per project. Start
---  with a file QuickBooks can import, and later write the invoices
---  straight into QuickBooks. Before anything is made, the person
---  confirms which orders are being charged and which are a no cost
---  remake or replacement.
+--  Andrew, 23 November: one button on a pallet invoices every order on
+--  it, one invoice per order, as soon as the order is on a pallet and
+--  whatever its status. Start with one file per order that QuickBooks
+--  can import, and later write the invoices straight into QuickBooks.
+--  Before anything is made, the person confirms which orders are being
+--  charged and which are a no cost remake or replacement.
 --
 --  WHAT THIS ADDS
 --
---   pallets.ready_at, ready_by   the "ready to ship" mark on a pallet.
---                                Only a ready pallet offers Invoice.
 --   dealer_invoices              one row per invoice made: which order,
 --                                which pallet, the invoice number, charged
 --                                or no charge, the total and the lines as
@@ -31,6 +29,10 @@
 --                                so the screen can say when an item name
 --                                is not in QuickBooks. Seeded below from
 --                                the list the wholesale tool carries.
+--   pallet_customs_docs          the customs papers made for a pallet
+--                                (proforma, Lacey, TSCA), the html as made
+--                                and the orders it covered, newest is the
+--                                one in use. Kept, never deleted.
 --   qbo_item_map                 which QuickBooks item each of our door
 --                                styles goes to, remembered for everybody
 --                                once somebody picks it.
@@ -64,12 +66,6 @@ create or replace function public.can_invoice()
 returns boolean language sql stable security definer set search_path = public as $$
   select public.is_admin()
 $$;
-
--- ---------- 2. the ready to ship mark on a pallet ---------------------
-alter table public.pallets add column if not exists ready_at timestamptz;
-alter table public.pallets add column if not exists ready_by uuid;
-comment on column public.pallets.ready_at is
-  'When the pallet was marked ready to ship. Only a ready pallet can be invoiced.';
 
 -- ---------- 3. the invoices -------------------------------------------
 create table if not exists public.dealer_invoices (
@@ -111,6 +107,20 @@ create table if not exists public.invoice_settings (
   tax_code     text default 'E',
   updated_at   timestamptz default now()
 );
+alter table public.invoice_settings add column if not exists ship_to text;
+
+create table if not exists public.pallet_customs_docs (
+  id          uuid primary key default gen_random_uuid(),
+  pallet_id   text not null,
+  pallet_name text,
+  order_ids   jsonb not null default '[]'::jsonb,
+  fields      jsonb not null default '{}'::jsonb,
+  total       numeric(12,2),
+  html        text not null,
+  created_at  timestamptz not null default now(),
+  created_by  uuid default auth.uid()
+);
+create index if not exists pallet_customs_docs_pallet on public.pallet_customs_docs(pallet_id, created_at desc);
 
 -- ---------- 5. the QuickBooks item list and our matches ---------------
 create table if not exists public.qbo_items (
@@ -127,11 +137,13 @@ alter table public.dealer_invoices  enable row level security;
 alter table public.invoice_settings enable row level security;
 alter table public.qbo_items        enable row level security;
 alter table public.qbo_item_map     enable row level security;
+alter table public.pallet_customs_docs enable row level security;
 
 drop policy if exists dealer_invoices_invoicer  on public.dealer_invoices;
 drop policy if exists invoice_settings_invoicer on public.invoice_settings;
 drop policy if exists qbo_items_invoicer        on public.qbo_items;
 drop policy if exists qbo_item_map_invoicer     on public.qbo_item_map;
+drop policy if exists pallet_customs_docs_invoicer on public.pallet_customs_docs;
 create policy dealer_invoices_invoicer on public.dealer_invoices
   for all to authenticated using (public.can_invoice()) with check (public.can_invoice());
 create policy invoice_settings_invoicer on public.invoice_settings
@@ -140,9 +152,14 @@ create policy qbo_items_invoicer on public.qbo_items
   for all to authenticated using (public.can_invoice()) with check (public.can_invoice());
 create policy qbo_item_map_invoicer on public.qbo_item_map
   for all to authenticated using (public.can_invoice()) with check (public.can_invoice());
+create policy pallet_customs_docs_invoicer on public.pallet_customs_docs
+  for all to authenticated using (public.can_invoice()) with check (public.can_invoice());
 
--- an invoice is voided, never deleted, so the history stays
-revoke delete on public.dealer_invoices from authenticated, anon;
+-- an invoice is voided, never deleted, so the history stays; customs
+-- papers are made again, never deleted, for the same reason
+revoke delete on public.dealer_invoices, public.pallet_customs_docs from authenticated, anon;
+grant select, insert on public.pallet_customs_docs to authenticated;
+revoke all on public.pallet_customs_docs from anon;
 grant select, insert, update on public.dealer_invoices to authenticated;
 grant select, insert, update, delete on public.invoice_settings, public.qbo_items,
   public.qbo_item_map to authenticated;

@@ -4,12 +4,15 @@
 //   node tests/pallet-invoicing.js
 //   (or PLAYWRIGHT=/path/to/playwright node tests/pallet-invoicing.js)
 //
-// Marks a pallet ready to ship, opens Invoice, shows a redo has to be
+// Opens Invoice pallet straight away (no ready mark, any status), shows a redo has to be
 // answered before going on, sets it to no charge, checks every invoice
 // line is in Grinyer's names (a South Florida word stored on an old line
 // is turned back into ours, and one with no match blocks the file until
-// it is reworded), makes the file and reads it back. Then shows the
-// invoiced order cannot be billed twice. Ends with ERRORS: [] when no
+// it is reworded), makes one CSV per order in a zip and reads them back. Then shows the
+// invoiced order cannot be billed twice. Makes the customs papers with the
+// export documents app's rules and reads them, takes an order off to see the
+// warning, adds one to see the staff only chip on its line, and signs in
+// as a dealer to see none of it. Ends with ERRORS: [] when no
 // page threw. SHOT=prefix saves pictures of both steps.
 
 const { chromium } = require(process.env.PLAYWRIGHT || 'playwright');
@@ -50,10 +53,16 @@ const NAMES = [{field:'doorStyle', our_name:'4 Panel True Shaker', their_name:'S
 const QBO = ['GMD-Wholesale:Kingston HC', 'GMD-Wholesale:Kingston SC', 'GMD-Wholesale:Kingston Bi Fold',
   'GMD-Wholesale:4 Panel Shaker S & R', 'GMD Doors:Rerail', 'GMD Doors:Astragal', 'GMD-Wholesale:Discount'];
 let PALLET = {id:'P1', name:'SFD 7', dealer_id:'D1', dealer:'South Florida', built_on:'2026-11-22',
-  doors:7, max_rows:40, ready_at:null};
+  doors:7, max_rows:40};
 let INVOICES = [{id:'old', order_id:'zz', invoice_no:'1042', charge:'charge', created_at:'2026-11-01', voided_at:null}];
-let POSTED = null, SETTINGS = null, MAP = null;
+let POSTED = null, SETTINGS = null, MAP = null, CUSTOMS = [];
+let ONPAL = ['o1', 'o2', 'o3', 'o4'];
+/* one more order, not on the pallet yet */
+ORDERS.push(order('o5', 'Evans', [row('f', 'Kingston', 'Single Swing', '1.375 Hollow', 1, 80)], {pallet_name:null}));
+const DEALER = {id:'d9', name:'Dealer', role:'dealer', dealer_role:'dealer', dealer_id:'D1', active:true, email_verified_at:'2026-10-01'};
+
 const ME = {id:'a1', name:'Admin', role:'admin', active:true, email_verified_at:'2026-10-01'};
+let WHO = ME;
 
 (async () => {
   const b = await chromium.launch();
@@ -64,10 +73,12 @@ const ME = {id:'a1', name:'Admin', role:'admin', active:true, email_verified_at:
     const j = (x, st) => route.fulfill({status:st || 200, contentType:'application/json', body:JSON.stringify(x)});
     const body = () => JSON.parse(q.postData() || 'null');
     switch(u.pathname){
-      case '/auth/v1/user': return j({id:ME.id});
-      case '/rest/v1/profiles': return j([ME]);
+      case '/auth/v1/user': return j({id:WHO.id});
+      case '/rest/v1/profiles': return j([WHO]);
       case '/rest/v1/dealers': return j([{id:'D1', name:'South Florida', slug:'SOUTHFLORIDA', active:true}]);
-      case '/rest/v1/dealer_orders': return j(ORDERS);
+      case '/rest/v1/dealer_orders':
+        if(u.search.includes('id=in.')) return j(ORDERS.filter(o => ONPAL.indexOf(o.id) !== -1));
+        return j(ORDERS);
       case '/rest/v1/wholesale_prices': return j(PRICES);
       case '/rest/v1/wholesale_extras': return j(EXTRAS);
       case '/rest/v1/wholesale_style_alias': return j(ALIAS);
@@ -75,14 +86,22 @@ const ME = {id:'a1', name:'Admin', role:'admin', active:true, email_verified_at:
          the invoice screen asks for the pallet dealer's */
       case '/rest/v1/dealer_door_names': return j(u.search.includes('D1') ? NAMES : []);
       case '/rest/v1/pallet_totals': return j([PALLET]);
-      case '/rest/v1/pallet_orders': return j(ORDERS.map((o, i) => ({order_id:o.id, pallet_id:'P1', position:i})));
-      case '/rest/v1/pallets':
-        if(m === 'PATCH'){ Object.assign(PALLET, body()); return j([PALLET]); }
-        return j([{id:'P1', ready_at:PALLET.ready_at}]);
+      case '/rest/v1/pallet_orders':
+        if(WHO !== ME) return j([]);
+        if(m === 'DELETE'){ const id = u.search.match(/order_id=eq\.(\w+)/)[1]; ONPAL = ONPAL.filter(x => x !== id);
+          ORDERS.find(o => o.id === id).pallet_name = null; return j([]); }
+        if(m === 'POST'){ body().forEach(x => { ONPAL.push(x.order_id); ORDERS.find(o => o.id === x.order_id).pallet_name = 'SFD 7'; }); return j([], 201); }
+        return j(ONPAL.map((id, i) => ({order_id:id, pallet_id:'P1', position:i})));
+      case '/rest/v1/pallet_customs_docs':
+        if(WHO !== ME) return j({message:'permission denied'}, 401);
+        if(m === 'POST'){ CUSTOMS.unshift(Object.assign({id:'c' + CUSTOMS.length, created_at:'2026-11-23T17:50:00Z'}, body())); return j([], 201); }
+        if(u.search.includes('id=eq')) return j(CUSTOMS.filter(c => u.search.includes('id=eq.' + c.id)));
+        return j(CUSTOMS.map(c => Object.assign({}, c, {html: undefined})));
       case '/rest/v1/qbo_items': return j(QBO.map(name => ({name})));
       case '/rest/v1/qbo_item_map': if(m === 'POST'){ MAP = body(); return j([]); } return j([]);
       case '/rest/v1/invoice_settings': if(m === 'POST'){ SETTINGS = body(); return j([]); } return j([]);
       case '/rest/v1/dealer_invoices':
+        if(WHO !== ME) return j({message:'permission denied'}, 401);
         if(m === 'POST'){
           POSTED = body();
           const made = POSTED.map((x, i) => Object.assign({id:'n' + i, created_at:'2026-11-23', voided_at:null}, x));
@@ -102,11 +121,9 @@ const ME = {id:'a1', name:'Admin', role:'admin', active:true, email_verified_at:
   await page.click('button[data-pallets]');
   await page.click('[data-palopen="P1"]');
   const btns = () => page.$$eval('.pal-card button', x => x.map(b => b.innerText).join(' | '));
-  console.log('pallet buttons, not ready:', await btns());
-  await page.click('button[data-palready="P1"]');
-  await page.waitForSelector('button[data-invopen]');
-  console.log('pallet buttons, ready:', await btns());
-  console.log('chips:', await page.$eval('.pal-h .nm', x => x.innerText));
+  console.log('pallet buttons:', await btns());
+  /* statuses all over the place: the button does not care */
+  ORDERS[1].status = 'draft'; ORDERS[2].status = 'shipped';
 
   await page.click('button[data-invopen="P1"]');
   await page.waitForSelector('.inv-pick');
@@ -118,6 +135,9 @@ const ME = {id:'a1', name:'Admin', role:'admin', active:true, email_verified_at:
   console.log('customer guessed:', await page.$eval('input[data-invf="qbo_customer"]', x => x.value),
               '/ first number:', await page.$eval('input[data-invf="firstNo"]', x => x.value));
   await page.click('button[data-invpick="o2"][data-v="no_charge"]');
+  await page.fill('textarea[data-invc="shipTo"]', 'South Florida Doors & Closets\n2372 Some Rd\nMiami, FL 33101');
+  await page.fill('input[data-invc="grossWt"]', '940');
+  await page.fill('input[data-invc="waybill"]', 'BOL 5521');
   console.log('reason prefilled:', await page.$eval('input[data-invreason="o2"]', x => x.value));
   console.log('Next now:', await page.$eval('button[data-invstep="2"]', x => x.innerText + (x.disabled ? ' (disabled)' : '')));
   if(process.env.SHOT) await page.screenshot({path:process.env.SHOT + '-1.png', fullPage:true});
@@ -152,9 +172,12 @@ const ME = {id:'a1', name:'Admin', role:'admin', active:true, email_verified_at:
   await page.waitForSelector('#sure .sure-card');
   console.log('confirm:', await page.$eval('#sure', x => x.innerText.replace(/\s+/g, ' ')));
   const [dl] = await Promise.all([page.waitForEvent('download'), page.click('#sure [data-sure="yes"]')]);
-  const csv = fs.readFileSync(await dl.path(), 'utf8');
+  const unzip = f => require('child_process').execFileSync('unzip', ['-o', '-qq', f, '-d', f + '.d']) &&
+    fs.readdirSync(f + '.d').sort().map(n => '--- ' + n + '\n' + fs.readFileSync(path.join(f + '.d', n), 'utf8').replace(/^\ufeff/, '')).join('\n');
+  const zipPath = await dl.path();
+  const csv = unzip(zipPath);
   console.log('file:', dl.suggestedFilename());
-  console.log(csv.replace(/^﻿/, ''));
+  console.log(csv);
   console.log('recorded:', POSTED.map(x => x.invoice_no + ' ' + x.charge + ' ' + x.total + (x.reason ? ' (' + x.reason + ')' : '')).join(', '));
   console.log('settings saved:', JSON.stringify(SETTINGS));
   console.log('items remembered:', JSON.stringify(MAP));
@@ -164,7 +187,57 @@ const ME = {id:'a1', name:'Admin', role:'admin', active:true, email_verified_at:
   await page.waitForSelector('.pal-card');
   console.log('pallet after:', await page.$eval('.pal-h .nm', x => x.innerText), '/', await btns());
   const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('button[data-invagain="P1"]')]);
-  console.log('file again matches:', fs.readFileSync(await dl2.path(), 'utf8') === csv);
+  console.log('files again:', dl2.suggestedFilename(), unzip(await dl2.path()) === csv);
+
+  console.log('toast:', await page.$eval('#toast', x => x.innerText));
+  /* the customs papers */
+  console.log('customs kept:', CUSTOMS.length, 'orders', JSON.stringify(CUSTOMS[0].order_ids), 'total', CUSTOMS[0].total,
+              'fields', JSON.stringify(CUSTOMS[0].fields));
+  const html = CUSTOMS[0].html;
+  fs.writeFileSync('/tmp/gidc-customs.html', html);
+  const txt = html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/data:image[^"]+/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+  console.log('papers say:', ['Proforma Invoice', 'PLANT AND PLANT PRODUCT DECLARATION', 'Toxic Substance Control Act',
+    '4418.29.8030', '4418.29.8060', 'BOL 5521', 'Miami'].map(w => w + '=' + txt.includes(w)).join(' '));
+  console.log('papers total line:', (txt.match(/Total USD [\d,.]+/) || [''])[0], '/ South Florida words:', sfdWords.test(txt));
+  console.log('pallet card:', await page.$eval('.pal-h .nm', x => x.innerText), '/', await btns());
+  const [tab] = await Promise.all([page.context().waitForEvent('page'), page.click('button[data-cusprint]')]);
+  await tab.waitForLoadState(); await tab.waitForSelector('.sheet');
+  console.log('print tab:', await tab.title(), '/', (await tab.$$('.sheet')).length, 'sheets');
+  if(process.env.SHOT) await tab.screenshot({path:process.env.SHOT + '-3.png'});
+  await tab.close();
+  const [dl3] = await Promise.all([page.waitForEvent('download'), page.click('button[data-cusdl]')]);
+  console.log('download:', dl3.suggestedFilename(), fs.readFileSync(await dl3.path(), 'utf8') === html);
+
+  /* take Baker off: the papers include it */
+  await page.click('button[data-palrm="o3"]');
+  await page.waitForSelector('#sure .sure-card');
+  console.log('taking off says:', await page.$eval('#sure .hint', x => x.innerText));
+  await page.click('#sure [data-sure="yes"]');
+  await page.waitForTimeout(300);
+  console.log('after taking off:', await page.$eval('.pal-h .nm', x => x.innerText), '/',
+              await page.$eval('.pal-card .note.bad', x => x.innerText.replace(/\s+/g, ' ')));
+
+  /* add Evans to the invoiced pallet from the order list */
+  await page.click('button[data-back]'); await page.waitForSelector('input[data-tick="o5"]');
+  await page.click('input[data-tick="o5"]');
+  await page.click('button[data-addpallet]');
+  await page.waitForSelector('#sure .sure-card');
+  await page.click('#sure [data-sure="P1"]');
+  await page.waitForTimeout(400);
+  console.log('adding says:', await page.$eval('#toast', x => x.innerText));
+  await page.click('button[data-back]'); await page.waitForSelector('tr[data-open="o5"]');
+  const line = id => page.$eval('tr[data-open="' + id + '"]', x => [...x.querySelectorAll('.chip.pal, .chip.on_hold')].map(c => c.innerText).join(' + '));
+  console.log('Evans line (staff):', await line('o5'));
+  console.log('Cortes line (staff):', await line('o1'));
+  if(process.env.SHOT) await page.screenshot({path:process.env.SHOT + '-4.png'});
+
+  /* the same list as the dealer */
+  WHO = DEALER; const asked = [];
+  page.on('request', q => { if(/dealer_invoices|pallet_customs_docs/.test(q.url())) asked.push(q.url()); });
+  await page.evaluate(() => { clearPersonal(); localStorage.setItem('gidc:session', JSON.stringify(
+    {access_token:'x', refresh_token:'y', user:{id:'d9', email:'d@x.ca'}})); });
+  await page.goto('http://localhost:8717/'); await page.waitForSelector('tr[data-open="o5"]');
+  console.log('Evans line (dealer):', await line('o5') || '(no chips)', '/ asked for invoices or papers:', asked.length);
 
   console.log('ERRORS:', errs);
   await b.close(); process.exit(0);

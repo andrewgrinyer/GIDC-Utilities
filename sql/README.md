@@ -25,8 +25,8 @@ and used by the hourly sync before it tries to match by name. Needs the
 dealer-sync edge function from this same change. Independent of the
 login files. `tests/order-number.sh` tests it locally.
 
-**dealer-invoicing.sql** adds invoicing a pallet from the portal (2.08):
-the ready to ship mark on pallets, the invoice record, per dealer
+**dealer-invoicing.sql** adds invoicing a pallet from the portal (2.09):
+the invoice record, the customs papers kept per pallet, per dealer
 QuickBooks settings, the QuickBooks item list and the remembered item
 matches. Administrators only, through `can_invoice()`. Independent of the
 login files. `tests/invoicing.sh` tests it locally. See
