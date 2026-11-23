@@ -36,14 +36,24 @@ select gidc_split_order(md5('c')::uuid, array['r1','r2','r3','r4'], '{}', '{}');
 select gidc_split_order(md5('c')::uuid, array['r3','zz'], '{}', '{}');
 \echo -- an order on a pallet is refused; taking it off voids the customs papers that covered it
 insert into pallet_orders values (md5('c')::uuid, md5('p1')::uuid, 1), (md5('a')::uuid, md5('p1')::uuid, 2);
-insert into pallet_customs_docs(pallet_id, pallet_name, order_ids, html) values
-  (md5('p1')::uuid::text, 'SFD 1', jsonb_build_array(md5('c')::uuid, md5('a')::uuid), '<html>papers</html>');
+insert into pallet_customs_docs(pallet_id, pallet_name, order_ids, html, fields) values
+  (md5('p1')::uuid::text, 'SFD 1', jsonb_build_array(md5('c')::uuid, md5('a')::uuid), '<html>papers</html>', '{"invNo":"SFD 1"}');
+insert into dealer_invoices(order_id, invoice_no, charge, total) values (md5('a')::uuid, '1990', 'charge', 400);
 select gidc_split_order(md5('c')::uuid, array['r3','r4'], '{}', '{}');
 delete from pallet_orders where order_id = md5('c')::uuid;
 select pallet_name, voided_at is not null as voided, voided_reason from pallet_customs_docs;
-\echo -- taking Aris off as well leaves the voided papers as they were
+reset role;
+select order_ref, pallet_name, ci_no, qbo_invoice_no, changed_by_name, changed_at is not null as dated, emailed_at from customs_void_alerts;
+set role authenticated;
+\echo -- a dealer reads no alerts
+select set_config('request.jwt.claim.sub', md5('dealer')::text, false);
+select count(*) as dealer_sees from customs_void_alerts;
+select set_config('request.jwt.claim.sub', md5('admin')::text, false);
+select count(*) as admin_sees from customs_void_alerts;
+\echo -- taking Aris off as well leaves the voided papers as they were, and alerts nobody again
 delete from pallet_orders where order_id = md5('a')::uuid;
-select count(*) as papers_kept from pallet_customs_docs;
+select count(*) as papers_kept, (select count(*) from customs_void_alerts) as alerts from pallet_customs_docs;
+update dealer_invoices set voided_at = now() where invoice_no = '1990';
 \echo -- an invoiced order is refused until the invoice is voided
 insert into dealer_invoices(order_id, invoice_no, charge, total) values (md5('c')::uuid, '2001', 'charge', 900);
 select gidc_split_order(md5('c')::uuid, array['r3','r4'], '{}', '{}');

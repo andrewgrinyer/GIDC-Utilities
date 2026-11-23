@@ -49,6 +49,9 @@ ORDERS.push({id:'l1', dealer_id:'D1', order_ref:'SFD LEE 22', customer_name:'SFD
    row('l1b','2','Hall','Single Swing','Kingston','28','80')]}});
 const PALLETS = [{id:'P3', name:'SFD 3', dealer:'South Florida', built_on:'2026-11-20'}];
 const PALLET_ORDERS = [{order_id:'l1', pallet_id:'P3', position:1}];
+const CUSTOMS = [{id:'cu3', pallet_id:'P3', pallet_name:'SFD 3', order_ids:['l1','x9'], fields:{invNo:'SFD 3'},
+  total:2400, created_at:'2026-11-21T15:00:00Z', voided_at:null}];
+let MAIL_OK = true;
 const INVOICES = [{id:'v1', order_id:'i1', pallet_id:'P1', invoice_no:'1043', voided_at:null}];
 let ME = {id:'a1', name:'Admin', role:'admin', active:true, email_verified_at:'2026-10-01'};
 const calls = [];
@@ -101,7 +104,18 @@ function splitOrder(b){
     }
     if(u.pathname === '/rest/v1/dealer_invoices')
       return j(INVOICES.filter(v => !v.voided_at && ('eq.' + v.order_id) === u.searchParams.get('order_id')));
-    if(u.pathname === '/rest/v1/pallet_customs_docs') return j([]);
+    if(u.pathname === '/rest/v1/pallet_customs_docs') return j(ME.role === 'admin' ? CUSTOMS : []);
+    if(u.pathname === '/rest/v1/pallet_orders' && m === 'DELETE'){
+      const id = u.searchParams.get('order_id').replace(/^eq\./, '');
+      const i = PALLET_ORDERS.findIndex(x => x.order_id === id), gone = PALLET_ORDERS.splice(i, 1)[0];
+      CUSTOMS.filter(c => c.pallet_id === gone.pallet_id && !c.voided_at && c.order_ids.includes(id))
+        .forEach(c => { c.voided_at = '2026-11-23T23:40:00Z'; });
+      return route.fulfill({status:204, body:''});
+    }
+    if(u.pathname === '/functions/v1/customs-void-alert'){
+      calls.push('  alert ' + req.postData());
+      return MAIL_OK ? j({ok:true, sent:1}) : j({error:'Resend refused it'}, 502);
+    }
     if(u.pathname === '/rest/v1/pallet_totals') return j(ME.role === 'admin' ? PALLETS : []);
     if(u.pathname === '/rest/v1/pallet_orders') return j(ME.role === 'admin' ? PALLET_ORDERS : []);
     if(u.pathname.startsWith('/storage/v1/object/sign/')) return j({signedURL:'/object/sign/x?token=t'});
@@ -176,6 +190,33 @@ function splitOrder(b){
   await shot('split-on-pallet.png');
   await page.click('[data-split="no"]');
 
+  console.log('-- taking Lee off pallet SFD 3, whose commercial invoice covers it');
+  await page.evaluate(() => { state.view = 'list'; render(); });
+  await page.click('[data-pallets]'); await page.waitForSelector('[data-palopen="P3"]');
+  console.log('pallet chip before:', await page.$eval('[data-palopen="P3"] .nm', x => x.innerText.replace(/\s+/g, ' ')));
+  await page.click('[data-palopen="P3"]'); await page.click('[data-palrm="l1"]');
+  await page.waitForSelector('.sure-big');
+  console.log('warning:', (await page.$eval('.sure-big', x => x.innerText)).replace(/\s+/g, ' '));
+  await shot('void-warning.png');
+  await page.click('[data-sure="yes"]');
+  await page.waitForSelector('.noticebar');
+  console.log('after:', await page.$eval('.noticebar', x => x.innerText.replace(/\s+/g, ' ')));
+  console.log('pallet chip after:', await page.$eval('[data-palopen="P3"] .nm', x => x.innerText.replace(/\s+/g, ' ')));
+  await shot('void-done.png');
+  console.log('-- the same when the email will not send');
+  MAIL_OK = false; PALLET_ORDERS.push({order_id:'l1', pallet_id:'P3', position:1}); CUSTOMS[0].voided_at = null;
+  await page.reload(); await page.waitForSelector('tr[data-open]');
+  await page.click('[data-pallets]'); await page.click('[data-palopen="P3"]'); await page.click('[data-palrm="l1"]');
+  await page.waitForSelector('.sure-big'); await page.click('[data-sure="yes"]'); await page.waitForSelector('.noticebar');
+  console.log('after:', await page.$eval('.noticebar', x => x.innerText.replace(/\s+/g, ' ')));
+  console.log('-- an order whose pallet papers do not include it gets the ordinary question');
+  CUSTOMS[0].voided_at = null; CUSTOMS[0].order_ids = ['x9']; PALLET_ORDERS.push({order_id:'l1', pallet_id:'P3', position:1});
+  await page.reload(); await page.waitForSelector('tr[data-open]');
+  await page.click('[data-pallets]'); await page.click('[data-palopen="P3"]'); await page.click('[data-palrm="l1"]');
+  await page.waitForSelector('.sure-card');
+  console.log('big:', !!(await page.$('.sure-big')), '/', (await page.$eval('.sure-card', x => x.innerText)).replace(/\s+/g, ' '));
+  await page.click('[data-sure="no"]');
+
   console.log('-- a dealer');
   ME = {id:'d1', name:'Dealer', role:'dealer', dealer_id:'D1', active:true, email_verified_at:'2026-10-01'};
   await page.evaluate(() => { try{ clearPersonal(); }catch(e){} });
@@ -187,7 +228,7 @@ function splitOrder(b){
   console.log('dealer on Part 2: split button', !!(await page.$('[data-splitask]')), '/ red line', !!(await page.$('.manual-ship')));
   await shot('split-list-dealer.png');
 
-  console.log('calls:\n  ' + calls.filter(c => /split|patched|storage|invoices|customs/.test(c)).join('\n  '));
+  console.log('calls:\n  ' + calls.filter(c => /split|patched|alert|DELETE/.test(c)).join('\n  '));
   console.log('ERRORS:', errs);
   await b.close(); process.exit(0);
 })();

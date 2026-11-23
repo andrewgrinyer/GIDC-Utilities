@@ -76,6 +76,7 @@ edge functions for anything needing an admin key.
 | `kpi-import` | the only door numbers come in through | `KPI_IMPORT_KEY` |
 | `send-goback` | emails a go back to the office | `RESEND_API_KEY` |
 | `send-order-function` | emails a dealer order | `RESEND_API_KEY` |
+| `customs-void-alert` | emails Ashley and accounting when an order comes off a pallet whose commercial invoice covered it | `RESEND_API_KEY` |
 
 `kpi-import` writes all rows or none. One bad row rejects the batch with
 a sentence naming which. That is deliberate: a half imported night is
@@ -156,7 +157,10 @@ hand: a trigger puts back anything the hourly sync writes onto it, and
 admins see in red that its ship date is manual entry. Linking Part 2 to
 its own job hands it back to the sync. An order must be off its pallet
 to be split, and taking an order off a pallet voids the customs papers
-that covered it. See `sql/dealer-split-order.sql`.
+that covered it, after a big warning, and emails ashley@grinyer.ca and
+accounting@grinyer.ca through the `customs-void-alert` edge function from
+the `customs_void_alerts` record the database writes. See
+`sql/dealer-split-order.sql`.
 
 **Explicit access beats a fallback.** A staff login with no dealer of its
 own acts for Grinyer's record. One that has been given real dealer access

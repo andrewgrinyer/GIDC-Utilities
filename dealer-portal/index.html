@@ -165,6 +165,9 @@ h1{font-size:23px;margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
 .redo-row{display:flex;align-items:baseline;gap:9px;padding:8px 11px;cursor:pointer;
   border-bottom:1px solid var(--rule-soft);font-size:13.5px}
 .redo-row:last-child{border-bottom:0}
+.sure-big{border:3px solid var(--red)}
+.sure-big .ask-h b{color:var(--red);font-size:18px}
+.sure-big .sure-what{font-size:16px;font-weight:600}
 .manual-ship{color:var(--red);font-size:12px;font-weight:600;margin-top:4px;white-space:normal}
 .redo-row:hover{background:var(--rule-soft)}
 .redo-row.on{background:var(--info-soft)}
@@ -4500,7 +4503,7 @@ let sureGo = null;
 function sure(o){
   const box = $("sure");
   box.style.display = "";
-  box.innerHTML = '<div class="ask-card sure-card"><div class="ask-h">' +
+  box.innerHTML = '<div class="ask-card sure-card' + (o.big ? " sure-big" : "") + '"><div class="ask-h">' +
     "<b>" + esc(o.title) + "</b>" +
     '<button class="ask-x" data-sure="no" title="Close">&times;</button></div>' +
     '<div class="ask-b">' +
@@ -5532,6 +5535,13 @@ function renderPallets(){
     '<p class="lede">What is loaded, and what each pallet is carrying. ' +
     "A pallet holds one dealer's orders and an order sits on one pallet. " +
     "Tick orders on the order list to add them.</p>" +
+    /* 2.21: what taking an order off a pallet just did to its papers */
+    (state.notice
+      ? '<div class="note ' + state.notice.kind + ' noticebar">' +
+        '<div>' + (state.notice.head ? "<b>" + esc(state.notice.head) + "</b> " : "") +
+        esc(state.notice.text) + "</div>" +
+        '<button class="note-x" data-noticeclose="1" title="Close">&times;</button></div>'
+      : "") +
     '<div class="row" style="margin:0 0 14px">' +
     '<button class="btn" data-back="1">All orders</button>' +
     /* SHIPPED PALLETS ARE OUT OF THE WAY, NOT GONE
@@ -5589,7 +5599,9 @@ function renderPallets(){
         (ship ? ' <span class="chip shipped">Shipped</span>' : "") +
         (billed ? ' <span class="chip complete_invoiced">Invoiced ' + billed + " of " + on.length + "</span>" : "") +
         (drift ? ' <span class="chip on_hold">Customs papers out of date</span>'
-               : cus ? ' <span class="chip ready_to_ship">Customs papers</span>' : "") +
+               : cus ? ' <span class="chip ready_to_ship">Customs papers</span>'
+               : (customsLast(p.id) || {}).voided_at
+               ? ' <span class="chip denied">Commercial invoice voided, make it again</span>' : "") +
         "</div>" +
         '<div class="who">' + esc(p.dealer || "") + " · built " + fmtDate(p.built_on) +
         "</div></div>" +
@@ -9822,7 +9834,7 @@ document.addEventListener("click", async e => {
     return render();
   }
   if(d.untick !== undefined){ state.ticked = {}; return render(); }
-  if(d.pallets !== undefined){ state.view = "pallets"; return render(); }
+  if(d.pallets !== undefined){ state.view = "pallets"; state.notice = null; return render(); }
   if(d.palopen !== undefined){
     if(state.palOpen[d.palopen]) delete state.palOpen[d.palopen];
     else state.palOpen[d.palopen] = true;
@@ -9841,22 +9853,35 @@ document.addEventListener("click", async e => {
   if(d.addpallet !== undefined) return addToPallet(t);
   if(d.palrm !== undefined){
     const o = state.orders.find(x => x.id === d.palrm);
-    const ok = await sure({
+    const ref = o && o.order_ref ? o.order_ref : "This order";
+    const link = palletOf(d.palrm), c = link && customsFor(link.pallet_id);
+    const inv = liveInvoice(d.palrm);
+    const p = link && palletById(link.pallet_id);
+    /* ANDREW, 23 NOVEMBER: taking an order off a pallet whose commercial
+       invoice covers it voids the commercial invoice and packing list. A
+       big warning first, and once it is done Ashley and accounting are
+       emailed. The database does the voiding and writes the alert. */
+    const voids = !!(c && (c.order_ids || []).map(String).indexOf(String(d.palrm)) !== -1);
+    const invNote = inv ? " It stays invoiced in QuickBooks as " + inv.invoice_no +
+      "; void that from the pallet's Invoice screen if it is not going." : "";
+    const ok = await sure(voids ? {
+      big: true,
+      title: "WARNING: this voids a completed commercial invoice",
+      what: ref + " is on the commercial invoice and packing list for pallet " +
+            ((p && p.name) || "this pallet") + ", made on " + fmtDate(c.created_at) + ".",
+      detail: "Taking it off voids that commercial invoice and packing list. They have to " +
+              "be made again from Invoice pallet before the pallet ships. Ashley and " +
+              "accounting (ashley@grinyer.ca and accounting@grinyer.ca) are emailed that " +
+              "an order with a completed commercial invoice has been modified, with your " +
+              "name and the time." + invNote,
+      final: "",
+      go: "Void it and take the order off"
+    } : {
       title: "Take this order off the pallet?",
-      what: (o && o.order_ref ? o.order_ref : "This order") + " goes back to no pallet.",
-      detail: "The dealer stops seeing a pallet name against it." + (function(){
-        /* ANDREW, 23 NOVEMBER: warn when the customs papers are already done */
-        const link = palletOf(d.palrm), c = link && customsFor(link.pallet_id);
-        const inv = liveInvoice(d.palrm);
-        /* 2.21, Andrew: taking an order off voids the commercial invoice and
-           packing list that covered it. The database does the voiding. */
-        return (c ? ((c.order_ids || []).map(String).indexOf(String(d.palrm)) !== -1
-                      ? " WARNING: the customs papers for this pallet, made on " + fmtDate(c.created_at) +
-                        ", include this order. Taking it off voids them. Make them again from Invoice pallet."
-                      : " WARNING: the customs papers for this pallet were made on " + fmtDate(c.created_at) +
-                        ". They will need making again.") : "") +
-               (inv ? " It stays invoiced as " + inv.invoice_no + "; void that from the pallet's Invoice screen if it is not going." : "");
-      })(),
+      what: ref + " goes back to no pallet.",
+      detail: "The dealer stops seeing a pallet name against it." +
+              (c ? " WARNING: the customs papers for this pallet were made on " +
+                   fmtDate(c.created_at) + ". They will need making again." : "") + invNote,
       go: "Take it off"
     });
     if(!ok) return;
@@ -9866,6 +9891,25 @@ document.addEventListener("click", async e => {
     await refreshPallets();
     try{ state.orders = await loadOrders(); }catch(err){}
     if(state.customs !== null){ try{ state.customs = await loadCustoms(); }catch(err){} }
+    if(voids){
+      let sent = false, why = "";
+      try{
+        const m = await sb("/functions/v1/customs-void-alert", {method: "POST",
+          headers: headers(true), body: JSON.stringify({order_id: d.palrm})});
+        const j = await m.json().catch(() => ({}));
+        sent = m.ok; why = j.error || "";
+      }catch(err){ why = err.message; }
+      state.notice = sent
+        ? {kind: "warn", head: "Commercial invoice voided.",
+           text: ref + " is off " + ((p && p.name) || "the pallet") + ". Its commercial invoice " +
+                 "and packing list are voided and Ashley and accounting have been emailed. " +
+                 "Make them again from Invoice pallet."}
+        : {kind: "err", head: "Commercial invoice voided, but the email did not go.",
+           text: ref + " is off " + ((p && p.name) || "the pallet") + " and its commercial " +
+                 "invoice and packing list are voided. The email to Ashley and accounting " +
+                 "did not send" + (why ? " (" + why.replace(/[.\s]+$/, "") + ")" : "") +
+                 ", so tell them directly."};
+    }
     return render();
   }
   if(d.palname !== undefined){

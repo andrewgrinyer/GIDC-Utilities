@@ -54,6 +54,9 @@
 --     covered it (pallet_customs_docs.voided_at), here in the database,
 --     so it holds however the order comes off. Voided papers are kept,
 --     never deleted, and are made again from Invoice pallet
+--   * before that happens the portal shows a big warning, and once it
+--     has, ashley@grinyer.ca and accounting@grinyer.ca are emailed by
+--     the customs-void-alert edge function from customs_void_alerts
 --   * an order with a live QuickBooks invoice cannot be split either:
 --     the invoice was made for every door on it. Void it first.
 -- ====================================================================
@@ -80,7 +83,20 @@ comment on column public.dealer_orders.split_of is
 comment on column public.dealer_orders.split_part is
   'Which part of a split order this is: 1 on the original, then 2, 3 and so on.';
 
--- ---------- 1b. voiding the customs papers ----------------------------
+-- ---------- 2. who may ------------------------------------------------
+-- Allowlists, like every other helper. p_dealer is here so it can be
+-- widened later without changing any caller.
+create or replace function public.can_split_order(p_dealer uuid)
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.is_admin()
+$$;
+-- who reads the alerts: the same people who make the papers
+create or replace function public.can_void_customs()
+returns boolean language sql stable security definer set search_path = public as $$
+  select public.is_admin()
+$$;
+
+-- ---------- 2b. voiding the customs papers ----------------------------
 do $$
 begin
   if to_regclass('public.pallet_customs_docs') is not null then
@@ -89,17 +105,67 @@ begin
   end if;
 end $$;
 
+-- THE ALERT
+-- Andrew, 23 November: a big warning before it happens, and once it has,
+-- an email to ashley@grinyer.ca and accounting@grinyer.ca that an order
+-- with a completed commercial invoice has been modified. The record is
+-- written here, by the database, as the papers are voided, so it exists
+-- even if the email never goes. The customs-void-alert edge function
+-- reads it, sends it, and stamps emailed_at.
+create table if not exists public.customs_void_alerts (
+  id              uuid primary key default gen_random_uuid(),
+  order_id        uuid,
+  order_ref       text,
+  dealer_id       uuid,
+  pallet_id       text,
+  pallet_name     text,
+  papers_id       uuid,
+  papers_made_at  timestamptz,
+  ci_no           text,          -- the commercial invoice number on the papers
+  qbo_invoice_no  text,          -- the order's own QuickBooks invoice, if live
+  changed_by      uuid,
+  changed_by_name text,
+  changed_at      timestamptz not null default now(),
+  emailed_at      timestamptz,
+  email_error     text
+);
+create index if not exists customs_void_alerts_order on public.customs_void_alerts(order_id);
+alter table public.customs_void_alerts enable row level security;
+drop policy if exists customs_void_alerts_read on public.customs_void_alerts;
+create policy customs_void_alerts_read on public.customs_void_alerts
+  for select to authenticated using (public.can_void_customs());
+revoke all on public.customs_void_alerts from anon, authenticated;
+grant select on public.customs_void_alerts to authenticated;
+
 create or replace function public.gidc_void_customs_on_removal()
 returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  c    record;
+  o    record;
+  who  text;
+  qbo  text;
 begin
-  if to_regclass('public.pallet_customs_docs') is not null then
-    execute 'update public.pallet_customs_docs
-                set voided_at = now(),
-                    voided_reason = ''An order on them was taken off the pallet''
-              where replace(pallet_id, ''-'', '''') = replace($1, ''-'', '''')
-                and voided_at is null and order_ids ? $2'
-      using old.pallet_id::text, old.order_id::text;
+  if to_regclass('public.pallet_customs_docs') is null then return old; end if;
+  select d.order_ref, d.dealer_id into o from public.dealer_orders d where d.id = old.order_id;
+  select coalesce(nullif(btrim(p.name), ''), p.email) into who
+    from public.profiles p where p.id = auth.uid();
+  if to_regclass('public.dealer_invoices') is not null then
+    execute 'select string_agg(invoice_no, '', '') from public.dealer_invoices
+              where order_id = $1 and voided_at is null' into qbo using old.order_id;
   end if;
+  for c in
+    update public.pallet_customs_docs
+       set voided_at = now(),
+           voided_reason = 'An order on them was taken off the pallet'
+     where replace(pallet_id, '-', '') = replace(old.pallet_id::text, '-', '')
+       and voided_at is null and order_ids ? old.order_id::text
+    returning id, pallet_id, pallet_name, created_at, fields
+  loop
+    insert into public.customs_void_alerts(order_id, order_ref, dealer_id, pallet_id, pallet_name,
+        papers_id, papers_made_at, ci_no, qbo_invoice_no, changed_by, changed_by_name)
+      values (old.order_id, o.order_ref, o.dealer_id, c.pallet_id, c.pallet_name,
+        c.id, c.created_at, nullif(c.fields ->> 'invNo', ''), qbo, auth.uid(), who);
+  end loop;
   return old;
 end $$;
 
@@ -113,13 +179,6 @@ begin
   end if;
 end $$;
 
--- ---------- 2. who may ------------------------------------------------
--- An allowlist, like every other helper. p_dealer is here so it can be
--- widened later without changing any caller.
-create or replace function public.can_split_order(p_dealer uuid)
-returns boolean language sql stable security definer set search_path = public as $$
-  select public.is_admin()
-$$;
 
 -- ---------- 3. a part whose ship date is set by hand ------------------
 create or replace function public.gidc_split_manual(o public.dealer_orders)
