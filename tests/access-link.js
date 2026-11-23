@@ -178,7 +178,17 @@ const pills = page => page.evaluate(() => Object.fromEntries([...document.queryS
     !Object.keys(save.save).some(k => k.startsWith('access')), save && Object.keys(save.save));
   // 2.67: a name or address change on a linked job emails the office
   const mails = () => calls.filter(c => c.fn === 'customer-update-email').length;
-  check('a phone change does not email the office', mails() === 0);
+  check('a phone change waits a minute for more changes', mails() === 0);
+  await page.evaluate(() => { state.view = 'jobs'; render(); }); await page.waitForTimeout(800);
+  check('leaving the job after a phone change emails the office', mails() === 1, mails());
+  await page.click('[data-open="j1"]'); await page.waitForSelector('.jobcard, .custline');
+  if(await page.$('[data-custopen="1"]')) await page.click('[data-custopen="1"]');
+  await page.fill('[data-j="email"]', 'mary@new.ca'); await page.dispatchEvent('[data-j="email"]', 'change');
+  await page.waitForTimeout(800); await page.evaluate(() => { state.view = 'jobs'; render(); }); await page.waitForTimeout(800);
+  check('so does an email change', mails() === 2, mails());
+  calls = calls.filter(c => c.fn !== 'customer-update-email');
+  await page.click('[data-open="j1"]'); await page.waitForSelector('.jobcard, .custline');
+  if(await page.$('[data-custopen="1"]')) await page.click('[data-custopen="1"]');
   await page.fill('[data-j="customer"]', 'Mary Smith-Jones'); await page.dispatchEvent('[data-j="customer"]', 'change');
   await page.waitForTimeout(800);
   check('a name change waits for any more changes first', mails() === 0);

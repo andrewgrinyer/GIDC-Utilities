@@ -1,6 +1,7 @@
 // Supabase Edge Function: customer-update-email   (measurement app 2.67)
 //
-// When a salesperson changes the customer name or address on a job that
+// When a salesperson changes the customer name, address, city, phone or
+// email on a job that
 // is linked to Access, the office has to make the same change in Access.
 // The database records each change (sql/customer-profile-update.sql) and
 // this function emails what is waiting to the office, subject
@@ -70,6 +71,7 @@ export type Update = {
   id: number; job_id: string; estimate_id: number | null; order_no: string | null; status: string | null;
   old_customer: string; old_address: string; old_city: string;
   new_customer: string; new_address: string; new_city: string;
+  old_phone: string | null; old_email: string | null; new_phone: string | null; new_email: string | null;
   phone: string | null; email: string | null; rep: string | null;
   changed_by: string | null; first_at: string; changed_at: string;
 };
@@ -81,6 +83,8 @@ export function emailFor(u: Update) {
     ["Customer name", u.old_customer, u.new_customer],
     ["Address", u.old_address, u.new_address],
     ["City", u.old_city, u.new_city],
+    ["Phone", u.old_phone ?? "", u.new_phone ?? ""],
+    ["Email", u.old_email ?? "", u.new_email ?? ""],
   ];
   const changed = rows.filter(([, a, b]) => String(a ?? "").trim() !== String(b ?? "").trim());
   const access = "Access estimate " + (u.estimate_id ?? "?") + (u.order_no ? ", job " + u.order_no : "");
@@ -94,7 +98,7 @@ export function emailFor(u: Update) {
     "",
     ...changed.map(([k, a, b]) => k + "\n  Was: " + show(a) + "\n  Now: " + show(b)),
     "",
-    "For reference",
+    "Current details",
     "Phone: " + show(u.phone),
     "Email: " + show(u.email),
     "Sales representative: " + show(u.rep),
@@ -108,7 +112,7 @@ export function emailFor(u: Update) {
     `<tr><th ${td}></th><th ${td} align="left">Was</th><th ${td} align="left">Now</th></tr>` +
     changed.map(([k, a, b]) => `<tr><td ${td}><b>${esc(k)}</b></td><td ${td}>${esc(show(a))}</td><td ${td}><b>${esc(show(b))}</b></td></tr>`).join("") +
     `</table>` +
-    `<p style="color:#555">For reference<br>Phone: ${esc(show(u.phone))}<br>Email: ${esc(show(u.email))}<br>` +
+    `<p style="color:#555">Current details<br>Phone: ${esc(show(u.phone))}<br>Email: ${esc(show(u.email))}<br>` +
     `Sales representative: ${esc(show(u.rep))}<br>Status in Access: ${esc(show(u.status))}</p>`;
   return { subject: SUBJECT, text, html };
 }

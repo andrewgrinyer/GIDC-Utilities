@@ -45,7 +45,17 @@ old = json.loads(sql("select data from jobs where id = '%s'" % linked))
 
 r = save(linked, "sales", phone="519 555 0000")
 check("a rep can still save a linked job", not r.startswith("ERROR"), r)
-check("a phone change sends nothing", pending() == [], pending())
+p = pending()
+check("a phone change is recorded, old and new", len(p) == 1 and p[0]["new_phone"] == "519 555 0000"
+      and p[0]["old_phone"] == (old.get("phone") or ""), p)
+save(linked, "sales", email="new@example.ca")
+p = pending()
+check("then an email change folds into the same one", len(p) == 1 and p[0]["new_email"] == "new@example.ca"
+      and p[0]["old_email"] == (old.get("email") or "") and p[0]["new_phone"] == "519 555 0000", p)
+save(linked, "sales", phone=old.get("phone") or "", email=old.get("email") or "")
+check("phone and email put back, nothing is sent", pending() == [], pending())
+save(linked, "sales", quoteNo="Q123")
+check("a change to anything else sends nothing", pending() == [], pending())
 
 save(linked, "sales", customer=old["customer"] + " Jr")
 p = pending()

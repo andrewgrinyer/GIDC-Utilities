@@ -16,8 +16,10 @@
 --
 --  WHAT COUNTS
 --    * a person (not the hourly sync) saves a job that is linked to an
---      Access estimate, and its customer name, address or city is
---      different from what was saved before
+--      Access estimate, and its customer name, address, city, phone or
+--      email is different from what was saved before (phone and email
+--      added the same day: Andrew, "email and phone number changes need
+--      to trigger 100%")
 --    * a job not linked to Access has nothing in Access to update yet,
 --      so it is left out
 --
@@ -49,6 +51,10 @@ create table if not exists public.customer_profile_updates (
   tries         integer not null default 0,
   last_error    text
 );
+alter table public.customer_profile_updates add column if not exists old_phone text;
+alter table public.customer_profile_updates add column if not exists old_email text;
+alter table public.customer_profile_updates add column if not exists new_phone text;
+alter table public.customer_profile_updates add column if not exists new_email text;
 create index if not exists customer_profile_updates_pending
   on public.customer_profile_updates (job_id) where sent_at is null;
 -- only the edge function (service role) reads or writes it
@@ -69,13 +75,17 @@ declare
   nc text := gidc_profile_txt(new.data->>'customer');
   na text := gidc_profile_txt(new.data->>'address');
   ny text := gidc_profile_txt(new.data->>'city');
+  op text := gidc_profile_txt(old.data->>'phone');
+  oe text := gidc_profile_txt(old.data->>'email');
+  np text := gidc_profile_txt(new.data->>'phone');
+  ne text := gidc_profile_txt(new.data->>'email');
   who text;
   p public.customer_profile_updates%rowtype;
 begin
   -- the hourly sync and the link screens write as no one; only people count
   if auth.uid() is null then return new; end if;
   if new.access_estimate_id is null then return new; end if;
-  if oc = nc and oa = na and oy = ny then return new; end if;
+  if oc = nc and oa = na and oy = ny and op = np and oe = ne then return new; end if;
   who := coalesce((select nullif(name, '') from public.profiles where id = auth.uid()),
                   (select email from auth.users where id = auth.uid()), 'someone');
 
@@ -84,19 +94,21 @@ begin
    order by id desc limit 1 for update;
   if found then
     if gidc_profile_txt(p.old_customer) = nc and gidc_profile_txt(p.old_address) = na
-       and gidc_profile_txt(p.old_city) = ny then
+       and gidc_profile_txt(p.old_city) = ny and gidc_profile_txt(p.old_phone) = np
+       and gidc_profile_txt(p.old_email) = ne then
       delete from public.customer_profile_updates where id = p.id;   -- put back as it was
     else
       update public.customer_profile_updates
-         set new_customer = nc, new_address = na, new_city = ny, changed_at = now(),
+         set new_customer = nc, new_address = na, new_city = ny, new_phone = np, new_email = ne,
+             changed_at = now(),
              changed_by = who, changed_by_id = auth.uid(), estimate_id = new.access_estimate_id
        where id = p.id;
     end if;
   else
     insert into public.customer_profile_updates
-      (job_id, estimate_id, old_customer, old_address, old_city,
-       new_customer, new_address, new_city, changed_by, changed_by_id)
-    values (new.id, new.access_estimate_id, oc, oa, oy, nc, na, ny, who, auth.uid());
+      (job_id, estimate_id, old_customer, old_address, old_city, old_phone, old_email,
+       new_customer, new_address, new_city, new_phone, new_email, changed_by, changed_by_id)
+    values (new.id, new.access_estimate_id, oc, oa, oy, op, oe, nc, na, ny, np, ne, who, auth.uid());
   end if;
   return new;
 end $$;
@@ -104,6 +116,12 @@ end $$;
 drop trigger if exists jobs_profile_watch on public.jobs;
 create trigger jobs_profile_watch after update of data on public.jobs
   for each row execute function public.jobs_profile_watch();
+
+-- rows recorded before phone and email were watched: their phone and
+-- email count as unchanged
+update public.customer_profile_updates
+   set old_phone = '', new_phone = '', old_email = '', new_email = ''
+ where old_phone is null and new_phone is null;
 
 -- the edge function takes what is waiting. A claim older than ten
 -- minutes is taken as a send that died, and is tried again.
@@ -121,6 +139,8 @@ begin
            'order_no', j.access_order_no, 'status', j.access_status,
            'old_customer', c.old_customer, 'old_address', c.old_address, 'old_city', c.old_city,
            'new_customer', c.new_customer, 'new_address', c.new_address, 'new_city', c.new_city,
+           'old_phone', c.old_phone, 'old_email', c.old_email,
+           'new_phone', c.new_phone, 'new_email', c.new_email,
            'phone', j.data->>'phone', 'email', j.data->>'email', 'rep', j.data->>'salesRep',
            'changed_by', c.changed_by, 'first_at', c.first_at, 'changed_at', c.changed_at)
          order by c.id), '[]'::jsonb)
