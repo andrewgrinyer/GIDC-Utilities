@@ -233,7 +233,8 @@ insert into public.qbo_items(name) values
   ('Refund'), ('Reimb Group'), ('Service Fee'), ('Services'),
   ('SFD Discount'), ('Shipping'), ('Shipping Pallet'), ('Supplies'),
   ('Travel Expenses'), ('Trusscore Panels'), ('Tuffboard'), ('Victoria Mouldings'),
-  ('Victoria Mouldings:Klasik 3 Panel raised'), ('Work Surfaces')
+  ('Victoria Mouldings:Klasik 3 Panel raised'), ('Work Surfaces'),
+  ('Tariff')
 on conflict (name) do nothing;
 
 notify pgrst, 'reload schema';
