@@ -428,10 +428,27 @@ declare
   ms        bigint := (extract(epoch from now()) * 1000)::bigint;
   newid     text;
   repname   text;
+  ownerid   text;
+  owner_t   text;
   jdata     jsonb;
 begin
   select * into s from public.access_job_settings where id = 1;
   perform set_config('gidc.access_link_ok', 'yes', true);
+  -- the type of jobs.owner, if the table has one (uuid on the live table)
+  select format_type(a.atttypid, a.atttypmod) into owner_t
+    from pg_attribute a
+   where a.attrelid = 'public.jobs'::regclass and a.attname = 'owner' and not a.attisdropped;
+  -- any other column a new job would have to fill, named in one go rather
+  -- than one failed preview at a time
+  select string_agg(a.attname, ', ') into reason
+    from pg_attribute a
+   where a.attrelid = 'public.jobs'::regclass and a.attnum > 0 and not a.attisdropped
+     and a.attnotnull and not a.atthasdef
+     and a.attname not in ('id', 'owner', 'owner_name', 'customer', 'openings', 'data', 'updated');
+  if reason is not null then
+    raise exception 'The jobs table has columns a new job must fill that this sync does not know: %', reason;
+  end if;
+  reason := null;
 
   -- 1. the status, the number and whether it is complete, on every
   --    linked job, from Access, one way
@@ -555,13 +572,42 @@ begin
       'date', to_char(coalesce(ac.measure_on, ac.created_on), 'YYYY-MM-DD'),
       'salesRep', repname, 'leadTime', '', 'docType', 'Estimate - Financing',
       'status', 'active', 'inHome', false, 'fromAccess', ac.estimate_id);
-    insert into public.jobs (id, owner_name, customer, openings, data, updated,
-                             access_estimate_id, access_order_no, access_status, access_status_sort,
-                             access_completed, access_link, access_linked_at, access_linked_by)
-    values (newid, repname, jdata->>'customer', 0, jdata, now(),
-            ac.estimate_id, ac.order_no, st.status, st.sort,
-            ac.completed_on is not null, 'new', now(), 'the hourly sync')
-    on conflict (id) do nothing;
+    -- THE LOGIN THAT OWNS IT
+    -- The live jobs table has an owner column, the login of whoever made
+    -- the job, filled by the database when a phone saves and required
+    -- (Andrew's preview, 23 November: null value in column "owner"). The
+    -- sync is nobody's login, so the job is owned by the rep's login, and
+    -- where Access names no rep the app knows, by an administrator.
+    if owner_t is not null then
+      select p.id::text into ownerid from public.profiles p
+       where repname <> '' and lower(btrim(p.name)) = lower(repname)
+         and p.role in ('admin', 'user', 'sales')
+       order by p.id limit 1;
+      if ownerid is null then
+        select p.id::text into ownerid from public.profiles p
+         where p.role = 'admin'
+         order by (lower(p.name) like 'andrew%') desc, p.id limit 1;
+      end if;
+      if ownerid is null then
+        raise exception 'A new job needs an owner and there is no administrator login to give it to.';
+      end if;
+      execute format(
+        'insert into public.jobs (id, owner, owner_name, customer, openings, data, updated,
+                                  access_estimate_id, access_order_no, access_status, access_status_sort,
+                                  access_completed, access_link, access_linked_at, access_linked_by)
+         values ($1, $2::%s, $3, $4, 0, $5, now(), $6, $7, $8, $9, $10, ''new'', now(), ''the hourly sync'')
+         on conflict (id) do nothing', owner_t)
+      using newid, ownerid, repname, jdata->>'customer', jdata,
+            ac.estimate_id, ac.order_no, st.status, st.sort, ac.completed_on is not null;
+    else
+      insert into public.jobs (id, owner_name, customer, openings, data, updated,
+                               access_estimate_id, access_order_no, access_status, access_status_sort,
+                               access_completed, access_link, access_linked_at, access_linked_by)
+      values (newid, repname, jdata->>'customer', 0, jdata, now(),
+              ac.estimate_id, ac.order_no, st.status, st.sort,
+              ac.completed_on is not null, 'new', now(), 'the hourly sync')
+      on conflict (id) do nothing;
+    end if;
     insert into public.access_jobs_made (estimate_id, job_id) values (ac.estimate_id, newid)
     on conflict (estimate_id) do nothing;
     made := made || jsonb_build_object('job', jdata->>'customer', 'access_no', ac.order_no,

@@ -1,4 +1,13 @@
-MEASUREMENT APP JOBS LINKED TO ACCESS, ROUND 3 (23 November, evening)
+MEASUREMENT APP JOBS LINKED TO ACCESS, ROUND 4 (23 November, evening)
+
+ROUND 4: only the Supabase SQL changed. Your jobs table needs the login
+that owns each job, which a job made from Access did not have, so the
+preview stopped. A new job is now owned by its sales rep's login, or by
+your administrator login where Access has no rep the app knows. If you
+did steps 1 and 2 of round 3, just do step 1 again with this SQL, then
+step 3, the preview.
+
+ROUND 3:
 
 What changed since your send:
   * A job in the app with only the customer's whole name typed (no

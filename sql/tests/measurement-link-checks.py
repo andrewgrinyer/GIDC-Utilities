@@ -101,6 +101,12 @@ check("a new job has the shape the app makes", all(k in nj for k in
       and nj["sizing"] == 2 and len(nj["materials"]) == 3, nj)
 reps = sql("select json_agg(j.owner_name || '=' || coalesce(a.rep, '')) from jobs j join access_customers a "
            "on a.estimate_id = j.access_estimate_id where j.access_link = 'new'")
+own = sql("select json_agg(json_build_array(j.owner_name, p.name, p.role)) from jobs j join profiles p on p.id = j.owner "
+          "where j.access_link = 'new'")
+check("every new job is owned by its rep's login, else an administrator's", all(
+    (o[0] == o[1]) or (o[2] == "admin") for o in json.loads(own)) and len(json.loads(own)) == len(json.loads(made)), own)
+check("at least one is owned by a rep and one by an administrator", any(o[0] == o[1] and o[2] == "sales" for o in json.loads(own))
+      and any(o[0] != o[1] and o[2] == "admin" for o in json.loads(own)), own)
 check("the rep comes over as the app's name for them", all(
     {"Nick": "Nick Matsias", "Michael": "Michael Sparaco", "Andrew": "Andrew", "": ""}[r.split("=")[1]] == r.split("=")[0]
     for r in json.loads(reps)), reps)

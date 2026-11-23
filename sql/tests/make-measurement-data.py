@@ -214,7 +214,7 @@ with open(sys.argv[1], "w") as f:
         f.write("insert into public.access_customers(%s) values\n" % ",".join(cols))
         f.write(",\n".join("(" + ",".join(q(r[c]) for c in cols) + ")" for r in access[i:i + 500]) + ";\n")
     for j in jobs:
-        f.write("insert into public.jobs(id,owner_name,customer,openings,data,updated) values (%s,%s,%s,%d,%s::jsonb,%s);\n" % (
+        f.write("insert into public.jobs(id,owner,owner_name,customer,openings,data,updated) values (%s,md5('sales')::uuid,%s,%s,%d,%s::jsonb,%s);\n" % (
             q(j["id"]), q(j["owner_name"]), q(j["customer"]), j["openings"], q(json.dumps(j["data"])), q(j["updated"])))
 json.dump(dict(jobs=expect, new=new, wholesale=w["estimate_id"], not_made=[y["estimate_id"], sb["estimate_id"]], access=len(access)), open(sys.argv[2], "w"), indent=1)
 print("access customers %d, jobs %d" % (len(access), len(jobs)))

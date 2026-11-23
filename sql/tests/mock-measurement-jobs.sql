@@ -5,7 +5,9 @@
 --  updated. Every team login reads and writes; only administrators
 --  delete. Loaded after mock-live-shape.sql.
 -- ====================================================================
-create table public.jobs(id text primary key, owner_name text, customer text, openings integer default 0,
+create table public.jobs(id text primary key,
+  -- the live table has this (Andrew's preview, 23 Nov): the login that made the job, required
+  owner uuid not null default auth.uid(), owner_name text, customer text, openings integer default 0,
   data jsonb not null default '{}', updated timestamptz default now());
 alter table public.jobs enable row level security;
 create policy jobs_read on public.jobs for select to authenticated using (true);
