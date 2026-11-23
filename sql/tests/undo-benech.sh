@@ -33,6 +33,9 @@ SQL
 echo "-- the split, as the portal did it: doors 4, 12, 13, 14"
 $P t -c "select set_config('request.jwt.claim.sub', md5('admin')::text, false)" -c "set role authenticated" \
   -c "select gidc_split_order(md5('benech')::uuid, (select array_agg(r->>'id') from before, jsonb_array_elements(form->'rows') with ordinality t(r,n) where n in (4,12,13,14)), '{\"door_count\":13,\"panel_count\":15}', '{\"door_count\":5,\"panel_count\":5}')->>'order_ref'" | tail -3
+# 2.21 as it ran live did not save the door numbers before moving lines; the
+# split in this repo now does, so take them back off to match Benech as it is
+$P t -c "update dealer_orders set form = jsonb_set(form, '{rows}', (select jsonb_agg(r || '{\"opening\":\"\"}' order by n) from jsonb_array_elements(form->'rows') with ordinality t(r,n))) where order_ref ~* 'benech'" >/dev/null
 $P t -c "select order_ref, jsonb_array_length(form->'rows') lines, door_count from dealer_orders where order_ref ~* 'benech' order by order_ref"
 echo "-- step 1, preview"
 $P t -f "$D"/../fixes/undo-split-benech-preview.sql

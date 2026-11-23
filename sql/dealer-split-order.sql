@@ -241,21 +241,35 @@ create trigger dealer_orders_split_guard
   for each row execute function public.dealer_orders_split_guard();
 
 -- ---------- 5. the split ----------------------------------------------
--- p_rows    the line ids (form.rows[].id) that move to the new part
+-- p_rows    the line ids (form.rows[].id) that move whole to the new part
 -- p_keep    door_count, panel_count, paint_colour for what stays
 -- p_move    the same for what moves
+-- p_leaves  lines split inside the opening, by line id:
+--             {"<id>": {"keep": {"qty": 1, "leaves": ["P"]},
+--                       "move": {"qty": 1, "leaves": ["A"]}}}
+--           qty, leaves and width only. The two quantities add up to the
+--           line's. The moved half gets its own line id.
 -- The counts come from the portal because it is the portal that knows
 -- how many doors a line makes. Everything else is copied in here, in
 -- one statement each, so a split is never half done.
+--
+-- DOOR NUMBERS NEVER CHANGE (Andrew, 23 November, after SFD Benech)
+-- A line typed by hand carries no door number, and the portal numbers it
+-- by its place in the list, so taking lines out renumbered everything
+-- after them. Every line without a number is given the number it shows
+-- now, before anything moves, on both parts. From then on it keeps it.
+drop function if exists public.gidc_split_order(uuid, text[], jsonb, jsonb);
 create or replace function public.gidc_split_order(p_order uuid, p_rows text[],
                                                    p_keep jsonb default '{}'::jsonb,
-                                                   p_move jsonb default '{}'::jsonb)
+                                                   p_move jsonb default '{}'::jsonb,
+                                                   p_leaves jsonb default '{}'::jsonb)
 returns jsonb language plpgsql security definer set search_path = public as $$
 declare
   o       public.dealer_orders%rowtype;
   rows_in jsonb;
   keep    jsonb;
   move    jsonb;
+  leaves  jsonb := coalesce(p_leaves, '{}'::jsonb);
   root    uuid;
   base    text;
   part    int;
@@ -263,6 +277,10 @@ declare
   j       jsonb;
   cols    text;
   billed  boolean := false;
+  k       text;
+  half    jsonb;
+  found_  int;
+  allowed text[] := array['qty', 'leaves', 'width'];
 begin
   select * into o from public.dealer_orders where id = p_order for update;
   if not found then raise exception 'That order is not there any more.'; end if;
@@ -289,31 +307,66 @@ begin
     end if;
   end if;
 
-  rows_in := coalesce(o.form -> 'rows', '[]'::jsonb);
-  select coalesce(jsonb_agg(r order by n), '[]'::jsonb) into keep
-    from jsonb_array_elements(rows_in) with ordinality t(r, n)
-   where not (r ->> 'id' = any(coalesce(p_rows, '{}')));
-  select coalesce(jsonb_agg(r order by n), '[]'::jsonb) into move
-    from jsonb_array_elements(rows_in) with ordinality t(r, n)
-   where r ->> 'id' = any(coalesce(p_rows, '{}'));
-
-  if jsonb_array_length(move) = 0 then
-    raise exception 'Tick at least one door to move to the new part.';
-  end if;
-  if jsonb_array_length(move) <> cardinality(p_rows) then
-    raise exception 'Some of the ticked doors are not on this order any more. '
-                    'Open it again and try once more.';
-  end if;
-  if jsonb_array_length(keep) = 0 then
-    raise exception 'At least one door has to stay on this order.';
-  end if;
-
   -- the name: the original without any Part number, then the part
   root := coalesce(o.split_of, o.id);
   base := regexp_replace(coalesce(o.order_ref, 'Order'), '\s+Part\s+\d+\s*$', '', 'i');
   select greatest(coalesce(max(d.split_part), 1), 1) + 1 into part
     from public.dealer_orders d
    where d.id = root or d.split_of = root;
+
+  -- every line keeps the number it shows now
+  select coalesce(jsonb_agg(case when coalesce(btrim(r ->> 'opening'), '') = ''
+                                 then r || jsonb_build_object('opening', n::text)
+                                 else r end order by n), '[]'::jsonb)
+    into rows_in
+    from jsonb_array_elements(coalesce(o.form -> 'rows', '[]'::jsonb)) with ordinality t(r, n);
+
+  -- the lines split inside the opening: checked before anything is built
+  for k in select jsonb_object_keys(leaves) loop
+    if k = any(coalesce(p_rows, '{}')) then
+      raise exception 'A line cannot move whole and in part at once.';
+    end if;
+    select count(*) into found_ from jsonb_array_elements(rows_in) r where r ->> 'id' = k;
+    if found_ <> 1 then
+      raise exception 'Some of the ticked doors are not on this order any more. '
+                      'Open it again and try once more.';
+    end if;
+    half := leaves -> k;
+    if coalesce((half #>> '{keep,qty}')::int, 0) < 1 or coalesce((half #>> '{move,qty}')::int, 0) < 1
+       or (half #>> '{keep,qty}')::int + (half #>> '{move,qty}')::int
+          <> greatest(coalesce((select (r ->> 'qty')::int from jsonb_array_elements(rows_in) r
+                                 where r ->> 'id' = k and (r ->> 'qty') ~ '^\d+$'), 1), 1) then
+      raise exception 'The doors in that opening do not add up. Open it again and try once more.';
+    end if;
+  end loop;
+
+  select coalesce(jsonb_agg(case when leaves ? (r ->> 'id')
+                                 then r || (select coalesce(jsonb_object_agg(e.key, e.value), '{}')
+                                              from jsonb_each(leaves -> (r ->> 'id') -> 'keep') e
+                                             where e.key = any(allowed))
+                                 else r end order by n), '[]'::jsonb) into keep
+    from jsonb_array_elements(rows_in) with ordinality t(r, n)
+   where not (r ->> 'id' = any(coalesce(p_rows, '{}')));
+  select coalesce(jsonb_agg(case when leaves ? (r ->> 'id')
+                                 then r || (select coalesce(jsonb_object_agg(e.key, e.value), '{}')
+                                              from jsonb_each(leaves -> (r ->> 'id') -> 'move') e
+                                             where e.key = any(allowed))
+                                        || jsonb_build_object('id', (r ->> 'id') || '-p' || part)
+                                 else r end order by n), '[]'::jsonb) into move
+    from jsonb_array_elements(rows_in) with ordinality t(r, n)
+   where r ->> 'id' = any(coalesce(p_rows, '{}')) or leaves ? (r ->> 'id');
+
+  if jsonb_array_length(move) = 0 then
+    raise exception 'Tick at least one door to move to the new part.';
+  end if;
+  if jsonb_array_length(move) <> coalesce(cardinality(p_rows), 0)
+                                + (select count(*) from jsonb_object_keys(leaves)) then
+    raise exception 'Some of the ticked doors are not on this order any more. '
+                    'Open it again and try once more.';
+  end if;
+  if jsonb_array_length(keep) = 0 then
+    raise exception 'At least one door has to stay on this order.';
+  end if;
 
   -- the new part: a copy of the order, then what is different about it.
   -- Built from the row itself so a column added later comes across too.
@@ -333,8 +386,8 @@ begin
             'split_of', root,
             'split_part', part)
        || (coalesce(p_move, '{}'::jsonb)
-           - array(select k from jsonb_object_keys(coalesce(p_move, '{}'::jsonb)) k
-                    where k not in ('door_count', 'panel_count', 'paint_colour')));
+           - array(select kk from jsonb_object_keys(coalesce(p_move, '{}'::jsonb)) kk
+                    where kk not in ('door_count', 'panel_count', 'paint_colour')));
 
   select string_agg(quote_ident(c.column_name), ', ' order by c.ordinal_position) into cols
     from information_schema.columns c
@@ -360,8 +413,8 @@ begin
     'moved', jsonb_array_length(move), 'kept', jsonb_array_length(keep));
 end $$;
 
-revoke all on function public.gidc_split_order(uuid, text[], jsonb, jsonb) from public, anon;
-grant execute on function public.gidc_split_order(uuid, text[], jsonb, jsonb) to authenticated;
+revoke all on function public.gidc_split_order(uuid, text[], jsonb, jsonb, jsonb) from public, anon;
+grant execute on function public.gidc_split_order(uuid, text[], jsonb, jsonb, jsonb) to authenticated;
 
 select 'split orders are in' as done;
 

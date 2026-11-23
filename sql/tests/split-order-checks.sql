@@ -145,3 +145,36 @@ select order_ref, status, est_ship_date from dealer_orders where order_ref like 
 insert into dealer_orders(dealer_id, order_ref, split_of, split_part) select dealer_id, 'copy', split_of, split_part
   from dealer_orders where order_ref = 'SFD CORTES 88 Part 2' returning order_ref, split_of, split_part;
 reset role;
+
+\echo -- DOOR NUMBERS: Benech shaped, typed by hand, doors 4, 12, 13, 14 moved, nobody renumbered
+insert into dealer_orders(id, dealer_id, order_ref, customer_name, status, form)
+select md5('benech')::uuid, d.id, 'SFD BENECH 41', 'SFDB', 'in_production',
+  jsonb_build_object('rows', (select jsonb_agg(jsonb_build_object('id', 'b' || n, 'opening', '',
+     'doorType', case when n = 5 then 'Bypass' when n = 6 then 'Double Swing AST' when n = 7 then 'Double Bifold' else 'Single Swing' end,
+     'qty', case when n in (5, 6, 7) then 2 else 1 end, 'width', case when n = 7 then 72 else 30 end) order by n)
+   from generate_series(1, 16) n))
+  from dealers d where d.slug = 'SOUTHFLORIDA';
+set role authenticated;
+select set_config('request.jwt.claim.sub', md5('admin')::text, false);
+select gidc_split_order(md5('benech')::uuid, array['b4','b12','b13','b14'], '{}', '{}')->>'order_ref';
+reset role;
+select order_ref, (select string_agg(r->>'opening', ',') from jsonb_array_elements(form->'rows') r) as door_numbers
+  from dealer_orders where order_ref ~ 'BENECH' order by order_ref;
+
+\echo -- INSIDE AN OPENING: 6A goes, 6P stays; 7 c/d goes with half the width; 5B goes
+set role authenticated;
+select set_config('request.jwt.claim.sub', md5('admin')::text, false);
+select gidc_split_order(md5('benech')::uuid, array[]::text[], '{}', '{}',
+  '{"b6":{"keep":{"qty":1,"leaves":["P"]},"move":{"qty":1,"leaves":["A"]}},
+    "b7":{"keep":{"qty":1,"leaves":["a/b"],"width":36},"move":{"qty":1,"leaves":["c/d"],"width":36,"id":"x","doorType":"nope"}},
+    "b5":{"keep":{"qty":1,"leaves":["A"]},"move":{"qty":1,"leaves":["B"]}}}')->>'order_ref';
+\echo -- quantities that do not add up are refused
+select gidc_split_order(md5('benech')::uuid, array[]::text[], '{}', '{}',
+  '{"b8":{"keep":{"qty":1},"move":{"qty":1}}}');
+\echo -- the same line whole and in part is refused
+select gidc_split_order(md5('benech')::uuid, array['b1'], '{}', '{}',
+  '{"b1":{"keep":{"qty":1},"move":{"qty":1}}}');
+reset role;
+select order_ref, r->>'id' as id, r->>'opening' as door, r->>'doorType' as type, r->>'qty' as qty, r->'leaves' as leaves, r->>'width' as width
+  from dealer_orders d, jsonb_array_elements(d.form->'rows') r
+ where order_ref ~ 'BENECH' and r->>'opening' in ('5','6','7') order by order_ref, door;

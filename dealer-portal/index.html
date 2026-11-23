@@ -169,6 +169,8 @@ h1{font-size:23px;margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
 .sure-big .ask-h b{color:var(--red);font-size:18px}
 .sure-big .sure-what{font-size:16px;font-weight:600}
 .split-n{font-weight:700;white-space:nowrap;min-width:62px}
+.redo-row.split-leaf{padding-left:34px;background:var(--rule-soft)}
+.redo-row.split-leaf.on{background:#E4ECF8}
 .manual-ship{color:var(--red);font-size:12px;font-weight:600;margin-top:4px;white-space:normal}
 .redo-row:hover{background:var(--rule-soft)}
 .redo-row.on{background:var(--info-soft)}
@@ -1025,7 +1027,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.21.1 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.21.2 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -3296,7 +3298,8 @@ const yes = v => /^(y|yes|true|x)$/i.test(String(v == null ? "" : v).trim());
 /* How many doors share the opening width. A double swing is two leaves in one
    opening, so its ordered width is the opening and each door is half of it. */
 const DOUBLE_TYPES = /double\s*swing|french/i;
-const leafCount = r => DOUBLE_TYPES.test(String(r.doorType || "")) ? 2 : 1;
+const leafCount = r => !DOUBLE_TYPES.test(String(r.doorType || "")) ? 1
+  : (Array.isArray(r.leaves) ? Math.max(1, r.leaves.length) : 2);   /* 2.21.2: one door of a split pair */
 
 /* A line whose size has been changed away from what the Proliner recorded.
    The measurement file is what the shop cuts to, so once the two disagree the
@@ -3663,7 +3666,8 @@ function checks(r){
 
   /* quantity: a double has to be ordered as two */
   const allowQty = qtyAllowed(type);
-  const qtyWrong = allowQty != null && allowQty.indexOf(qty) === -1;
+  /* a line split inside its opening has fewer doors than the type asks for, on purpose */
+  const qtyWrong = allowQty != null && !Array.isArray(r.leaves) && allowQty.indexOf(qty) === -1;
   if(qtyWrong) red("Quantity must be " + qtySays(type) + ' for "' +
                    (r.doorType || "") + '", not ' + qty);
 
@@ -4934,16 +4938,41 @@ function nextSplitPart(o){
     .reduce((m, x) => Math.max(m, x.split_part || 1), Math.max(1, o.split_part || 1)) + 1;
 }
 
+/* THE DOOR NUMBER IS PERMANENT
+   Andrew, 23 November, after SFD Benech: a door's number never changes.
+   It is the number the grid shows: the saved one, or for a line typed by
+   hand its place in the list. The split saves it onto every line before
+   anything moves (gidc_split_order), so it stays put on both parts. */
+const doorNo = (x, i) => String(x.opening || (i + 1));
+/* THE DOORS INSIDE ONE OPENING, BY THE LETTERS THE PACKING LIST USES
+   12A and 12B, 12A and 12P on a double swing, a/b and c/d on a double
+   bifold. A line split inside its opening keeps its own letters in
+   r.leaves, so Part 1 still says 12P and Part 2 says 12A. */
+function splitLeaves(r){
+  const q = doorsFor(r);
+  if(Array.isArray(r.leaves) && r.leaves.length === q) return r.leaves.slice();
+  const dt = String(r.doorType || "");
+  const bifold = /bifold/i.test(dt), dbl = /double\s*swing|french/i.test(dt);
+  if(q <= 1) return [bifold ? "a/b" : ""];
+  if(bifold) return Array.from({length: q}, (_, k) => PACK_PAIRS[k] || ("(" + (k + 1) + ")"));
+  if(dbl) return Array.from({length: q}, (_, k) => ["A", "P"][k] || PACK_LETTERS[k]);
+  return Array.from({length: q}, (_, k) => PACK_LETTERS[k] || ("#" + (k + 1)));
+}
+/* a width written per door stays; one written for the whole opening is shared */
+const widthPerDoor = r => BYPASS_TYPES.indexOf(lc(r.doorType)) !== -1 || isSwing(r.doorType);
+const splitPicked = (s, x) => Object.keys(s.pick[x.id] || {}).map(Number).sort((a, b) => a - b);
+
 function askSplit(order){
   const box = $("sure");
   const rows = (order.form && order.form.rows) || [];
   const s = state.split;
-  const chosen = rows.filter(x => s.pick[x.id]);
-  const doors = chosen.reduce((n, x) => n + doorsFor(x), 0);
+  const chosen = rows.filter(x => splitPicked(s, x).length);
+  const doors = rows.reduce((n, x) => n + (splitLeaves(x).length > 1
+    ? splitPicked(s, x).length : (splitPicked(s, x).length ? doorsFor(x) : 0)), 0);
   const base = splitBase(order.order_ref);
   const keepRef = base + " Part " + (order.split_part || 1);
   const newRef = base + " Part " + s.part;
-  const all = chosen.length === rows.length;
+  const all = rows.every(x => splitPicked(s, x).length === splitLeaves(x).length);
   const why = s.pallet ? "Take it off the pallet first"
     : s.invoiced ? "Void its invoice on the pallet first"
     : !chosen.length ? "Tick at least one door"
@@ -4958,21 +4987,32 @@ function askSplit(order){
       "<b>" + esc(newRef) + "</b>. The rest stay on <b>" + esc(keepRef) + "</b>.</p>" +
     '<div class="row" style="margin:0 0 8px;gap:8px">' +
       '<span class="muted">' + (chosen.length
-        ? chosen.length + (chosen.length === 1 ? " opening, " : " openings, ") +
-          doors + (doors === 1 ? " door" : " doors") + " to move"
+        ? doors + (doors === 1 ? " door" : " doors") + " to move, from " +
+          chosen.length + (chosen.length === 1 ? " opening" : " openings")
         : "none ticked yet") + "</span></div>" +
     '<div class="redo-list">' +
-    /* 2.21.1, Andrew: the door number first on every line. A door typed
-       in by hand has no opening number, so it is called by its line
-       number, the same as the order screen and the packing list do. */
-    rows.map((x, i) => '<label class="redo-row' + (s.pick[x.id] ? " on" : "") + '">' +
-      '<input type="checkbox" data-splitpick="' + esc(x.id) + '"' +
-      (s.pick[x.id] ? " checked" : "") + ">" +
-      '<span class="split-n">Door ' + esc(x.opening || x.xmlOpen || String(i + 1)) + "</span>" +
-      '<span class="redo-w">' + esc(x.location || "an opening") + "</span>" +
-      '<span class="redo-d">' + esc([x.doorType, styleOf(x)].filter(Boolean).join(", ")) +
-      (x.width && x.height ? " · " + esc(x.width) + '" x ' + esc(x.height) + '"' : "") +
-      (doorsFor(x) > 1 ? " · " + doorsFor(x) + " doors" : "") + "</span></label>").join("") +
+    /* 2.21.1, Andrew: the door number first on every line, and it is the
+       number the door keeps. 2.21.2: an opening with more than one door
+       lists each door under it, so 12A can go and 12B stay. */
+    rows.map((x, i) => {
+      const L = splitLeaves(x), got = splitPicked(s, x), n = doorNo(x, i);
+      const whole = got.length === L.length;
+      return '<label class="redo-row' + (got.length ? " on" : "") + '">' +
+        '<input type="checkbox" data-splitpick="' + esc(x.id) + '"' +
+        (whole ? " checked" : "") + ">" +
+        '<span class="split-n">Door ' + esc(n + (L.length === 1 && L[0] && L[0] !== "a/b" ? L[0] : "")) + "</span>" +
+        '<span class="redo-w">' + esc(x.location || "an opening") + "</span>" +
+        '<span class="redo-d">' + esc([x.doorType, styleOf(x)].filter(Boolean).join(", ")) +
+        (x.width && x.height ? " · " + esc(x.width) + '" x ' + esc(x.height) + '"' : "") +
+        (doorsFor(x) > 1 ? " · " + doorsFor(x) + " doors" : "") + "</span></label>" +
+        (L.length > 1
+          ? L.map((l, k) => '<label class="redo-row split-leaf' + (got.indexOf(k) !== -1 ? " on" : "") + '">' +
+              '<input type="checkbox" data-splitleaf="' + esc(x.id) + "|" + k + '"' +
+              (got.indexOf(k) !== -1 ? " checked" : "") + ">" +
+              '<span class="split-n">Door ' + esc(n + (/\//.test(l) ? " " + l : l)) + "</span>" +
+              '<span class="redo-d">only this door</span></label>').join("")
+          : "");
+    }).join("") +
     "</div>" +
     '<p class="hint" style="margin:14px 0 0">' + esc(newRef) + " keeps the dealer, the " +
       "customer and the status, starts with no ship date, and is not " +
@@ -5014,7 +5054,7 @@ async function splitStart(){
   if(ids(saved.form) !== ids(o.form))
     return toast("Save the order first, then split it");
   if(!canSplit(saved)) return toast("This order has shipped, so it cannot be split");
-  const s = {pick: {}, part: nextSplitPart(saved), invoiced: false, pallet: ""};
+  const s = {pick: {}, part: nextSplitPart(saved), invoiced: false, pallet: ""};   // pick: {lineId: {leafIndex: true}}
   /* the database refuses these as well; looking first means the panel can
      say so before anybody ticks anything */
   try{
@@ -5035,8 +5075,23 @@ async function splitSend(){
   const box = $("sure"), src = splitFor, s = state.split;
   if(!src || !s) return splitClose();
   const rows = (src.form || {}).rows || [];
-  const move = rows.filter(x => s.pick[x.id]);
-  const keep = rows.filter(x => !s.pick[x.id]);
+  /* whole lines move by id; a line split inside its opening sends what
+     each half carries: how many doors, which letters, and its share of
+     the width where the width is written for the whole opening */
+  const whole = [], leaves = {}, move = [], keep = [];
+  rows.forEach(x => {
+    const L = splitLeaves(x), got = splitPicked(s, x);
+    if(!got.length) return keep.push(x);
+    if(got.length === L.length){ whole.push(x.id); return move.push(x); }
+    const half = ks => {
+      const h = {qty: ks.length, leaves: ks.map(k => L[k])};
+      if(!widthPerDoor(x) && num(x.width)) h.width = String(r4(num(x.width) * ks.length / L.length));
+      return h;
+    };
+    const m = half(got), k_ = half(L.map((_, k) => k).filter(k => got.indexOf(k) === -1));
+    leaves[x.id] = {keep: k_, move: m};
+    keep.push(Object.assign({}, x, k_)); move.push(Object.assign({}, x, m));
+  });
   if(!move.length) return toast("Tick at least one door");
   if(!keep.length) return toast("At least one door has to stay on this order");
   const counts = list => ({
@@ -5048,8 +5103,9 @@ async function splitSend(){
   try{
     const r = await sb("/rest/v1/rpc/gidc_split_order", {
       method: "POST", headers: headers(true),
-      body: JSON.stringify({p_order: src.id, p_rows: move.map(x => x.id),
-                            p_keep: counts(keep), p_move: counts(move)})});
+      body: JSON.stringify(Object.assign({p_order: src.id, p_rows: whole,
+                            p_keep: counts(keep), p_move: counts(move)},
+                            Object.keys(leaves).length ? {p_leaves: leaves} : {}))});
     if(!r.ok){
       const txt = await r.clone().text();
       if(/PGRST202|schema cache|function public\.gidc_split_order.*does not exist/i.test(txt))
@@ -5268,6 +5324,9 @@ function packPanels(r, order, line){
   const mk = (width, label, panels) => Object.assign({}, base,
     {width: width, label: label, panels: panels, openLabel: String(open) + label});
   const bifold = /bifold/i.test(dt), dblSwing = /double\s*swing|french/i.test(dt);
+  /* 2.21.2: a line split inside its opening keeps its own letters */
+  if(Array.isArray(r.leaves) && r.leaves.length === q)
+    return r.leaves.map(l => mk(w, l, bifold ? 2 : 1));
   if(bifold && q <= 1) return [mk(w, "a/b", 2)];
   if(bifold) return Array.from({length:q}, (_,k) => mk(w, PACK_PAIRS[k] || ("(" + (k+1) + ")"), 2));
   if(dblSwing && q > 1) return Array.from({length:q}, (_,k) => mk(w, ["A","P"][k] || PACK_LETTERS[k], 1));
@@ -8432,7 +8491,10 @@ function renderOrder(){
              (r.opening && String(r.opening) !== String(i+1)
                ? ' title="Opening ' + esc(r.opening) + ' on the contract and on the ' +
                  'Proliner file. Line ' + (i+1) + ' on this screen."' : "") +
-             ">" + esc(r.opening || (i+1)) + "</td>" +
+             ">" + esc(r.opening || (i+1)) +
+             /* 2.21.2: a line split inside its opening says which doors it is */
+             (Array.isArray(r.leaves) && r.leaves.length
+                ? esc(r.leaves.map(l => /\//.test(l) ? " " + l : l).join(",")) : "") + "</td>" +
            '<td class="chk"><button class="pill ' + (c.bad ? "red" : (c.any ? "amber" : "ok")) +
              '" data-expand="' + r.id + '">' +
              (c.bad ? c.flags.filter(x => x.bad).length + (c.flags.filter(x => x.bad).length===1?" issue":" issues")
@@ -9730,8 +9792,18 @@ document.addEventListener("click", async e => {
     const pick = e.target.closest("[data-splitpick]");
     if(pick){
       const id = pick.dataset.splitpick;
-      if(state.split.pick[id]) delete state.split.pick[id];
-      else state.split.pick[id] = true;
+      const x = ((splitFor.form || {}).rows || []).find(r => r.id === id);
+      const L = x ? splitLeaves(x) : [""];
+      if(splitPicked(state.split, {id}).length === L.length) delete state.split.pick[id];
+      else { state.split.pick[id] = {}; L.forEach((_, k) => { state.split.pick[id][k] = true; }); }
+      return askSplit(splitFor);
+    }
+    const leaf = e.target.closest("[data-splitleaf]");
+    if(leaf){
+      const [id, k] = leaf.dataset.splitleaf.split("|");
+      const m = state.split.pick[id] = state.split.pick[id] || {};
+      if(m[k]) delete m[k]; else m[k] = true;
+      if(!Object.keys(m).length) delete state.split.pick[id];
       return askSplit(splitFor);
     }
     const btn = e.target.closest("[data-split]");

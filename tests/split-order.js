@@ -64,10 +64,14 @@ function splitOrder(b){
   if(o.status === 'shipped') return [400, {message:'This order has shipped, so it cannot be split.'}];
   if(INVOICES.some(v => v.order_id === o.id && !v.voided_at))
     return [400, {message:'This order has been invoiced. Void its invoice on the pallet first, then split it.'}];
-  const move = o.form.rows.filter(x => b.p_rows.includes(x.id)), keep = o.form.rows.filter(x => !b.p_rows.includes(x.id));
-  if(!move.length || !keep.length) return [400, {message:'bad ticks'}];
   const root = o.split_of || o.id, base = o.order_ref.replace(/\s+Part\s+\d+\s*$/i, '');
   const part = Math.max(1, ...ORDERS.filter(x => x.id === root || x.split_of === root).map(x => x.split_part || 1)) + 1;
+  const L = b.p_leaves || {}, pick = k => ['qty','leaves','width'].reduce((a, f) => (k[f] !== undefined ? (a[f] = k[f], a) : a), {});
+  const rows = o.form.rows.map((r, i) => r.opening ? r : Object.assign({}, r, {opening: String(i + 1)}));
+  const keep = rows.filter(x => !b.p_rows.includes(x.id)).map(x => L[x.id] ? Object.assign({}, x, pick(L[x.id].keep)) : x);
+  const move = rows.filter(x => b.p_rows.includes(x.id) || L[x.id])
+    .map(x => L[x.id] ? Object.assign({}, x, pick(L[x.id].move), {id: x.id + '-p' + part}) : x);
+  if(!move.length || !keep.length) return [400, {message:'bad ticks'}];
   const n = Object.assign(JSON.parse(JSON.stringify(o)), {id:'n' + part, order_ref:base + ' Part ' + part,
     form:Object.assign({}, o.form, {rows:move, split:{of:root, part}}), files:[], est_ship_date:null,
     access_order_id:null, access_order_no:null, pallet_name:null, split_of:root, split_part:part,
@@ -174,6 +178,35 @@ function splitOrder(b){
   await page.evaluate(() => { state.view = 'list'; render(); }); await page.reload(); await page.waitForSelector('tr[data-open]');
   console.log('red lines on the list:', (await page.$$('.manual-ship')).length);
   p2.access_order_id = null; p2.access_order_no = null;
+
+  console.log('Part 1 door numbers:', ORDERS.find(o => o.id === 'c1').form.rows.map(r => r.opening).join(','),
+              '/ Part 2:', p2.form.rows.map(r => r.opening).join(','));
+
+  console.log('-- inside an opening: Shah, typed by hand. Door 1 whole, 2A of a double swing, 3 c/d of a double bifold');
+  ORDERS.push({id:'h1', dealer_id:'D1', order_ref:'SFD SHAH 7', customer_name:'SFDS', status:'doors_ordered',
+    door_count:7, panel_count:9, created_at:'2026-11-07T14:00:00Z', files:[], form:{rows:[
+      Object.assign(row('h1a','','Front entry','Single Swing','Kingston','32','80'), {qty:1}),
+      Object.assign(row('h1b','','Living room','Double Swing AST','Kingston','30','80'), {qty:2}),
+      Object.assign(row('h1c','','Hall closet','Double Bifold','Kingston','72','80'), {qty:2}),
+      Object.assign(row('h1d','','Bedroom closet','Bypass','Kingston','60','80'), {qty:2})]}});
+  await page.evaluate(() => { state.view = 'list'; render(); }); await page.reload(); await page.waitForSelector('tr[data-open]');
+  await open('h1'); await page.click('[data-splitask]'); await page.waitForSelector('[data-splitpick]');
+  console.log('lines:', (await page.$$eval('.redo-card .split-n', x => x.map(e => e.innerText))).join(' | '));
+  await page.click('label:has([data-splitpick="h1a"])');
+  await page.click('label:has([data-splitleaf="h1b|0"])');
+  await page.click('label:has([data-splitleaf="h1c|1"])');
+  console.log('count:', await page.$eval('.redo-card .muted', x => x.innerText));
+  await shot('split-inside-opening.png');
+  await page.click('[data-split="go"]'); await page.waitForSelector('.noticebar');
+  const show = o => o.form.rows.map(r => r.opening + (r.leaves ? '[' + r.leaves.join(',') + ']' : '') + ' q' + (r.qty || 1) + ' w' + r.width).join('  ');
+  const h2 = ORDERS.find(o => o.order_ref === 'SFD SHAH 7 Part 2');
+  console.log('Part 1:', show(ORDERS.find(o => o.id === 'h1')));
+  console.log('Part 2:', show(h2));
+  console.log('Part 1 grid door numbers:', (await page.$$eval('#app table tbody tr td.mono', x => x.map(e => e.innerText))).join(' '));
+  console.log('Part 1 red checks:', JSON.stringify(await page.evaluate(() => state.order.form.rows.map(r => r.opening + (r.leaves || '') + ': ' + checks(r).flags.filter(f => f.bad).map(f => f.text).join('; ')))));
+  const pk = await page.evaluate(id => packPanels(state.order.form.rows[1], state.order, 1).map(p => p.openLabel).join(',') + ' / ' +
+    packPanels(state.order.form.rows[2], state.order, 2).map(p => p.openLabel + ' ' + p.width).join(','), 'h1');
+  console.log('packing labels on Part 1:', pk);
 
   console.log('-- an invoiced order');
   await page.reload(); await page.waitForSelector('tr[data-open]');
