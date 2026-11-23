@@ -37,6 +37,12 @@ $P t -c "select set_config('request.jwt.claim.sub', md5('admin')::text, false)" 
 # split in this repo now does, so take them back off to match Benech as it is
 $P t -c "update dealer_orders set form = jsonb_set(form, '{rows}', (select jsonb_agg(r || '{\"opening\":\"\"}' order by n) from jsonb_array_elements(form->'rows') with ordinality t(r,n))) where order_ref ~* 'benech'" >/dev/null
 $P t -c "select order_ref, jsonb_array_length(form->'rows') lines, door_count from dealer_orders where order_ref ~* 'benech' order by order_ref"
+echo "-- locking every door number is refused while Benech is still split"
+$P t -c "insert into dealer_orders(dealer_id, order_ref, status, form) select id, 'SFD MIXED 3', 'under_review',
+  '{\"rows\":[{\"id\":\"m1\",\"opening\":\"\"},{\"id\":\"m2\",\"opening\":\"1\"},{\"id\":\"m3\"},{\"id\":\"m4\",\"opening\":\"7\"}]}' from dealers where slug='SOUTHFLORIDA'" \
+  -c "insert into dealer_orders(dealer_id, order_ref, status, form) select id, 'SFD NUMBERED 9', 'shipped',
+  '{\"rows\":[{\"id\":\"n1\",\"opening\":\"3\"},{\"id\":\"n2\",\"opening\":\"5\"}]}' from dealers where slug='SOUTHFLORIDA'" >/dev/null
+$P t -f "$D"/../lock-door-numbers.sql 2>&1 | grep -i "error\|notice"
 echo "-- step 1, preview"
 $P t -f "$D"/../fixes/undo-split-benech-preview.sql
 echo "-- step 2, the undo, twice"
@@ -44,3 +50,10 @@ $P t -f "$D"/../fixes/undo-split-benech.sql 2>&1
 $P t -f "$D"/../fixes/undo-split-benech.sql 2>&1
 echo "-- the rows are exactly as before the split"
 $P t -c "select (select form->'rows' from dealer_orders where id = md5('benech')::uuid) = (select form->'rows' from before) as identical"
+echo "-- then every door number is locked: preview, run, run again"
+$P t -f "$D"/../lock-door-numbers-preview.sql
+$P t -f "$D"/../lock-door-numbers.sql 2>&1
+$P t -f "$D"/../lock-door-numbers.sql 2>&1 | grep -i notice
+$P t -c "select order_ref, form->>'lastDoorNo' as last_no, (select string_agg(r->>'opening', ',') from jsonb_array_elements(form->'rows') r) as door_numbers from dealer_orders where form ? 'rows' order by order_ref"
+echo "-- Benech's rows are still the original rows, each now carrying its number"
+$P t -c "select (select jsonb_agg(r - 'opening') from dealer_orders, jsonb_array_elements(form->'rows') r where id = md5('benech')::uuid) = (select jsonb_agg(r - 'opening') from before, jsonb_array_elements(form->'rows') r) as same_doors"

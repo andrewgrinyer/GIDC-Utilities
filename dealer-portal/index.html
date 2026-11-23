@@ -1027,7 +1027,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.21.2 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.21.3 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -2839,6 +2839,40 @@ function productFor(core, thick){
   return "1.375 Hollow";
 }
 
+/* EVERY DOOR NUMBER IS LOCKED IN PLACE
+   Andrew, 23 November: door numbers are permanent. If a door is deleted its
+   number is gone and the others keep theirs. A door used to be shown by its
+   place in the list until something gave it a number, so deleting or moving
+   one renumbered the rest. Now every door carries its number (r.opening)
+   from the moment it is saved or added, and a new door takes the next
+   number the order has never used, which form.lastDoorNo remembers so a
+   deleted door's number is never handed out again. The existing orders
+   were numbered once by sql/lock-door-numbers.sql. */
+function doorTop(form){
+  const rows = (form && form.rows) || [];
+  return rows.reduce((m, r) => Math.max(m, parseInt(String(r.opening || ""), 10) || 0),
+                     Number(form && form.lastDoorNo) || 0);
+}
+function nextDoorNo(form){
+  const n = doorTop(form) + 1;
+  form.lastDoorNo = n;
+  return String(n);
+}
+/* a door with no number keeps the one it shows (its place in the list),
+   unless another door already has that, when it gets the next unused one */
+function lockDoorNumbers(form){
+  if(!form || !Array.isArray(form.rows)) return form;
+  const used = new Set(form.rows.map(r => String(r.opening || "").trim()).filter(Boolean));
+  form.lastDoorNo = Math.max(doorTop(form), 0);
+  form.rows.forEach((r, i) => {
+    if(String(r.opening || "").trim()) return;
+    let no = String(i + 1);
+    if(used.has(no)) no = nextDoorNo(form);
+    used.add(no); r.opening = no;
+  });
+  form.lastDoorNo = doorTop(form);
+  return form;
+}
 function newRow(v){
   return Object.assign({
     id: uid(), location:"", qty:1, productType:"", doorType:"", doorStyle:"",
@@ -4811,7 +4845,10 @@ async function redoSend(){
        orders sharing a line id would have the screen editing both; every
        measurement, opening number and option stays exactly as it was,
        which is the whole point of a redo not needing measuring again. */
-    const rows = picked.map(x => Object.assign({}, x, {id: uid()}));
+    /* each door keeps the number it has on the original */
+    const all = ((src.form || {}).rows || []);
+    const rows = picked.map(x => Object.assign({}, x, {id: uid(),
+      opening: String(x.opening || (all.indexOf(x) + 1))}));
     const form = {
       rows: rows,
       custom:   Object.assign({}, (src.form || {}).custom || {}),
@@ -4820,7 +4857,7 @@ async function redoSend(){
       /* what this came off, kept on the form as well as in its own column,
          so the order form and the email can say it without another read */
       redo: {of: src.id, ref: src.order_ref || "", seq: seq, reason: r.reason,
-             note: r.note || "", openings: picked.map(x => x.opening || "").filter(Boolean)}
+             note: r.note || "", openings: rows.map(x => x.opening || "").filter(Boolean)}
     };
     const body = {
       dealer_id: src.dealer_id, status: "draft",
@@ -8201,7 +8238,7 @@ function renderOrder(){
       " The shop cuts to the file, so a door that is not in it is a door nobody " +
       "has the sizes for." +
       '<div class="offlist">' + added.slice(0, 6).map(r =>
-        "<span>Line " + (rows.indexOf(r) + 1) +
+        "<span>Door " + esc(doorNo(r, rows.indexOf(r))) +
         (r.location ? ", " + esc(r.location) : "") +
         (r.doorType ? ": " + esc(r.doorType) : ": no type chosen yet") + "</span>").join("") +
       (added.length > 6 ? "<span>and " + (added.length - 6) + " more</span>" : "") +
@@ -8488,9 +8525,7 @@ function renderOrder(){
               and it is the opening number the shop and the measurer
               both work to. */
            '<td class="mono muted num"' +
-             (r.opening && String(r.opening) !== String(i+1)
-               ? ' title="Opening ' + esc(r.opening) + ' on the contract and on the ' +
-                 'Proliner file. Line ' + (i+1) + ' on this screen."' : "") +
+             ' title="Door ' + esc(doorNo(r, i)) + '. Door numbers never change."' +
              ">" + esc(r.opening || (i+1)) +
              /* 2.21.2: a line split inside its opening says which doors it is */
              (Array.isArray(r.leaves) && r.leaves.length
@@ -9097,7 +9132,8 @@ function fillUpload(xml, order){
       /* Column B is the line number. It mirrored Pricing Sheet column A,
          which the portal never names, so it went out blank. It says what
          the upload block below says for the same line. */
-      if(up === "B") v = i + 1;
+      /* 2.21.3: the door number, which is what column A of the order form says */
+      if(up === "B") v = /^\d+$/.test(String(r.opening || "").trim()) ? Number(r.opening) : i + 1;
       put(up + row, v === "" || v == null ? "" : v);
     });
     put(UPLOAD_CUSTOMER + row, i === 0 ? (order.customer_name || "") : "");
@@ -9155,7 +9191,7 @@ function fillUploadDb(xml, order, zip){
     const paintId = numOr0(lookUp(cols, prodId + "_" + (PAINT_ALIAS[loose(paint_)] || paint_), 1, 2, 200));
 
     const f = {
-      B: i + 1,
+      B: /^\d+$/.test(String(r.opening || "").trim()) ? Number(r.opening) : i + 1,
       C: r.location || "",
       D: r.qty == null || r.qty === "" ? "" : r.qty,
       E: core == null ? "" : core,
@@ -10150,6 +10186,9 @@ document.addEventListener("click", async e => {
          const fixed = normaliseBlanks(state.order.form.rows);
          if(fixed.length) toast(fixed.length + (fixed.length === 1 ? " line" : " lines") +
            " had a blank that is not a stock size, now corrected. " + fixed[0]);
+         /* 2.21.3: every door holds its number from the moment it is open,
+            so deleting one before saving cannot shift the rest */
+         lockDoorNumbers(state.order.form);
          /* what Access job it is linked to, for the admin panel */
          await loadAccessLink(state.order);
          state.view = "order"; render(); }
@@ -10343,7 +10382,13 @@ document.addEventListener("click", async e => {
     }catch(err){ toast(err.message); }
     return;
   }
-  if(d.addrow !== undefined){ state.order.form.rows.push(newRow({})); return render(); }
+  if(d.addrow !== undefined){
+    /* the doors already there keep what they show, and the new one is next */
+    const f = state.order.form;
+    lockDoorNumbers(f);
+    f.rows.push(newRow({opening: nextDoorNo(f)}));
+    return render();
+  }
   if(d.import !== undefined){
     state.ask = d.import === "sheet" ? "sheet" : (d.import === "prld" ? "prld" : "xml");
     return render();
@@ -10352,20 +10397,21 @@ document.addEventListener("click", async e => {
   if(d.rm !== undefined){
     const r = (state.order.form.rows || []).find(x => x.id === d.rm);
     if(!r) return;
-    const n = state.order.form.rows.indexOf(r) + 1;
+    const n = doorNo(r, state.order.form.rows.indexOf(r));
     const size = (r.width && r.height) ? r.width + '" × ' + r.height + '"' : "";
     const ok = await sure({
       title: "Delete this opening?",
-      what: "Line " + n + (r.location ? ", " + r.location : "") +
+      what: "Door " + n + (r.location ? ", " + r.location : "") +
             (r.doorType ? ", " + r.doorType : "") + (size ? ", " + size : "") + ".",
       detail: r.fromXml
         ? "It was read from the Proliner file, so reading the measurements again will bring it back."
         : "It was added by hand, so it would have to be typed in again.",
-      go: "Delete the line"
+      go: "Delete the door"
     });
     if(!ok) return;
     state.order.form.rows = state.order.form.rows.filter(x => x.id !== d.rm);
-    toast("Line " + n + (r.location ? ", " + r.location + "," : "") + " deleted");
+    /* 2.21.3: its number goes with it and the others keep theirs */
+    toast("Door " + n + (r.location ? ", " + r.location + "," : "") + " deleted. The other doors keep their numbers.");
     return render();
   }
   if(d.upsize !== undefined){
@@ -10447,6 +10493,7 @@ document.addEventListener("click", async e => {
 });
 
 function orderBody(o){
+  lockDoorNumbers(o.form);
   const rows = o.form.rows || [];
   return {
     files: o.files || [],
@@ -11231,6 +11278,9 @@ async function readXml(file){
                 (parsed.fixedBlanks.length === 1 ? " blank was" : " blanks were") +
                 " not a stock size and stepped up: " + parsed.fixedBlanks[0];
     }
+
+    /* 2.21.3: the lines read in hold their numbers from now on */
+    lockDoorNumbers(o.form);
 
     /* Whatever the two files between them decided, that is the baseline from
        here on. Stamped after the merge so a line that gets its size from the

@@ -281,6 +281,7 @@ declare
   half    jsonb;
   found_  int;
   allowed text[] := array['qty', 'leaves', 'width'];
+  top     int;
 begin
   select * into o from public.dealer_orders where id = p_order for update;
   if not found then raise exception 'That order is not there any more.'; end if;
@@ -320,6 +321,13 @@ begin
                                  else r end order by n), '[]'::jsonb)
     into rows_in
     from jsonb_array_elements(coalesce(o.form -> 'rows', '[]'::jsonb)) with ordinality t(r, n);
+
+  -- the highest number the order has ever used, kept on both parts so a
+  -- door added to either later never takes a number the other has
+  top := greatest(coalesce((o.form ->> 'lastDoorNo')::int, 0),
+                  coalesce((select max((substring(btrim(r ->> 'opening') from '^\d+'))::int)
+                              from jsonb_array_elements(rows_in) r
+                             where btrim(r ->> 'opening') ~ '^\d+'), 0));
 
   -- the lines split inside the opening: checked before anything is built
   for k in select jsonb_object_keys(leaves) loop
@@ -377,7 +385,7 @@ begin
             'order_ref', base || ' Part ' || part,
             'form', jsonb_set(coalesce(o.form, '{}'::jsonb), '{rows}', move)
                     || jsonb_build_object('split', jsonb_build_object(
-                         'of', root, 'part', part, 'from', o.id)),
+                         'of', root, 'part', part, 'from', o.id), 'lastDoorNo', top),
             'files', '[]'::jsonb,
             'est_ship_date', null,
             'access_order_id', null,
@@ -401,7 +409,8 @@ begin
   update public.dealer_orders d
      set order_ref  = base || ' Part ' || coalesce(o.split_part, 1),
          split_part = coalesce(o.split_part, 1),
-         form       = jsonb_set(coalesce(o.form, '{}'::jsonb), '{rows}', keep),
+         form       = jsonb_set(coalesce(o.form, '{}'::jsonb), '{rows}', keep)
+                      || jsonb_build_object('lastDoorNo', top),
          door_count = coalesce((p_keep ->> 'door_count')::int, d.door_count),
          panel_count = coalesce((p_keep ->> 'panel_count')::int, d.panel_count),
          paint_colour = case when p_keep ? 'paint_colour' then p_keep ->> 'paint_colour'
