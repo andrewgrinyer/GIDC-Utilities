@@ -313,6 +313,33 @@ begin
   end if;
 end $$;
 
+-- More for Sanding (Andrew, 23 November), each added once by name so a
+-- list already filled still gets them: the vacuum pad, the pad protector
+-- and the 3" x 4" square sheets for the square sander.
+insert into public.supply_items (category, shop_name, supplier_item, unit, sort, supplier_id)
+select 'sanding', v.n, v.si, v.u, v.s,
+       (select id from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'abrasivesupply' limit 1)
+  from (values ('Vacuum pad 6in 48 hole', 'Mirka 6in Grip 48 Hole Vacuum Pad', 'pad', 52),
+               ('Pad protector 6in',      'Mirka Pad Protector 6 Inch',         'piece', 55),
+               ('Square sheet 240 grit',  'Mirka Abranet Ace 3in x 4in Grip P240', 'box', 44),
+               ('Square sheet 320 grit',  'Mirka Abranet Ace 3in x 4in Grip P320', 'box', 46)) as v(n, si, u, s)
+ where not exists (select 1 from public.supply_items i
+                    where i.category = 'sanding'
+                      and lower(regexp_replace(i.shop_name, '[^A-Za-z0-9]', '', 'g'))
+                        = lower(regexp_replace(v.n, '[^A-Za-z0-9]', '', 'g')));
+
+-- Predicted discs (Andrew, 23 November): every door is sanded twice,
+-- once at 240 grit (one disc lasts about 4 doors) and once at 320 (about
+-- 10 doors). From the door count the sync already sends, a box of 50
+-- covers 200 doors at 240 and 500 at 320. Set only while the disc is not
+-- predicted yet, so a length changed by hand is kept.
+update public.supply_items set uses = 'doors', per_unit = 200, waste_pct = 0
+ where category = 'sanding' and uses is null
+   and lower(regexp_replace(shop_name, '[^A-Za-z0-9]', '', 'g')) = 'sandingdisc240grit';
+update public.supply_items set uses = 'doors', per_unit = 500, waste_pct = 0
+ where category = 'sanding' and uses is null
+   and lower(regexp_replace(shop_name, '[^A-Za-z0-9]', '', 'g')) = 'sandingdisc320grit';
+
 -- ---------- 4. the schedule from Access -----------------------------------
 create table if not exists public.supply_schedule (
   access_order_id  integer not null,
