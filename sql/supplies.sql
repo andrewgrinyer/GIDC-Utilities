@@ -117,7 +117,9 @@ insert into public.supply_categories (code, name, po_prefix, copy_to, sort) valu
   ('shop',    'Shop Supplies',    'SHP',  'ashley@grinyer.ca', 10),
   ('hardware','Hardware',         'HDW',  'ashley@grinyer.ca', 15),
   ('sanding', 'Sanding Supplies', 'SND',  'ashley@grinyer.ca', 20),
-  ('install', 'Install Supplies', 'INST', 'ashley@grinyer.ca', 30)
+  ('install', 'Install Supplies', 'INST', 'ashley@grinyer.ca', 30),
+  -- Andrew, 23 November: painting supplies, all ordered through Ashley.
+  ('painting','Painting Supplies','PNT',  'ashley@grinyer.ca', 5)
 on conflict (code) do nothing;
 
 create table if not exists public.supply_suppliers (
@@ -257,6 +259,59 @@ select 'shop', v.n, 'piece', v.u, 1, 0, v.s,
   from (values ('Astragal 7''', 'astragal_7', 60), ('Astragal 8''', 'astragal_8', 70)) as v(n, u, s)
  where not exists (select 1 from public.supply_items i
                     where i.category = 'shop' and i.uses = v.u);
+
+-- PAINTING AND SANDING SUPPLIES (Andrew, 23 November). Counted only,
+-- nothing in Access predicts them. Each list is filled once, only while
+-- it has no items, so a second run never puts back an item taken off.
+--   Painting: every order goes to Ashley (Sherwin Williams, Allied Stars
+--     and GFL have no email here, so their POs go to her alone).
+--   Sanding: Mirka discs, backing pads and vacuum bags from Abrasive
+--     Supply (info@abrasivesupply.ca, Ashley copied). Bondo, DryDex and
+--     Wood Pro through Ashley (no supplier, so the PO goes to her alone).
+insert into public.supply_suppliers (name, email, note)
+select v.n, v.e, v.note
+  from (values ('Sherwin Williams', null::text, 'Ashley places these orders.'),
+               ('Allied Stars', null, 'Ashley places these orders.'),
+               ('GFL', null, 'Waste paint barrels and paint wash pickup. Pickup needs at least 3 barrels. Ashley places these orders.'),
+               ('Abrasive Supply', 'info@abrasivesupply.ca', null)) as v(n, e, note)
+ where not exists (select 1 from public.supply_suppliers s
+                    where lower(regexp_replace(s.name, '[^A-Za-z0-9]', '', 'g'))
+                        = lower(regexp_replace(v.n, '[^A-Za-z0-9]', '', 'g')));
+
+do $$
+declare sw uuid; al uuid; gfl uuid; ab uuid;
+begin
+  select id into sw  from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'sherwinwilliams' limit 1;
+  select id into al  from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'alliedstars' limit 1;
+  select id into gfl from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'gfl' limit 1;
+  select id into ab  from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'abrasivesupply' limit 1;
+
+  if not exists (select 1 from public.supply_items where category = 'painting') then
+    insert into public.supply_items (category, shop_name, supplier_item, unit, standard_order, sort, supplier_id) values
+      ('painting', 'Paint pockets 20 x 20',      '20x20 paint pockets, box of 30', 'box',    0, 10, sw),
+      ('painting', 'Floor paper',                null,                              'roll',   0, 20, al),
+      ('painting', 'Acetone',                    null,                              'jug',    0, 30, sw),
+      ('painting', 'Pre filter roll',            null,                              'roll',   0, 40, sw),
+      ('painting', 'Waste paint barrel',         null,                              'barrel', 0, 50, gfl),
+      ('painting', 'Lubricant P',                null,                              'can',    0, 60, al),
+      ('painting', 'Paint wash pickup',          'Paint wash pickup, 3 barrel minimum', 'barrel', 3, 70, gfl),
+      ('painting', 'Paint sprayer tip 09 114',   'Kremlin tip 09-114',              'tip',    0, 80, al);
+  end if;
+
+  if not exists (select 1 from public.supply_items where category = 'sanding') then
+    insert into public.supply_items (category, shop_name, supplier_item, unit, sort, supplier_id) values
+      ('sanding', 'Sanding disc 60 grit',  'Mirka Abranet Ace Grip 6in P60, 50 pieces, AC-241-060',  'box', 10, ab),
+      ('sanding', 'Sanding disc 80 grit',  'Mirka Abranet Ace Grip 6in P80, 50 pieces, AC-241-080',  'box', 15, ab),
+      ('sanding', 'Sanding disc 120 grit', 'Mirka Abranet Ace Grip 6in P120, 50 pieces, AC-241-120', 'box', 20, ab),
+      ('sanding', 'Sanding disc 240 grit', 'Mirka Abranet Ace Grip 6in P240, 50 pieces, AC-241-240', 'box', 30, ab),
+      ('sanding', 'Sanding disc 320 grit', 'Mirka Abranet Ace Grip 6in P320, 50 pieces, AC-241-320', 'box', 40, ab),
+      ('sanding', 'Backing pad 6in',       'Mirka 6in Grip backing pad',                              'pad', 50, ab),
+      ('sanding', 'Vacuum bags',           'Mirka Dustbag Fleece for DE 1230',                        'bag', 60, ab),
+      ('sanding', 'Bondo',                 '3M Bondo Body Filler 261C, 397 g',                        'can', 70, null),
+      ('sanding', 'DryDex',                'DAP DryDex Spackling, 237 mL',                            'tub', 80, null),
+      ('sanding', 'Wood Pro',              'DAP Wood Pro wood filler, Natural, 453 g, 52268',         'tub', 90, null);
+  end if;
+end $$;
 
 -- ---------- 4. the schedule from Access -----------------------------------
 create table if not exists public.supply_schedule (

@@ -38,6 +38,7 @@ let CATS, SUPPLIERS, ITEMS, COUNTS, ORDERS, n = 0, ROLE = 'manufacturing', MAIL_
 const posted = [];
 function reset(){
   CATS = [{code:'shop', name:'Shop Supplies', po_prefix:'SHP', copy_to:'ashley@grinyer.ca', sort:10},
+          {code:'painting', name:'Painting Supplies', po_prefix:'PNT', copy_to:'ashley@grinyer.ca', sort:5},
           {code:'hardware', name:'Hardware', po_prefix:'HDW', copy_to:'ashley@grinyer.ca', sort:15},
           {code:'sanding', name:'Sanding Supplies', po_prefix:'SND', copy_to:'ashley@grinyer.ca', sort:20},
           {code:'install', name:'Install Supplies', po_prefix:'INST', copy_to:'ashley@grinyer.ca', sort:30}];
@@ -174,9 +175,9 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(tiles.includes('Order Supplies') && !tiles.includes('Paint'), 'the tools page shows Order Supplies, and Paint has moved under it (' + tiles.join(', ') + ')');
   await page.click('text=Order Supplies'); await page.waitForTimeout(500);
   const menu = await page.$$eval('.tile', ts => ts.map(t => t.querySelector('b').textContent + ' ' + t.getAttribute('href')));
-  check(menu.join('|') === 'Paint /paint/|Shop Supplies ./order/?c=shop|Hardware ./order/?c=hardware|Sanding Supplies ./order/?c=sanding|Install Supplies ./order/?c=install',
-    'the menu: Paint, Shop, Hardware, Sanding, Install (' + menu.join(', ') + ')');
-  check(/PO PD.*PO SHP.*PO HDW.*PO SND.*PO INST/.test(await text(page, '.grid')), 'each says its PO prefix');
+  check(menu.join('|') === 'Paint /paint/|Painting Supplies ./order/?c=painting|Shop Supplies ./order/?c=shop|Hardware ./order/?c=hardware|Sanding Supplies ./order/?c=sanding|Install Supplies ./order/?c=install',
+    'the menu: Paint, Painting, Shop, Hardware, Sanding, Install (' + menu.join(', ') + ')');
+  check(/PO PD.*PO PNT.*PO SHP.*PO HDW.*PO SND.*PO INST/.test(await text(page, '.grid')), 'each says its PO prefix');
   if(SHOTS) await page.screenshot({path: SHOTS + '/supplies-menu.png'});
   await page.close();
   page = await open('installer', '/');
@@ -330,6 +331,10 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   await page.close();
 
   // the other lists use the same page
+  page = await open('admin', '/supplies/order/?c=painting');
+  check(await text(page, '#title') === 'Painting Supplies' && /\(PNT\)/.test(await text(page, '#lede')) && /goes to Ashley/.test(await text(page, '#lede')),
+    'Painting Supplies opens, PNT, every order to Ashley');
+  await page.close();
   page = await open('admin', '/supplies/order/?c=sanding');
   check(await text(page, '#title') === 'Sanding Supplies' && /\(SND\)/.test(await text(page, '#lede')) &&
         /Press New item/.test(await text(page, '#stock')) && await page.$eval('#sched-wrap', e => e.classList.contains('hide')),

@@ -30,7 +30,7 @@ select supply_schedule_load('[{"order_id":5069,"order_no":"5067","job":"Aris","u
 reset role;
 select job, uses, amount from supply_schedule order by job, uses;
 
-\echo -- who can see the items (want admin and manufacturing 73, 7 shop and 66 hardware; everybody else 0)
+\echo -- who can see the items (want admin and manufacturing 91: 7 shop, 66 hardware, 8 painting, 10 sanding; everybody else 0)
 do $$ declare n text; c int; begin
   foreach n in array array['admin','user','sales','manufacturing','installer','dealer','dadmin','cdealer','stranger'] loop
     perform set_config('request.jwt.claim.sub', md5(n)::text, false);

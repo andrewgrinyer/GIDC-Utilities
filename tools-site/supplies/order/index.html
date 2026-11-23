@@ -213,7 +213,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.2 &middot; 23 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.3 &middot; 23 Nov 2026</div>
 
 <script>
 (function(){
@@ -654,6 +654,10 @@ function draw(){
       ? 'Pine, rerail, valances and astragals: what is in stock, what the jobs coming up will use, and purchase orders (' + CAT.po_prefix + ').'
       : CODE === 'hardware'
       ? 'Hinges, bypass tracks and rollers, floor guides, finger pulls and flush bolts: in stock, what the jobs coming up will use, and purchase orders (' + CAT.po_prefix + ').'
+      : CODE === 'painting'
+      ? 'Paint pockets, floor paper, acetone, filters, waste barrels and sprayer tips: in stock, minimums and purchase orders (' + CAT.po_prefix + '). Every order goes to Ashley.'
+      : CODE === 'sanding'
+      ? 'Mirka discs, pads and bags from Abrasive Supply, and fillers through Ashley: in stock, minimums and purchase orders (' + CAT.po_prefix + ').'
       : 'What is in stock and purchase orders (' + CAT.po_prefix + '). Add the items you keep, their suppliers and standard orders.';
   }
   drawFresh(); drawStock(); drawOrderForm(); drawSchedule(); drawOrders(); drawSettings(); drawPanel();
