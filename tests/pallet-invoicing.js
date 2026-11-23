@@ -206,7 +206,7 @@ let WHO = ME;
   /* invoices made before 2.14 are stored with the old tariff item and a
      negative discount; the files drawn from them must still be right */
   INVOICES.forEach(inv => (inv.lines || []).forEach(l => {
-    if(/^Tariff/.test(l.desc)) l.item = 'GMD-Wholesale:Tariff';
+    if(/^Tariff/.test(l.desc)) l.item = (inv.invoice_no % 2) ? 'GMD-Wholesale:Tariff' : 'GMD-Wholesale-Tariff';
     if(/^Discount/.test(l.desc)){ l.rate = -l.rate; l.amount = -l.amount; }
   }));
   const [dl2] = await Promise.all([page.waitForEvent('download'), page.click('button[data-invagain="P1"]')]);
