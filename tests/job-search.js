@@ -67,8 +67,11 @@ const check = (name, ok, got) => {
   check('Kind closets only', JSON.stringify(await names()) === '["Patel"]', await names());
   await page.selectOption('[data-jf="kind"]', 'closets');
   check('Kind has closets', (await names()).length === 2);
-  await page.selectOption('[data-jf="status"]', 'active');
-  check('status filter on top', JSON.stringify(await names()) === '["Nguyen"]', await names());
+  // 2.66: the status comes from Access, so on this test's local storage there is no status filter; the salesperson one stands in
+  check('no status filter without Supabase', !(await page.$('[data-jf="status"]')));
+  await page.selectOption('[data-jf="kind"]', 'doors');
+  await page.selectOption('[data-jf="rep"]', 'Bob');
+  check('salesperson filter on top', JSON.stringify(await names()) === '["Nguyen"]', await names());
   check('Filters button shows 2 set', /2/.test(await page.locator('[data-cl="jfopen"]').textContent()));
   check('no sideways scroll', await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1));
   await page.click('[data-jfclear]');

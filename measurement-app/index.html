@@ -832,6 +832,28 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 .spill.active{background:#E8F0E4;color:#3C6B2E}
 .spill.downloaded{background:#E4ECF6;color:#2E5F8A}
 .spill.closed{background:var(--rule-soft);color:var(--muted)}
+/* 2.66: the status is Access's own words, so the pill fits any of them */
+.spill.acc{background:#E4ECF6;color:#2E5F8A;text-transform:none;letter-spacing:0}
+.spill.acc.done{background:var(--rule-soft);color:var(--muted)}
+.spill.unl{background:#FBEFD9;color:#8A5A10;text-transform:none;letter-spacing:0}
+.spill.none{background:var(--rule-soft);color:var(--muted);text-transform:none;letter-spacing:0}
+.accnote{display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center;margin:10px 0 2px;padding:10px 12px;border-radius:12px;
+  background:#FBEFD9;color:#5C3D0B;font-size:14px}
+.accnote .btn{margin-left:auto}
+.accline{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;font-size:14px}
+.accline small{display:block;width:100%;font-size:12.5px;color:#8A5A10}
+.accline .btn{margin-left:auto}
+.acc-h{font-size:13px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:16px 0 6px}
+.acc-who{font-size:14px;color:var(--muted);margin:4px 0 0}
+.acc-row{display:flex;gap:10px;align-items:center;padding:10px 12px;border-top:1px solid var(--rule-soft)}
+.acc-row:first-child{border-top:0}
+.acc-row .t{flex:1;min-width:0;font-size:14px;line-height:1.4}
+.acc-row .t b{font-size:15px}
+.acc-row .t span{display:block;color:var(--muted);font-size:12.5px;overflow-wrap:anywhere}
+.acc-row .t em{font-style:normal;color:#3C6B2E;font-weight:600}
+.acc-row .t i{font-style:normal;color:#8A5A10}
+.acc-q{width:100%;min-height:46px;font-size:16px;padding:10px 12px;border:1px solid var(--rule);border-radius:12px;background:#fff}
+.acc-empty{padding:12px;color:var(--muted);font-size:14px}
 .empty{text-align:center;padding:48px 20px;color:var(--muted)}
 .empty b{display:block;color:var(--ink);font-size:18px;margin-bottom:6px}
 .toast{
@@ -3466,6 +3488,48 @@ const statusOf = j => {
   return STATUS_LABEL[s] ? s : 'active';
 };
 
+/* THE STATUS COMES FROM ACCESS (2.66, Andrew 23 Nov)
+ *
+ * What a job shows as its status is now Access's own status, in Access's
+ * words, copied one way by the hourly sync on the office server. It cannot
+ * be changed here. The estimate status shows until Access has sold the job,
+ * then the order status.
+ *
+ * Every job carries a link to its Access customer. The sync links the ones
+ * it can, makes a job for every new Access customer from 24 November, and
+ * flags the rest, which an administrator links by hand from the list.
+ *
+ * The Active / Downloaded / Closed above are kept inside the job only for
+ * who may delete it; they are no longer shown or set as a status. */
+const ACC_COLS = 'access_estimate_id,access_order_no,access_status,access_status_sort,' +
+                 'access_completed,access_link,access_flag';
+const accRow = j => (j && state.jobs.find(x => x.id === j.id)) || j || {};
+const accLinked = j => !!(j && j.accEst);
+const needsLink = j => SB && j && !j.accEst && j.accLink !== 'none';
+const accLabel = j => j.accEst ? (j.accStatus || 'In Access') : j.accLink === 'none' ? 'Not in Access' : 'Not linked';
+const accKey = j => j.accEst ? 's:' + (j.accStatus || '') : j.accLink === 'none' ? '_none' : '_unlinked';
+function accPill(j){
+  if(!SB) return '';
+  const cls = j.accEst ? 'acc' + (j.accDone ? ' done' : '') : j.accLink === 'none' ? 'none' : 'unl';
+  return '<span class="spill ' + cls + '">' + esc(accLabel(j)) + '</span>';
+}
+/* the Access statuses on the jobs in the list, in Access's own order */
+function accStatusOptions(){
+  const seen = new Map();
+  state.jobs.forEach(j => { if(j.accEst && !seen.has(accKey(j)))
+    seen.set(accKey(j), {k:accKey(j), l:j.accStatus || 'In Access', s: j.accSort == null ? 99999 : +j.accSort}); });
+  const list = [...seen.values()].sort((a, b) => a.s - b.s || a.l.localeCompare(b.l));
+  list.push({k:'_unlinked', l:'Not linked'});
+  if(state.jobs.some(j => j.accLink === 'none')) list.push({k:'_none', l:'Not in Access'});
+  return list;
+}
+async function accRpc(fn, args){
+  const r = await sb('/rest/v1/rpc/' + fn, {method:'POST', headers: sbHeaders(true), body: JSON.stringify(args)});
+  const j = await r.json().catch(() => null);
+  if(!r.ok) throw new Error((j && (j.message || j.error)) || ('Supabase answered ' + r.status));
+  return j;
+}
+
 async function loadIndex(){
   if(SB){
     /* The status and the sales representative are read straight out of the
@@ -3475,8 +3539,14 @@ async function loadIndex(){
     const rich = 'id,customer,owner_name,openings,updated,' +
                  'status:data->>status,rep:data->>salesRep,closets:data->>closetCount,' +
                  'address:data->>address,city:data->>city,phone:data->>phone,email:data->>email,quoteNo:data->>quoteNo';
-    let r = await sb('/rest/v1/jobs?select=' + rich + '&order=updated.desc',
+    /* 2.66: the Access link and status, which the hourly sync writes into
+       columns of their own. Asked for first and dropped if the columns are
+       not there yet, so the list never breaks over them. */
+    let r = await sb('/rest/v1/jobs?select=' + rich + ',' + ACC_COLS + '&order=updated.desc',
                      {headers: sbHeaders()});
+    if(!r.ok)
+      r = await sb('/rest/v1/jobs?select=' + rich + '&order=updated.desc',
+                   {headers: sbHeaders()});
     if(!r.ok)
       r = await sb('/rest/v1/jobs?select=id,customer,owner_name,openings,updated' +
                    '&order=updated.desc', {headers: sbHeaders()});
@@ -3486,7 +3556,11 @@ async function loadIndex(){
                                        status: statusOf(j),
                                        openings:j.openings, closets:+j.closets || 0, updated: Date.parse(j.updated),
                                        address:j.address || '', city:j.city || '', phone:j.phone || '', email:j.email || '',
-                                       quoteNo:j.quoteNo || ''}));
+                                       quoteNo:j.quoteNo || '',
+                                       accEst:j.access_estimate_id || null, accNo:j.access_order_no || '',
+                                       accStatus:j.access_status || '', accSort:j.access_status_sort,
+                                       accDone:!!j.access_completed, accLink:j.access_link || '',
+                                       accFlag:j.access_flag || ''}));
   }
   try{ const v = await Local.get(IDX); return (v ? JSON.parse(v) : []).map(j =>
          Object.assign({}, j, {status: statusOf(j), rep: j.rep || j.owner || j.salesRep || ''}));
@@ -5882,6 +5956,7 @@ function render(){
   if(state.view === 'users')  return renderUsers();
   if(state.view === 'jobs')   return renderJobs();
   if(state.view === 'closets') return renderClosets();
+  if(state.view === 'acclink') return renderAccLink();
   return renderJob();
 }
 
@@ -5963,10 +6038,12 @@ function renderUsers(){
 function canDelete(j){
   if(isAdmin()) return true;
   const mine = !j.owner || j.owner === state.me.name;
-  return mine && statusOf(j) === 'active';
+  // 2.66: a job linked to Access is a customer on record, so an administrator's to delete
+  return mine && statusOf(j) === 'active' && !accLinked(j);
 }
 function deleteWhy(j){
   if(isAdmin()) return 'Delete this job';
+  if(accLinked(j)) return 'This job is linked to Access, so only an administrator can delete it';
   if(!(!j.owner || j.owner === state.me.name))
     return 'This one is ' + (j.owner || 'somebody else') + "'s, so only an administrator can delete it";
   if(statusOf(j) === 'downloaded')
@@ -5998,8 +6075,8 @@ function jobFilters(j){
   if(f.kind === 'doors' && !nd) return false;
   if(f.kind === 'closets' && !nc) return false;
   if(f.kind === 'closetsonly' && (nd || !nc)) return false;
-  if(f.hideClosed && statusOf(j) === 'closed') return false;
-  if(f.status && statusOf(j) !== f.status) return false;
+  if(f.hideClosed && j.accDone) return false;          // 2.66: completed in Access
+  if(f.status && accKey(j) !== f.status) return false;
   if(f.rep && (j.rep || j.owner || '') !== f.rep) return false;
   const day = jobDay(j);
   if(f.from && (!day || day < f.from)) return false;
@@ -6015,11 +6092,14 @@ function jobRowsHtml(visible){
   return visible.map(j =>
     '<div class="card"><div class="jobrow" data-open="' + j.id + '">' +
       '<div class="t"><b>' + esc(j.customer || 'Untitled job') + ' ' +
-        '<span class="spill ' + statusOf(j) + '">' + STATUS_LABEL[statusOf(j)] + '</span></b>' +
+        accPill(j) + '</b>' +
       '<span>' + esc([docAddress(j), j.phone].filter(Boolean).join(' \u00b7 ')) + (docAddress(j) || j.phone ? '<br>' : '') +
       jobCounts(j) + ' · ' +
       new Date(j.updated).toLocaleDateString() +
       (j.rep || j.owner ? ' · ' + esc(j.rep || j.owner) : '') + '</span></div>' +
+      (isAdmin() && needsLink(j)
+        ? '<button class="btn btn-sm" data-acclink="' + j.id + '" title="' + esc(j.accFlag || 'Not linked to Access yet') + '">Link</button>'
+        : '') +
       '<button class="btn btn-ghost btn-sm" data-exp="' + j.id + '">Save file</button>' +
       (canDelete(j)
         ? '<button class="btn btn-ghost btn-sm btn-danger" data-del="' + j.id +
@@ -6040,15 +6120,137 @@ document.addEventListener('input', e => {
   state.jf.q = t.value; refreshJobList();
 });
 function sortJobs(list){
-  const f = state.jf, order = ['active','downloaded','closed'];
+  const f = state.jf;
+  const sortOf = j => j.accEst ? (j.accSort == null ? 99999 : +j.accSort) : j.accLink === 'none' ? 200001 : 200000;
   const by = {
     date:   (a,b) => b.updated - a.updated,
     rep:    (a,b) => String(a.rep || a.owner || '').localeCompare(String(b.rep || b.owner || '')) ||
                      (b.updated - a.updated),
-    status: (a,b) => order.indexOf(statusOf(a)) - order.indexOf(statusOf(b)) ||
-                     (b.updated - a.updated)
+    status: (a,b) => sortOf(a) - sortOf(b) || (b.updated - a.updated)
   };
   return list.slice().sort(by[f.sort] || by.date);
+}
+
+/* ---------------- linking a job to Access by hand (2.66) ----------------
+   Administrators only, and the database checks that too. Suggestions are
+   the Access customers that share something with the job, best first;
+   the search looks through the whole Access list. */
+function accText(a){
+  if(a && a.accEst) return 'Access job ' + (a.accNo || '(no number yet)') + (a.accStatus ? ' · ' + a.accStatus : '');
+  if(a && a.accLink === 'none') return 'Not in Access';
+  return 'Not linked to Access yet';
+}
+async function openAccLink(id){
+  state.acc = {job:id, back: state.view, q:'', sug:null, found:null, err:''};
+  state.view = 'acclink'; render();
+  try{ state.acc.sug = await accRpc('gidc_access_suggest', {p_job:id}); }
+  catch(e){ state.acc.sug = []; state.acc.err = e.message; }
+  if(state.view === 'acclink') render();
+}
+/* only the results are redrawn, so the search box keeps the keyboard */
+function accFoundPaint(){
+  const el = document.getElementById('accfound'); if(el) el.innerHTML = accFoundHtml();
+}
+async function accSearch(q){
+  const a = state.acc; if(!a) return;
+  a.q = q; a.found = null; accFoundPaint();
+  if(!String(q).trim()) return;
+  try{ const res = await accRpc('gidc_access_search', {p_q:q}); if(state.acc === a && a.q === q) a.found = res; }
+  catch(e){ if(state.acc === a && a.q === q){ a.found = []; toast(e.message); } }
+  if(state.acc === a && a.q === q) accFoundPaint();
+}
+function accFoundHtml(){
+  const a = state.acc || {}, j = state.jobs.find(x => x.id === a.job) || {};
+  if(!String(a.q || '').trim()) return '';
+  return '<div class="card" style="margin-top:8px">' +
+    (a.found == null ? '<div class="acc-empty">Searching…</div>'
+      : a.found.length ? a.found.map(c => accCandHtml(c, j)).join('')
+      : '<div class="acc-empty">No customer in Access has all of those words.</div>') + '</div>';
+}
+function accDay(d){
+  if(!d) return '';
+  const t = new Date(d + 'T12:00:00');
+  return isNaN(t) ? d : t.toLocaleDateString(undefined, {year:'numeric', month:'short', day:'numeric'});
+}
+function accCandHtml(c, cur){
+  const here = cur && cur.accEst === c.estimate_id;
+  return '<div class="acc-row"><div class="t"><b>' + esc(c.name || '(no name)') + '</b>' +
+    (c.order_no ? ' · Access job ' + esc(c.order_no) : '') +
+    '<span>' + esc([c.address, c.city].filter(Boolean).join(', ')) + '</span>' +
+    '<span>' + esc([c.phone, c.email].filter(Boolean).join(' · ')) + '</span>' +
+    '<span>' + esc(['Created ' + accDay(c.created_on), c.status, c.rep].filter(Boolean).join(' · ')) + '</span>' +
+    (c.why ? '<span><em>Matches on ' + esc(c.why) + '</em>' + (c.in_window === false ? ' <i>(a different time)</i>' : '') + '</span>' : '') +
+    (c.taken_by && !here ? '<span><i>Linked to ' + esc(c.taken_by) + '</i></span>' : '') +
+    '</div>' +
+    (here ? '<b>Linked</b>'
+          : '<button class="btn btn-sm' + (c.taken_by ? '' : ' btn-primary') + '" data-accpick="' + c.estimate_id + '"' +
+            (c.taken_by ? ' data-accmove="1"' : '') + ' data-accno="' + esc(c.order_no || '') + '" data-accwho="' + esc(c.taken_by || '') + '">' +
+            (c.taken_by ? 'Move here' : 'Link') + '</button>') + '</div>';
+}
+function renderAccLink(){
+  const a = state.acc || {};
+  const j = state.jobs.find(x => x.id === a.job) || {};
+  $('#bar').innerHTML = '<button class="btn btn-ghost btn-sm" data-accback="1">Back</button>' +
+    '<h1>Link to Access</h1>';
+  let h = '<div class="card"><div class="card-body" style="border-top:0;padding-top:14px">' +
+    '<b style="font-size:17px">' + esc(j.customer || 'Untitled job') + '</b> ' + accPill(j) +
+    '<p class="acc-who">' + esc([docAddress(j), j.phone, j.email, j.rep || j.owner, new Date(j.updated).toLocaleDateString()].filter(Boolean).join(' · ')) + '</p>' +
+    (j.accFlag && !j.accEst ? '<p class="acc-who" style="color:#8A5A10">' + esc(j.accFlag) + '</p>' : '') +
+    '</div></div>';
+  if(a.err) h += '<div class="accnote">' + esc(a.err) + '</div>';
+  h += '<div class="acc-h">Suggested from Access</div><div class="card">' +
+    (a.sug == null ? '<div class="acc-empty">Looking in Access…</div>'
+      : a.sug.length ? a.sug.map(c => accCandHtml(c, j)).join('')
+      : '<div class="acc-empty">Nothing in Access shares a name, address, phone or email with this job. Search below.</div>') + '</div>';
+  h += '<div class="acc-h">Search Access</div>' +
+    '<input class="acc-q" type="search" data-accq="1" enterkeyhint="search" autocomplete="off" autocorrect="off" ' +
+    'placeholder="Name, address, phone or Access job number" value="' + esc(a.q || '') + '">';
+  h += '<div id="accfound">' + accFoundHtml() + '</div>';
+  $('#app').innerHTML = h;
+  $('#dock').innerHTML =
+    (j.accEst ? '<button class="btn" data-accun="1">Unlink</button>' : '') +
+    (j.accLink !== 'none' ? '<button class="btn" data-accnone="1" title="A test, a duplicate, or a customer who will never be in Access">Not in Access</button>' : '') +
+    '<button class="btn btn-primary" data-accback="1">Done</button>';
+}
+let accQT;
+document.addEventListener('input', e => {
+  const t = e.target; if(!t || !t.dataset || t.dataset.accq === undefined) return;
+  clearTimeout(accQT); const v = t.value;
+  accQT = setTimeout(() => accSearch(v), 350);
+});
+async function accDone(msg){
+  try{ state.jobs = await loadIndex(); }catch(e){}
+  toast(msg);
+  const back = state.acc && state.acc.back;
+  state.acc = null;
+  state.view = back === 'job' && state.job ? 'job' : 'jobs';
+  render();
+}
+async function accClick(d){
+  if(!isAdmin()) return toast('Only an administrator can link jobs to Access');
+  if(d.accshow !== undefined){ state.jf.status = '_unlinked'; state.jfOpen = true; return render(); }
+  if(d.acclink) return openAccLink(d.acclink);
+  const a = state.acc; if(!a) return;
+  if(d.accback !== undefined){ state.acc = null; state.view = a.back === 'job' && state.job ? 'job' : 'jobs'; return render(); }
+  try{
+    if(d.accpick){
+      if(d.accmove){
+        const ok = await sure({title:'Move this Access customer?', what:'Access job ' + (d.accno || '') + ' is linked to ' + d.accwho + '.',
+          why:'It comes off that job, which goes back on the list to link, and onto this one.', final:'You can link it back later.', go:'Move it here', goClass:'btn-primary'});
+        if(!ok) return;
+      }
+      const res = await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:+d.accpick, p_none:false, p_move:!!d.accmove});
+      return accDone('Linked to Access job ' + (res.order_no || d.accno || ''));
+    }
+    if(d.accnone !== undefined){
+      await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:null, p_none:true, p_move:false});
+      return accDone('Marked as not in Access');
+    }
+    if(d.accun !== undefined){
+      await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:null, p_none:false, p_move:false});
+      return accDone('Unlinked. The next hourly sync tries to match it again.');
+    }
+  }catch(e){ toast(e.message || String(e)); }
 }
 
 function renderJobs(){
@@ -6071,10 +6273,12 @@ function renderJobs(){
           (state.jf.rep === r ? ' selected' : '') + '>' + esc(r) + '</option>').join('') +
         '</select></label>'
       : '') +
-    '<label>Status<select data-jf="status"><option value="">Any</option>' +
-      STATUSES.map(([k,l]) => '<option value="' + k + '"' +
-        (state.jf.status === k ? ' selected' : '') + '>' + l + '</option>').join('') +
-      '</select></label>' +
+    (SB
+      ? '<label>Status<select data-jf="status"><option value="">Any</option>' +
+        accStatusOptions().map(o => '<option value="' + esc(o.k) + '"' +
+          (state.jf.status === o.k ? ' selected' : '') + '>' + esc(o.l) + '</option>').join('') +
+        '</select></label>'
+      : '') +
     '<label>Kind<select data-jf="kind">' + [['', 'Any'], ['doors', 'Has doors'], ['closets', 'Has closets'], ['closetsonly', 'Closets only']]
       .map(([k, l]) => '<option value="' + k + '"' + ((state.jf.kind || '') === k ? ' selected' : '') + '>' + l + '</option>').join('') + '</select></label>' +
     '<label>From<input type="date" data-jf="from" value="' + esc(state.jf.from || '') + '"></label>' +
@@ -6086,10 +6290,16 @@ function renderJobs(){
           '</option>').join('') + '</select></label>'
       : '') +
     '<label class="filtertick"><input type="checkbox" data-jf="hideClosed"' +
-      (state.jf.hideClosed ? ' checked' : '') + '>Hide closed jobs</label>' +
+      (state.jf.hideClosed ? ' checked' : '') + '>Hide completed jobs</label>' +
     (anyFilter() ? '<button class="btn btn-ghost btn-sm" data-jfclear="1">Clear</button>' : '') +
     '</div><div class="filtercount" id="jobcount">' + (anyFilter() ? visible.length + ' of ' + state.jobs.length : '') + '</div>';
 
+  /* 2.66: what the sync could not link, for an administrator to link by hand */
+  const toLink = isAdmin() ? state.jobs.filter(needsLink).length : 0;
+  if(toLink && state.jf.status !== '_unlinked')
+    h += '<div class="accnote"><span><b>' + toLink + ' job' + (toLink === 1 ? '' : 's') +
+         ' not linked to Access.</b> Link ' + (toLink === 1 ? 'it' : 'them') + ' by hand.</span>' +
+         '<button class="btn btn-sm" data-accshow="1">Show them</button></div>';
   h += '<div id="joblist">' + jobRowsHtml(visible) + '</div>';
 
   $('#app').innerHTML = state.jobs.length
@@ -6130,21 +6340,24 @@ function renderJob(){
      shows the customer as one line until Edit is tapped. */
   if(state.custOpen === false && job.customer){
     h += '<div class="card custline"><div class="cl-t"><b>' + esc(job.customer) + '</b>' +
-         '<span>' + esc([docAddress(job), job.condo ? 'Condo' : '', job.phone, job.email, (STATUSES.find(x => x[0] === statusOf(job)) || [])[1]]
+         '<span>' + esc([docAddress(job), job.condo ? 'Condo' : '', job.phone, job.email, SB ? accText(accRow(job)) : '']
            .filter(Boolean).join('  \u00b7  ')) + '</span></div>' +
          '<button class="btn btn-ghost btn-sm" data-custopen="1">Edit customer</button></div>';
   } else {
   h += '<div class="card jobcard"><div class="card-body" style="border-top:0;padding-top:8px">';
   if(job.customer && ((job.openings || []).length || closetsOf(job).length))
     h += '<button class="btn btn-ghost btn-sm jc-fold" data-custopen="0">Fold away</button>';
-  /* Where this job is up to. It moves to Downloaded on its own the first time
-     the contract is taken out of here, so the only one anybody sets by hand is
-     Closed. */
-  h += '<div class="field jf-status"><label>Status</label>' +
-       '<select data-jstatus="1">' +
-       STATUSES.map(([k,l]) => '<option value="' + k + '"' +
-         (statusOf(job) === k ? ' selected' : '') + '>' + l + '</option>').join('') +
-       '</select></div>';
+  /* 2.66: where this job is up to is Access's to say, so it is read here
+     and never set. An administrator can link it to the right customer. */
+  if(SB){
+    const a = accRow(job);
+    h += '<div class="field jf-status"><label>Status, from Access</label>' +
+         '<div class="accline"><b>' + esc(accText(a)) + '</b>' +
+         (isAdmin() ? '<button class="btn btn-ghost btn-sm" data-acclink="' + job.id + '">' +
+                      (a.accEst ? 'Change link' : 'Link') + '</button>' : '') +
+         (isAdmin() && needsLink(a) && a.accFlag ? '<small>' + esc(a.accFlag) + '</small>' : '') +
+         '</div></div>';
+  }
   JOBFIELDS.forEach(f => {
     /* the three office fields are away while measuring */
     if(f.office && inHome(job)) return;
@@ -6441,7 +6654,8 @@ const CLICK_KEYS = ['qrevise','qnew','qopt','qrm','qpdf','opnoteadd','open','del
   'adduser','rmuser','chip','dtype','osize','only','seed','diag','role',
   'applydef','cleardef','repopen','pickqty','qtyover','qtyauto','track3','review','revback','revprint','padof',
   'comboval','sure','jfclear','doc','custopen','revaddop','revrm','rvapplydef','sign','signpdf','signmail',
-  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote','cond','jambpick','swingdir','hingematch'];
+  'sendsign','rscheck','rsstop','rsdl','rssign','rspdf','rssave','rsretry','oldpdf','sizeok','doorauto','quote','cond','jambpick','swingdir','hingematch',
+  'acclink','accshow','accback','accpick','accnone','accun','accsearch'];
 const CLICK_SEL = CLICK_KEYS.map(k => '[data-' + k + ']').join(',');
 
 /* 2.30, Andrew 18 Nov: "the door type buttons stick and won't let us click
@@ -6485,6 +6699,8 @@ document.addEventListener('click', async e => {
   if(!t) return;
   const d = t.dataset;
   const job = state.job;
+  if(d.acclink || d.accshow !== undefined || d.accback !== undefined || d.accpick || d.accnone !== undefined ||
+     d.accun !== undefined || d.accsearch !== undefined){ e.stopImmediatePropagation(); return accClick(d); }
   if(d.review !== undefined) return openReview();
   if(d.padof){ const o = job && job.openings.find(x => x.id === d.op); if(o) openPad(o, d.padof); return; }
   if(d.doorauto){ const o = job && job.openings.find(x => x.id === d.doorauto);
@@ -6963,12 +7179,6 @@ document.addEventListener('change', async e => {
     persistBg();
     return;
   }
-  if(d.jstatus !== undefined){
-    job.status = statusOf({status: t.value});
-    persistBg();
-    toast('Marked ' + STATUS_LABEL[job.status]);
-    return render();
-  }
   if(d.def){
     job.defaults = job.defaults || {};
     if(d.combo){
@@ -7131,6 +7341,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.65 · 20 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.66 · 23 Nov 2026</div>
 </body>
 </html>
