@@ -51,3 +51,10 @@ Also do this in the Supabase dashboard, which no SQL file can do for
 you: Authentication, Sign In / Providers, Email, turn off **Allow new
 users to sign up**. Note that this stops the measurement app creating
 logins, which is deliberate: logins are made on the tools site.
+
+**paint.sql** adds the Paint tool's tables: the colours with their
+coverage and warning levels, the schedule the server sends from Access,
+counts, and order requests. Administrators and manufacturing only,
+through can_use_paint(). The schedule is written only by the paint-sync
+edge function. Independent of the login files. `tests/paint.sh` tests
+it locally.
