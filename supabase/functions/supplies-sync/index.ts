@@ -24,8 +24,11 @@
 //       "lines": [ { "order_id": 5069, "order_no": "5067", "job": "Aris",
 //                    "uses": "rerail", "need_on": "2026-11-24",
 //                    "amount": 66, "cuts": [33, 33] } ] }
-//   uses is one of rerail, pine, valance_small, valance_large, doors.
-//   For the first four, cuts are inches and amount is their total.
+//   uses is one of rerail, pine, valance_small, valance_large, doors,
+//   astragal_7, astragal_8, hinge, track, roller_set, floor_guide,
+//   finger_pull, flush_bolt. For the first four, cuts are inches and
+//   amount is their total; the rest are counts. spec says which size or
+//   colour (Andrew, 23 November), as "size=3.5; corner=1/4 radius; finish=Black".
 //
 // WHAT IT DOES
 //   Checks every line, then hands the lot to supply_schedule_load() in one
@@ -79,12 +82,14 @@ type Incoming = {
   order_no?: string | null;
   job?: string | null;
   uses?: string;
+  spec?: string | null;
   need_on?: string | null;
   amount?: number | string;
   cuts?: unknown;
 };
 
-const USES = new Set(["rerail", "pine", "valance_small", "valance_large", "doors"]);
+const USES = new Set(["rerail", "pine", "valance_small", "valance_large", "doors",
+  "astragal_7", "astragal_8", "hinge", "track", "roller_set", "floor_guide", "finger_pull", "flush_bolt"]);
 const day = (v: unknown) => v == null || v === "" ? null : String(v).slice(0, 10);
 
 Deno.serve(async (req) => {
@@ -139,7 +144,7 @@ Deno.serve(async (req) => {
         order_id: id,
         order_no: l.order_no == null ? null : String(l.order_no).slice(0, 40),
         job: l.job == null ? null : String(l.job).trim().slice(0, 120),
-        uses, need_on: need, amount,
+        uses, spec: String(l.spec ?? "").trim().slice(0, 120), need_on: need, amount,
         cuts: cuts.map((c) => Math.round(c * 1000) / 1000),
       });
     }

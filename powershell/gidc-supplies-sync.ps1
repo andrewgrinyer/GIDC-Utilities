@@ -1,5 +1,5 @@
 # =====================================================================
-#  GIDC  ·  hourly Shop Supplies schedule sync
+#  GIDC  ·  hourly Shop Supplies and Hardware schedule sync
 #
 #  Andrew, 20 November: Shop Supplies on the tools site predicts pine,
 #  rerail and valances from the doors in Access. This reads what each
@@ -36,6 +36,31 @@
 #    doors          how many interior doors, for supplies counted per door.
 #  Every piece is sent as a cut, so the page can fit whole cuts into
 #  stock lengths: a valance is never pieced from two.
+#
+#  ASTRAGALS AND HARDWARE (Andrew, 23 November). Counted, not cut. Each
+#  is sent with a spec that names which one, written exactly as the
+#  items on the Hardware list are: "size=3.5; corner=1/4 radius;
+#  finish=Satin Nickel", "length=72", "shape=round; finish=Black".
+#    astragal_7/_8  one per Double Swing AST line (door type 8): 7' for a
+#                   door 84" high or less, 8' above that.
+#    flush_bolt     one per astragal, in the door's finish.
+#    hinge          DoorHingeQuantity for each door, by size, corner and
+#                   finish.
+#    track          bypass (door type 4) interior doors only, per opening:
+#                   the shortest track that covers the opening; wider than
+#                   the longest, the two shortest that fill it together.
+#    roller_set     extra roller sets: a 3 door system needs one. A second
+#                   track brings two, so 3 doors on two tracks need none
+#                   and 4 doors on two tracks need none.
+#    floor_guide    2 per bypass system.
+#    finger_pull    2 doors: 4. 3 doors: 4 (none on the middle door).
+#                   4 doors: 8. Square pulls go on the front only, so a
+#                   square order is half square, half round, one finish.
+#                   Round ones are counted singly; the item turns them
+#                   into pairs.
+#  Finishes are matched by word to Satin Nickel, Bright Brass, Black,
+#  Aged Bronze and Chrome. A line with no finish, size or corner that
+#  can be read is counted as "not matched" and shown, not sent.
 #
 #  THE DAY A JOB NEEDS THEM (Andrew, 20 November)
 #    Two weeks before its installation date (Orders.InstallBookedDate).
@@ -86,6 +111,15 @@ param(
   # Interior doors, for the door count.
   [int[]]  $DoorProductTypes = @(1),
 
+  # Hardware (Andrew, 23 November).
+  [int[]]  $AstragalDoorTypes = @(8),
+  [double] $Astragal7MaxHeight = 84,
+  [int[]]  $BypassDoorTypes = @(4),
+  [int[]]  $BypassProductTypes = @(1),
+  [double[]] $TrackLengths = @(48, 60, 72, 96),
+  [int]    $FloorGuidesPerSystem = 2,
+  [switch] $NoHardware,
+
   # Days already passed that Access may still correct. Anything older is
   # left as Supabase has it, so supplies used stay used.
   [int] $DaysBack  = 14,
@@ -127,6 +161,69 @@ function Blank($v) { return ($null -eq $v -or $v -is [DBNull] -or "$v" -eq "") }
 function Num($v) { if (Blank $v) { return 0.0 }; try { return [double]$v } catch { return 0.0 } }
 function Yes($v) { if (Blank $v) { return $false }; try { return [bool]$v } catch { return $false } }
 function DayOf($v) { if (Blank $v) { return $null }; try { return ([datetime]$v).Date } catch { return $null } }
+
+# ---- lookup tables behind hardware numbers ------------------------------------
+# A DoorOrders column like DoorHandleFinishID holds a number; the name is in
+# the def_ table that has that column. Found by column name, so a column that
+# holds the value itself (DoorHingeSize = 3.5) is read as it is.
+$schemaCols = @{}
+$rs = $cn.OpenSchema(4)
+while (-not $rs.EOF) {
+  $t = [string]$rs.Fields.Item("TABLE_NAME").Value
+  if (-not $schemaCols.ContainsKey($t)) { $schemaCols[$t] = @() }
+  $schemaCols[$t] += [string]$rs.Fields.Item("COLUMN_NAME").Value
+  $rs.MoveNext()
+}
+$rs.Close()
+function Lookup($col) {
+  $map = @{}
+  foreach ($t in $schemaCols.Keys) {
+    if ($t -notmatch '^def_') { continue }
+    $cols = $schemaCols[$t]
+    $key = @($cols | Where-Object { $_ -eq $col -or $_ -eq ($col + "ID") })[0]
+    if (-not $key) { continue }
+    $base = $key -replace 'ID$', ''
+    $name = @($cols | Where-Object { $_ -ne $key -and ($_ -eq $base -or $_ -eq ($base + "Name") -or $_ -eq ($base + "Description")) })[0]
+    if (-not $name) { $name = @($cols | Where-Object { $_ -ne $key -and $_ -match 'Name|Desc' })[0] }
+    if (-not $name) { continue }
+    try { $rs = $cn.Execute("select [$key], [$name] from [$t]") } catch { continue }
+    while (-not $rs.EOF) {
+      if (-not (Blank $rs.Fields.Item(0).Value)) { $map[[string]$rs.Fields.Item(0).Value] = [string]$rs.Fields.Item(1).Value }
+      $rs.MoveNext()
+    }
+    $rs.Close()
+    if ($map.Count) { return $map }
+  }
+  return $map
+}
+function Named($map, $v) { if (Blank $v) { return "" }; $k = [string]$v; if ($map.ContainsKey($k)) { return $map[$k] }; return $k }
+$hw = @{}
+if (-not $NoHardware) {
+  foreach ($c in @("DoorHandleFinishID", "DoorHingeSize", "DoorHingeRadius", "DoorHandleID", "DoorHandleStyleID", "DoorHandleTypeID")) { $hw[$c] = Lookup $c }
+}
+function FinishOf($text) {
+  $t = "$text".ToLower()
+  if ($t -match 'nickel|satin|\bsn\b') { return "Satin Nickel" }
+  if ($t -match 'brass') { return "Bright Brass" }
+  if ($t -match 'bronze|\borb\b') { return "Aged Bronze" }
+  if ($t -match 'chrome') { return "Chrome" }
+  if ($t -match 'black|\bblk\b') { return "Black" }
+  return $null
+}
+function HingeSizeOf($text) {
+  $t = "$text" -replace '"', ''
+  if ($t -match '3\s*1/2|3\.5') { return "3.5" }
+  if ($t -match '(^|[^0-9.])4([^0-9]|$)|^4') { return "4" }
+  if ($t -match '(^|[^0-9.])3([^0-9.]|$)|^3') { return "3" }
+  return $null
+}
+function CornerOf($text) {
+  $t = "$text".ToLower() -replace '"', ''
+  if ($t -match '5/8|0?\.625') { return "5/8 radius" }
+  if ($t -match '1/4|0?\.25') { return "1/4 radius" }
+  if ($t -eq '0' -or $t -match 'square|none|no radius') { return "square" }
+  return $null
+}
 
 # ---- where the dates are ------------------------------------------------------
 $orderCols = @()
@@ -232,7 +329,9 @@ for ($i = 0; $i -lt $orderIds.Count; $i += 200) {
                                d.DoorReRail, d.DoorOrderWidth, d.DoorWidthManual, d.DoorResizedWidth,
                                d.DoorOpeningWidth, d.DoorOpeningHeight, d.DoorOrderHeight,
                                d.DoorBumpStops, d.DoorBumpStopLength_L, d.DoorBumpStopLength_R,
-                               d.DoorValanceLength, d.DoorAddPine, d.DoorTrackLength
+                               d.DoorValanceLength, d.DoorAddPine, d.DoorTrackLength,
+                               d.DoorTypeID, d.DoorHingeQuantity, d.DoorHingeSize, d.DoorHingeRadius,
+                               d.DoorHandleFinishID, d.DoorHandleID, d.DoorHandleStyleID, d.DoorHandleTypeID
                           from DoorOrders as d where d.OrderID in ($chunk)")) {
     $doorRows += $r
   }
@@ -250,14 +349,15 @@ foreach ($id in $orderIds) {
 
 # ---- what each order uses ---------------------------------------------------------
 $byKey = [ordered]@{}
-function Use($id, $uses, $amount, $cuts) {
-  $k = "$id|$uses"
+function Use($id, $uses, $amount, $cuts, $spec = "") {
+  $k = "$id|$uses|$spec"
   if (-not $byKey.Contains($k)) {
     $byKey[$k] = [pscustomobject]@{
       order_id = $id
       order_no = $names[$id].no
       job      = $names[$id].job
       uses     = $uses
+      spec     = $spec
       need_on  = $needOn[$id].ToString("yyyy-MM-dd")
       amount   = 0.0
       cuts     = New-Object System.Collections.Generic.List[double]
@@ -314,20 +414,105 @@ foreach ($v in $valances.Values) {
 }
 foreach ($p in $pineOpenings.Values) { Use $p.id "pine" $p.width @($p.width) }
 
+# ---- astragals and hardware (Andrew, 23 November) ---------------------------------
+$unmatched = @{}
+function Miss($what) { if (-not $unmatched.ContainsKey($what)) { $unmatched[$what] = 0 }; $unmatched[$what]++ }
+function LineFinish($r) { return FinishOf (Named $hw["DoorHandleFinishID"] $r["DoorHandleFinishID"]) }
+function IsSquarePull($r) {
+  foreach ($c in @("DoorHandleID", "DoorHandleStyleID", "DoorHandleTypeID")) {
+    if ((Named $hw[$c] $r[$c]) -match '(?i)square') { return $true }
+  }
+  return $false
+}
+# The shortest track that covers the width; wider than the longest, the two
+# whose lengths add to the least that still covers it.
+function TracksFor($width) {
+  $ls = @($TrackLengths | Sort-Object)
+  foreach ($l in $ls) { if ($l -ge $width) { return , @($l) } }
+  $best = $null
+  for ($a = 0; $a -lt $ls.Count; $a++) { for ($b = $a; $b -lt $ls.Count; $b++) {
+    $sum = $ls[$a] + $ls[$b]
+    if ($sum -ge $width -and ($null -eq $best -or $sum -lt ($best[0] + $best[1]))) { $best = @($ls[$a], $ls[$b]) }
+  } }
+  if ($null -eq $best) { $best = @($ls[-1], $ls[-1]) }
+  return , $best
+}
+$bypass = @{}   # "order|opening" -> @{ id; doors; width; finish; square }
+if (-not $NoHardware) {
+  $n = 0
+  foreach ($r in $doorRows) {
+    $n++
+    $id = [int]$r["OrderID"]
+    if (-not $needOn.ContainsKey($id)) { continue }
+    $day = $needOn[$id]
+    if ($day -lt $keep -or $day -gt $last) { continue }
+    $qty = [int](Num $r["DoorQuantity"]); if ($qty -lt 1) { $qty = 1 }
+    $type = [int](Num $r["DoorTypeID"]); $prod = [int](Num $r["DoorProductTypeID"])
+    $fin = LineFinish $r
+
+    if ($AstragalDoorTypes -contains $type) {
+      $h = FirstOf $r @("DoorOrderHeight", "DoorOpeningHeight")
+      Use $id $(if ($h -gt $Astragal7MaxHeight) { "astragal_8" } else { "astragal_7" }) 1 @()
+      if ($fin) { Use $id "flush_bolt" 1 @() ("finish=" + $fin) } else { Miss "flush bolt, no finish" }
+    }
+
+    $hq = [int](Num $r["DoorHingeQuantity"])
+    if ($hq -gt 0) {
+      $sz = HingeSizeOf (Named $hw["DoorHingeSize"] $r["DoorHingeSize"])
+      $cr = CornerOf (Named $hw["DoorHingeRadius"] $r["DoorHingeRadius"])
+      if ($sz -and $cr -and $fin) { Use $id "hinge" ($hq * $qty) @() ("size=$sz; corner=$cr; finish=$fin") }
+      else { Miss ("hinges, " + $(if (-not $sz) { "size" } elseif (-not $cr) { "corner" } else { "finish" }) + " not read") }
+    }
+
+    if (($BypassDoorTypes -contains $type) -and ($BypassProductTypes -contains $prod)) {
+      $opening = if (Blank $r["DoorOpeningNumber"]) { "row$n" } else { [string]$r["DoorOpeningNumber"] }
+      $bk = "$id|$opening"
+      if (-not $bypass.ContainsKey($bk)) { $bypass[$bk] = @{ id = $id; doors = 0; width = 0.0; finish = $fin; square = $false } }
+      $b = $bypass[$bk]
+      $b.doors += $qty
+      $w = FirstOf $r @("DoorOpeningWidth", "DoorTrackLength")
+      if ($w -gt $b.width) { $b.width = $w }
+      if (-not $b.finish) { $b.finish = $fin }
+      if (IsSquarePull $r) { $b.square = $true }
+    }
+  }
+  foreach ($b in $bypass.Values) {
+    if ($b.width -le 0) { Miss "bypass track, no width"; continue }
+    $tracks = TracksFor $b.width
+    foreach ($t in $tracks) { Use $b.id "track" 1 @() ("length=" + $t) }
+    $extra = [Math]::Max(0, ($b.doors - 2) - ($tracks.Count - 1) * 2)
+    if ($extra -gt 0) { Use $b.id "roller_set" $extra @() }
+    Use $b.id "floor_guide" $FloorGuidesPerSystem @()
+    $pulls = if ($b.doors -le 3) { 4 } else { 2 * $b.doors }
+    if (-not $b.finish) { Miss "finger pulls, no finish"; continue }
+    if ($b.square) {
+      Use $b.id "finger_pull" ($pulls / 2) @() ("shape=square; finish=" + $b.finish)
+      Use $b.id "finger_pull" ($pulls / 2) @() ("shape=round; finish=" + $b.finish)
+    } else {
+      Use $b.id "finger_pull" $pulls @() ("shape=round; finish=" + $b.finish)
+    }
+  }
+}
+
 $lines = @($byKey.Values | ForEach-Object {
-  [pscustomobject]@{ order_id = $_.order_id; order_no = $_.order_no; job = $_.job; uses = $_.uses
+  [pscustomobject]@{ order_id = $_.order_id; order_no = $_.order_no; job = $_.job; uses = $_.uses; spec = $_.spec
                      need_on = $_.need_on; amount = [Math]::Round($_.amount, 3); cuts = @($_.cuts) } })
 Say ("{0} line(s) to send from {1} order(s)" -f $lines.Count, (@($lines | ForEach-Object { $_.order_id } | Select-Object -Unique)).Count) "Green"
 $fromWhat = $why.Values | Group-Object | ForEach-Object { "{0} by {1} date" -f $_.Count, $_.Name }
 if ($fromWhat) { Say ("  days needed: " + ($fromWhat -join ", ")) }
+if ($unmatched.Count) {
+  Say "  Not counted, Access did not say enough:" "Yellow"
+  foreach ($k in $unmatched.Keys) { Say ("    {0}: {1} line(s)" -f $k, $unmatched[$k]) "Yellow" }
+}
 
 # ---- -WhatIf: show it and stop -------------------------------------------------------
 if ($WhatIfPreference) {
   Say ""
   Say "Totals in the window, inches for cuts:" "Cyan"
-  $lines | Group-Object uses | Sort-Object Name | ForEach-Object {
+  $lines | Group-Object uses, spec | Sort-Object Name | ForEach-Object {
     $cuts = ($_.Group | ForEach-Object { $_.cuts.Count } | Measure-Object -Sum).Sum
-    Say ("  {0,-14} {1,9:N1}  in {2} cut(s), {3} order(s)" -f $_.Name, (($_.Group | Measure-Object amount -Sum).Sum), $cuts, $_.Count)
+    $what = if ($cuts) { "in $cuts cut(s)" } else { "counted" }
+    Say ("  {0,-48} {1,9:N1}  {2}, {3} order(s)" -f $_.Name, (($_.Group | Measure-Object amount -Sum).Sum), $what, $_.Count)
   }
   Say ""
   Say "Next three weeks, by the day needed:" "Cyan"

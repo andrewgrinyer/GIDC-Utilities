@@ -193,6 +193,60 @@ select 'shop', v.n, 'piece', v.u, v.p, v.w, v.s
   ) as v(n, u, p, w, s)
  where not exists (select 1 from public.supply_items i where i.category = 'shop');
 
+-- THE SUPPLIERS ANDREW NAMED (23 November). Added once, by name.
+--   Elmira Doors & Trim: shop supplies, bypass tracks and rollers, astragals.
+--   Onward: hinges, finger pulls, floor guides and flush bolts. Onward
+--     takes orders through its own portal, so it has no email here: an
+--     Onward PO goes to Ashley alone, as a request for her to place it.
+insert into public.supply_suppliers (name, email, note)
+select v.n, v.e, v.note
+  from (values ('Elmira Doors & Trim', 'mike@elmiradoorandtrim.com', null::text),
+               ('Onward', null, 'Orders through the Onward portal. POs go to Ashley to place.')) as v(n, e, note)
+ where not exists (select 1 from public.supply_suppliers s
+                    where lower(regexp_replace(s.name, '[^A-Za-z0-9]', '', 'g'))
+                        = lower(regexp_replace(v.n, '[^A-Za-z0-9]', '', 'g')));
+
+-- THE HARDWARE LIST (Andrew, 23 November), added only if Hardware has
+-- no items yet. spec is matched to what the sync sends, word for word.
+do $$
+declare elm uuid; onw uuid; sz text; cr text; fin text; n int := 0;
+        sizes text[] := array['3', '3.5', '4'];
+        corners text[] := array['square', '1/4 radius', '5/8 radius'];
+        finishes text[] := array['Satin Nickel', 'Bright Brass', 'Black', 'Aged Bronze', 'Chrome'];
+begin
+  if exists (select 1 from public.supply_items where category = 'hardware') then return; end if;
+  select id into elm from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'elmiradoorstrim' limit 1;
+  select id into onw from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'onward' limit 1;
+
+  foreach sz in array sizes loop
+    foreach cr in array corners loop
+      foreach fin in array finishes loop
+        n := n + 1;
+        insert into public.supply_items (category, shop_name, unit, uses, spec, per_unit, waste_pct, sort, supplier_id)
+        values ('hardware', 'Hinge ' || sz || '" ' || cr || ' ' || fin, 'hinge', 'hinge',
+                'size=' || sz || '; corner=' || cr || '; finish=' || fin, 1, 0, 100 + n, onw);
+      end loop;
+    end loop;
+  end loop;
+
+  insert into public.supply_items (category, shop_name, unit, uses, spec, per_unit, waste_pct, sort, supplier_id)
+  select 'hardware', 'Bypass track ' || l || '"', 'track', 'track', 'length=' || l, 1, 0, 200 + l::int / 12, elm
+    from unnest(array['48', '60', '72', '96']) as l;
+  insert into public.supply_items (category, shop_name, unit, uses, spec, per_unit, waste_pct, sort, supplier_id) values
+    ('hardware', 'Extra roller set', 'set', 'roller_set', '', 1, 0, 220, elm),
+    ('hardware', 'Floor guide', 'piece', 'floor_guide', '', 1, 0, 230, onw);
+
+  n := 0;
+  foreach fin in array finishes loop
+    n := n + 1;
+    -- Round finger pulls are bought in pairs (Andrew, 23 November).
+    insert into public.supply_items (category, shop_name, unit, uses, spec, per_unit, waste_pct, sort, supplier_id) values
+      ('hardware', 'Finger pull round ' || fin, 'pair', 'finger_pull', 'shape=round; finish=' || fin, 2, 0, 300 + n, onw),
+      ('hardware', 'Finger pull square ' || fin, 'piece', 'finger_pull', 'shape=square; finish=' || fin, 1, 0, 310 + n, onw),
+      ('hardware', 'Flush bolt 6" radius bottom ' || fin, 'piece', 'flush_bolt', 'finish=' || fin, 1, 0, 400 + n, onw);
+  end loop;
+end $$;
+
 -- Andrew, 23 November: astragals, 7 and 8 feet, one for each Double
 -- Swing AST door, the length by the door's height. Each added once, by
 -- name, and from Elmira Doors & Trim when that supplier is on the list.

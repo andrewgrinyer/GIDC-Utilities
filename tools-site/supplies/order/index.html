@@ -161,6 +161,10 @@ table.ord{border-collapse:collapse;width:100%;font-size:14px}
 .back{display:inline-block;margin:16px 0 0;font-size:14px;color:var(--brass);text-decoration:none;font-weight:600}
 .back:hover{text-decoration:underline}
 .tiny{font-size:12.5px;color:var(--muted)}
+.find{display:flex;gap:8px;align-items:center;margin:14px 0 0}
+.find input{flex:1;max-width:420px;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;font:inherit;background:var(--card,#fff);color:inherit}
+.find .tiny{white-space:nowrap}
+h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 </style>
 </head>
 <body>
@@ -171,6 +175,8 @@ table.ord{border-collapse:collapse;width:100%;font-size:14px}
   <p class="fresh" id="fresh"></p>
   <div id="msg" class="hide"></div>
   <div id="panel"></div>
+
+  <div class="find"><input id="find" type="search" placeholder="Search items: name, supplier, size, colour" aria-label="Search items" autocomplete="off"><span class="tiny" id="findn"></span></div>
 
   <h2 class="withbtn">Stock <button class="plain small" id="newitem">New item</button></h2>
   <div class="stock" id="stock"><div class="empty">Loading&hellip;</div></div>
@@ -203,7 +209,7 @@ table.ord{border-collapse:collapse;width:100%;font-size:14px}
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.0.1 &middot; 20 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.1 &middot; 23 Nov 2026</div>
 
 <script>
 (function(){
@@ -247,8 +253,21 @@ var USES = {
   pine:          {label: 'Pine: bump stops, and a piece the width of the opening for each valance or Add Pine', per: 'Length of one piece, inches', cut: true},
   valance_small: {label: 'Small valances: openings 83" high or less', per: 'Length of one piece, inches', cut: true},
   valance_large: {label: 'Large valances: openings over 83" high', per: 'Length of one piece, inches', cut: true},
-  doors:         {label: 'Doors on the schedule', per: 'Doors per unit', cut: false}
+  doors:         {label: 'Doors on the schedule', per: 'Doors per unit', cut: false},
+  /* Andrew, 23 November: astragals, and the Hardware list. Counted per
+     door or per bypass opening by the server sync; spec says which size
+     or colour, in the same words the sync writes. */
+  astragal_7:    {label: 'Astragals, 7 foot: Double Swing AST doors 84" or shorter', per: 'Astragals per unit', cut: false, group: 'Astragals'},
+  astragal_8:    {label: 'Astragals, 8 foot: Double Swing AST doors over 84"', per: 'Astragals per unit', cut: false, group: 'Astragals'},
+  hinge:         {label: 'Hinges, by size, radius and colour', per: 'Hinges per unit', cut: false, spec: true, group: 'Hinges'},
+  track:         {label: 'Bypass tracks, by length', per: 'Tracks per unit', cut: false, spec: true, group: 'Bypass tracks and rollers'},
+  roller_set:    {label: 'Extra roller sets for bypass', per: 'Roller sets per unit', cut: false, group: 'Bypass tracks and rollers'},
+  floor_guide:   {label: 'Floor guides for bypass', per: 'Floor guides per unit', cut: false, group: 'Bypass tracks and rollers'},
+  finger_pull:   {label: 'Finger pulls, by shape and colour', per: 'Finger pulls per unit', cut: false, spec: true, group: 'Finger pulls'},
+  flush_bolt:    {label: 'Flush bolts, by colour', per: 'Flush bolts per unit', cut: false, spec: true, group: 'Flush bolts'}
 };
+/* "size=3.5; radius=0.25; finish=Black" read as "3.5, 0.25, Black" */
+function niceSpec(sp){ return String(sp || '').split(';').map(function(b){ return b.split('=').pop().trim(); }).filter(Boolean).join(', '); }
 
 /* ---- what was read ------------------------------------------------------ */
 var ME = null, CAT = null, ITEMS = [], SUPPLIERS = [], COUNTS = [], ORDERS = [], SCHED = [];
@@ -256,6 +275,7 @@ var QTY = {};              // what is typed in the new order, by item id
 var panel = null;          // which little form is open
 var askRemove = null;      // item or supplier about to be removed
 var showJobs = false;
+var FIND = '';
 var busy = false;
 
 function message(kind, text){
@@ -326,6 +346,19 @@ function load(){
   });
 }
 
+/* Search: every word typed must appear somewhere in the item's names,
+   supplier, or size and colour. Picked items stay in the order table. */
+function matches(it){
+  if(!FIND) return true;
+  var sup = supplierOf(it);
+  var hay = [it.shop_name, it.supplier_item, sup ? sup.name : '', it.spec ? niceSpec(it.spec) : '', groupOf(it)].join(' ').toLowerCase();
+  return FIND.split(/\s+/).every(function(w){ return hay.indexOf(w) >= 0; });
+}
+function shown(){ return ITEMS.filter(matches); }
+function drawFind(){
+  var n = shown().length;
+  $('findn').textContent = FIND ? (n ? n + ' of ' + ITEMS.length + ' items' : 'No item matches') : '';
+}
 function supplierOf(it){ return SUPPLIERS.filter(function(s){ return s.id === it.supplier_id; })[0] || null; }
 function itemById(id){ return ITEMS.filter(function(i){ return i.id === id; })[0] || null; }
 
@@ -346,7 +379,8 @@ function pack(cuts, len){
   return pieces;
 }
 function rowsFor(it, from, to){
-  return SCHED.filter(function(s){ return s.uses === it.uses && (!from || s.need_on >= from) && (!to || s.need_on <= to); });
+  return SCHED.filter(function(s){ return s.uses === it.uses && (s.spec || '') === (it.spec || '') &&
+                                         (!from || s.need_on >= from) && (!to || s.need_on <= to); });
 }
 function unitsFor(it, rows){
   if(!it.uses || !rows.length) return 0;
@@ -440,9 +474,21 @@ function card(it){
       '<button class="plain small" data-edit="' + esc(it.id) + '">Edit</button></div>' +
     '</div>';
 }
+function groupOf(it){ return (USES[it.uses] && USES[it.uses].group) || ''; }
 function drawStock(){
-  $('stock').innerHTML = ITEMS.map(card).join('') ||
-    '<div class="empty">Nothing on this list yet. Press New item to add the first one.</div>';
+  if(!ITEMS.length){ $('stock').innerHTML = '<div class="empty">Nothing on this list yet. Press New item to add the first one.</div>'; return; }
+  /* Grouped by kind once any item has one (hinges, tracks, pulls), so a
+     long hardware list reads in sections. */
+  drawFind();
+  var list = shown();
+  if(!list.length){ $('stock').innerHTML = '<div class="empty">No item matches that search.</div>'; return; }
+  var groups = [], by = {};
+  list.forEach(function(it){ var g = groupOf(it); if(!by[g]){ by[g] = []; groups.push(g); } by[g].push(it); });
+  if(groups.length === 1 && !groups[0]){ $('stock').innerHTML = list.map(card).join(''); return; }
+  groups.sort(function(a, b){ return a === '' ? -1 : b === '' ? 1 : 0; });
+  $('stock').innerHTML = groups.map(function(g){
+    return '<h3 class="grp">' + esc(g || 'Other') + '</h3>' + by[g].map(card).join('');
+  }).join('');
 }
 
 /* ---- the new order --------------------------------------------------------- */
@@ -463,7 +509,7 @@ function drawOrderForm(){
   if(!ITEMS.length){ $('ord').innerHTML = '<tr><td><div class="empty">Add items first.</div></td></tr>'; drawGroups(); return; }
   $('ord').innerHTML = '<thead><tr><th>Item</th><th>Supplier</th><th style="text-align:right">In stock</th>' +
     '<th style="text-align:right">Suggested</th><th style="text-align:right">Order</th></tr></thead><tbody>' +
-    ITEMS.map(function(it){
+    ITEMS.filter(function(it){ return matches(it) || Number(QTY[it.id]) > 0; }).map(function(it){
       var s = stockOf(it), sup = supplierOf(it), q = QTY[it.id];
       return '<tr' + (Number(q) > 0 ? ' class="picked"' : '') + '><td><b>' + esc(it.shop_name) + '</b>' +
         (it.supplier_item ? '<small>' + esc(it.supplier_item) + '</small>' : '') + '</td>' +
@@ -493,6 +539,9 @@ function drawSchedule(){
   $('sched-wrap').classList.toggle('hide', !used.length);
   if(!used.length) return;
   var to = addDays(TODAY, 27);
+  /* Only the items the next four weeks need, so a long hardware list
+     does not make a table too wide to read. */
+  used = used.filter(function(it){ return rowsFor(it, TODAY, to).length; });
   var rows = SCHED.filter(function(s){ return s.need_on >= TODAY && s.need_on <= to; });
   var days = {}; rows.forEach(function(s){ (days[s.need_on] = days[s.need_on] || []).push(s); });
   var keys = Object.keys(days).sort();
@@ -502,8 +551,9 @@ function drawSchedule(){
   var head = '<thead><tr><th>Day</th>' + used.map(function(it){ return '<th>' + esc(it.shop_name) + '</th>'; }).join('') + '</tr></thead>';
   var body = keys.map(function(d){
     var list = days[d];
+    if(!used.some(function(it){ return list.some(function(s){ return s.uses === it.uses && (s.spec || '') === (it.spec || ''); }); })) return '';
     var r = '<tr' + (d === TODAY ? ' class="today"' : '') + '><td>' + esc(nice(d, true)) + '</td>' + used.map(function(it){
-      var mine = list.filter(function(s){ return s.uses === it.uses; });
+      var mine = list.filter(function(s){ return s.uses === it.uses && (s.spec || '') === (it.spec || ''); });
       return '<td>' + (mine.length ? n1(unitsFor(it, mine)) : '<span class="z">&middot;</span>') + '</td>';
     }).join('') + '</tr>';
     if(showJobs){
@@ -511,7 +561,9 @@ function drawSchedule(){
       r += '<tr class="jobs"><td colspan="' + (used.length + 1) + '"><ul>' + Object.keys(jobs).map(function(k){
         var j = jobs[k];
         return '<li>' + esc((j.s.order_no ? '#' + j.s.order_no + ' ' : '') + (j.s.job || '')) + ': ' + j.bits.map(function(b){
-          return b.uses === 'doors' ? n1(b.amount) + ' doors' : esc(b.uses.replace('_', ' ')) + ' ' + (b.cuts || []).map(function(c){ return n1(c) + '"'; }).join(', ');
+          if(b.uses === 'doors') return n1(b.amount) + ' doors';
+          if(!(b.cuts || []).length) return esc(b.uses.replace(/_/g, ' ')) + ' ' + n1(b.amount) + (b.spec ? ' (' + esc(niceSpec(b.spec)) + ')' : '');
+          return esc(b.uses.replace(/_/g, ' ')) + ' ' + (b.cuts || []).map(function(c){ return n1(c) + '"'; }).join(', ');
         }).join('; ') + '</li>';
       }).join('') + '</ul></td></tr>';
     }
@@ -580,7 +632,7 @@ function drawSettings(){
 
 function drawFresh(){
   var el = $('fresh');
-  if(!ITEMS.some(function(it){ return it.uses; })){ el.className = 'fresh'; el.textContent = ''; return; }
+  if(!ITEMS.some(function(it){ return it.uses && it.uses !== 'doors'; })){ el.className = 'fresh'; el.textContent = ''; return; }
   var last = SCHED.reduce(function(m, s){ return s.pulled_at > m ? s.pulled_at : m; }, '');
   if(!last){ el.className = 'fresh stale'; el.textContent = 'Nothing has come from Access yet. The server sync sends what each job needs every hour once it is set up.'; return; }
   var age = (Date.now() - new Date(last).getTime()) / 36e5;
@@ -595,7 +647,9 @@ function draw(){
     $('title').textContent = CAT.name;
     document.title = 'Grinyer · ' + CAT.name;
     $('lede').textContent = CODE === 'shop'
-      ? 'Pine, rerail and valances: what is in stock, what the jobs coming up will use, and purchase orders (' + CAT.po_prefix + ').'
+      ? 'Pine, rerail, valances and astragals: what is in stock, what the jobs coming up will use, and purchase orders (' + CAT.po_prefix + ').'
+      : CODE === 'hardware'
+      ? 'Hinges, bypass tracks and rollers, floor guides, finger pulls and flush bolts: in stock, what the jobs coming up will use, and purchase orders (' + CAT.po_prefix + ').'
       : 'What is in stock and purchase orders (' + CAT.po_prefix + '). Add the items you keep, their suppliers and standard orders.';
   }
   drawFresh(); drawStock(); drawOrderForm(); drawSchedule(); drawOrders(); drawSettings(); drawPanel();
@@ -642,12 +696,20 @@ function drawPanel(){
       Object.keys(USES).map(function(k){ return opt(k, USES[k].label, uses); }).join('') + '</select></div>' +
     '<div id="i-perwrap"' + (uses ? '' : ' class="hide"') + '><label for="i-per" id="i-perlabel">' + esc(uses ? USES[uses].per : 'Length of one piece, inches') + '</label>' +
       '<input id="i-per" inputmode="decimal" value="' + esc(e.per_unit == null ? '' : e.per_unit) + '"></div>' +
+    '<div class="wide' + (uses && USES[uses].spec ? '' : ' hide') + '" id="i-specwrap"><label for="i-spec">Which one, in the words the sync sends</label>' +
+      '<input id="i-spec" list="i-specs" value="' + esc(e.spec || '') + '" placeholder="Pick from the list">' +
+      '<datalist id="i-specs">' + specsFor(uses).map(function(x){ return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
     '<div id="i-wastewrap"' + (uses ? '' : ' class="hide"') + '><label for="i-waste">Waste allowance, %</label><input id="i-waste" inputmode="decimal" value="' + esc(e.waste_pct == null ? 10 : e.waste_pct) + '"></div>' +
     (panel.id && askRemove !== e.id ? '' : '') +
     '<div class="acts"><button class="save" id="i-save">' + (panel.id ? 'Save' : 'Add item') + '</button><button class="plain" data-close>Cancel</button>' +
       (panel.id ? '<button class="plain" data-remove="' + esc(e.id) + '">Remove item</button>' : '') +
       '<span class="total">Add suppliers under Settings.</span></div></div></div>';
   $('i-name').focus();
+}
+function specsFor(uses){
+  var seen = {}; SCHED.forEach(function(s){ if(s.uses === uses && s.spec) seen[s.spec] = 1; });
+  ITEMS.forEach(function(it){ if(it.uses === uses && it.spec) seen[it.spec] = 1; });
+  return Object.keys(seen).sort();
 }
 function numOf(id){ var t = String($(id) && $(id).value || '').trim().replace(',', '.'); if(t === '') return null; var v = Number(t); return isFinite(v) ? v : NaN; }
 
@@ -690,7 +752,8 @@ function saveItem(){
   if(uses && (waste == null || isNaN(waste) || waste < 0 || waste > 100)) return message('bad', 'The waste allowance is a percentage from 0 to 100.');
   var row = {shop_name: name, supplier_item: $('i-sitem').value.trim() || null, supplier_id: $('i-sup').value || null,
              unit: $('i-unit').value.trim() || 'piece', warn_qty: warn, standard_order: std,
-             uses: uses, per_unit: uses ? per : null, waste_pct: uses ? waste : 0};
+             uses: uses, per_unit: uses ? per : null, waste_pct: uses ? waste : 0,
+             spec: uses && USES[uses].spec ? $('i-spec').value.trim() : ''};
   if(!panel.id){ row.category = CODE; row.sort = (ITEMS.reduce(function(m, i){ return Math.max(m, i.sort || 0); }, 0) || 0) + 10; }
   busy = true;
   (panel.id ? send('PATCH', '/rest/v1/supply_items?id=eq.' + encodeURIComponent(panel.id), row) : send('POST', '/rest/v1/supply_items', row))
@@ -844,6 +907,7 @@ document.addEventListener('click', function(e){
 });
 document.addEventListener('input', function(e){
   var el = e.target;
+  if(el.id === 'find'){ FIND = el.value.trim().toLowerCase(); drawStock(); drawOrderForm(); return; }
   if(el.dataset && el.dataset.qty){
     var v = el.value.trim();
     if(v === '') delete QTY[el.dataset.qty]; else QTY[el.dataset.qty] = v.replace(',', '.');
@@ -855,7 +919,13 @@ document.addEventListener('change', function(e){
   if(e.target.id === 'i-uses'){
     var u = e.target.value;
     $('i-perwrap').classList.toggle('hide', !u); $('i-wastewrap').classList.toggle('hide', !u);
-    if(u){ $('i-perlabel').textContent = USES[u].per; if(!$('i-per').value && USES[u].cut) $('i-per').value = 192; }
+    $('i-specwrap').classList.toggle('hide', !(u && USES[u].spec));
+    if(u){
+      $('i-perlabel').textContent = USES[u].per;
+      if(!$('i-per').value) $('i-per').value = USES[u].cut ? 192 : 1;
+      if(!USES[u].cut && $('i-waste').value === '10') $('i-waste').value = 0;
+      $('i-specs').innerHTML = specsFor(u).map(function(x){ return '<option value="' + esc(x) + '">'; }).join('');
+    }
   }
 });
 

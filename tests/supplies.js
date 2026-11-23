@@ -29,11 +29,16 @@ const SCHED = [
   S(5071, '5069', 'Hill',   'pine',          '2026-11-25', [70, 70, 70]),
   S(5071, '5069', 'Hill',   'doors',         '2026-11-25', [], 6),
   S(5072, '5070', 'Big',    'valance_large', '2026-12-10', [100]),
+  Object.assign(S(5073, '5071', 'Swing', 'hinge', '2026-11-26', [], 12), {spec:'size=3.5; corner=1/4 radius; finish=Satin Nickel'}),
+  Object.assign(S(5073, '5071', 'Swing', 'hinge', '2026-11-26', [], 4), {spec:'size=4; corner=square; finish=Black'}),
+  Object.assign(S(5074, '5072', 'Slide', 'track', '2026-11-27', [], 2), {spec:'length=60'}),
+  Object.assign(S(5074, '5072', 'Slide', 'finger_pull', '2026-11-27', [], 4), {spec:'shape=round; finish=Satin Nickel'}),
 ];
 let CATS, SUPPLIERS, ITEMS, COUNTS, ORDERS, n = 0, ROLE = 'manufacturing', MAIL_OK = true;
 const posted = [];
 function reset(){
   CATS = [{code:'shop', name:'Shop Supplies', po_prefix:'SHP', copy_to:'ashley@grinyer.ca', sort:10},
+          {code:'hardware', name:'Hardware', po_prefix:'HDW', copy_to:'ashley@grinyer.ca', sort:15},
           {code:'sanding', name:'Sanding Supplies', po_prefix:'SND', copy_to:'ashley@grinyer.ca', sort:20},
           {code:'install', name:'Install Supplies', po_prefix:'INST', copy_to:'ashley@grinyer.ca', sort:30}];
   SUPPLIERS = [{id:'s1', name:'Lumber Yard', email:'orders@lumber.ca', note:null},
@@ -46,6 +51,15 @@ function reset(){
            I('i3', 'Small Valance', 'valance_small', 192, 4, 6, 's2', null, 30),
            I('i4', 'Large Valance', 'valance_large', 192, 2, 4, 's2', null, 40),
            I('i5', 'Oversize Valance', null, null, 1, 2, null, null, 50)];
+  const H = (id, name, uses, spec, per, unit, sup, sort) =>
+    ({id, category:'hardware', shop_name:name, supplier_item:null, supplier_id:sup, unit, uses, spec, per_unit:String(per),
+      waste_pct:'0.0', warn_qty:'0', standard_order:'0', sort});
+  ITEMS.push(H('h1', 'Hinge 3.5" 1/4 radius Satin Nickel', 'hinge', 'size=3.5; corner=1/4 radius; finish=Satin Nickel', 1, 'hinge', 's3', 101),
+             H('h2', 'Hinge 4" square Black', 'hinge', 'size=4; corner=square; finish=Black', 1, 'hinge', 's3', 102),
+             H('h3', 'Hinge 3" square Chrome', 'hinge', 'size=3; corner=square; finish=Chrome', 1, 'hinge', 's3', 103),
+             H('h4', 'Bypass track 60"', 'track', 'length=60', 1, 'track', 's1', 202),
+             H('h5', 'Finger pull round Satin Nickel', 'finger_pull', 'shape=round; finish=Satin Nickel', 2, 'pair', 's3', 401));
+  SUPPLIERS.push({id:'s3', name:'Onward', email:null, note:'Orders through the Onward portal. POs go to Ashley to place.'});
   COUNTS = [{id:'c1', item_id:'i1', qty:'30.00', counted_on:'2026-11-17', created_at:'2026-11-17T22:00:00Z', created_by:'Nick'},
             {id:'c2', item_id:'i2', qty:'3.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
             {id:'c3', item_id:'i3', qty:'5.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
@@ -160,9 +174,9 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(tiles.includes('Order Supplies') && !tiles.includes('Paint'), 'the tools page shows Order Supplies, and Paint has moved under it (' + tiles.join(', ') + ')');
   await page.click('text=Order Supplies'); await page.waitForTimeout(500);
   const menu = await page.$$eval('.tile', ts => ts.map(t => t.querySelector('b').textContent + ' ' + t.getAttribute('href')));
-  check(menu.join('|') === 'Paint /paint/|Shop Supplies ./order/?c=shop|Sanding Supplies ./order/?c=sanding|Install Supplies ./order/?c=install',
-    'the menu: Paint, Shop, Sanding, Install (' + menu.join(', ') + ')');
-  check(/PO PD.*PO SHP.*PO SND.*PO INST/.test(await text(page, '.grid')), 'each says its PO prefix');
+  check(menu.join('|') === 'Paint /paint/|Shop Supplies ./order/?c=shop|Hardware ./order/?c=hardware|Sanding Supplies ./order/?c=sanding|Install Supplies ./order/?c=install',
+    'the menu: Paint, Shop, Hardware, Sanding, Install (' + menu.join(', ') + ')');
+  check(/PO PD.*PO SHP.*PO HDW.*PO SND.*PO INST/.test(await text(page, '.grid')), 'each says its PO prefix');
   if(SHOTS) await page.screenshot({path: SHOTS + '/supplies-menu.png'});
   await page.close();
   page = await open('installer', '/');
@@ -283,6 +297,36 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(posted.some(x => x[0] === 'copy' && x[1].copy_to === 'ashley@grinyer.ca, buyer@grinyer.ca') &&
         /ashley@grinyer\.ca, buyer@grinyer\.ca copied/.test(await page.evaluate(() => document.body.innerText.replace(/\s+/g, ' '))),
     'who is copied can be changed');
+  await page.close();
+
+  // Hardware: grouped, matched by spec, searchable, Onward POs go to Ashley only
+  page = await open('admin', '/supplies/order/?c=hardware');
+  check(await text(page, '#title') === 'Hardware' && /\(HDW\)/.test(await text(page, '#lede')), 'Hardware opens, with its PO prefix');
+  const grps = await page.$$eval('#stock h3.grp', hs => hs.map(h => h.textContent));
+  check(grps.length >= 3, 'the stock is grouped by kind (' + grps.join(', ') + ')');
+  c = await card(page, 'Hinge 3.5"');
+  check(/Next 2 weeks 12/.test(c), 'the 3.5" Satin Nickel hinge counts only its own spec (' + c + ')');
+  c = await card(page, 'Hinge 4"');
+  check(/Next 2 weeks 4/.test(c), 'the 4" Black hinge counts its 4 (' + c + ')');
+  c = await card(page, 'Finger pull round');
+  check(/Next 2 weeks 2/.test(c), 'four round pulls are two pairs (' + c + ')');
+  await page.fill('#find', 'black');
+  let cards = await page.$$eval('#stock .sc', cs => cs.length);
+  check(cards === 1 && /1 of 5 items/.test(await text(page, '#findn')), 'search "black" leaves one card (' + cards + ')');
+  check(await page.$$eval('#ord tbody tr', rs => rs.length) === 1, 'and one row in the order table');
+  await page.fill('#find', 'hinge chrome');
+  check(/Hinge 3" square Chrome/.test(await text(page, '#stock')) && await page.$$eval('#stock .sc', cs => cs.length) === 1, 'every word must match');
+  await page.fill('#find', 'onward');
+  check(await page.$$eval('#stock .sc', cs => cs.length) === 4, 'search finds by supplier too');
+  await page.fill('#find', 'zzz');
+  check(/No item matches/.test(await text(page, '#stock')), 'says when nothing matches');
+  await page.fill('#find', '');
+  check(await page.$$eval('#stock .sc', cs => cs.length) === 5, 'clearing the search shows everything again');
+  await page.fill('[data-qty="h3"]', '10');
+  await page.fill('#find', 'track');
+  check(await page.$$eval('#ord tbody tr', rs => rs.length) === 2, 'an item already picked stays in the order table under a search');
+  check(/HDW PO for Onward, to ashley@grinyer\.ca only/.test(await text(page, '#groups')), 'an Onward PO goes to Ashley only (' + await text(page, '#groups') + ')');
+  if(SHOTS) await page.screenshot({path: SHOTS + '/supplies-hardware.png', fullPage: true});
   await page.close();
 
   // the other lists use the same page
