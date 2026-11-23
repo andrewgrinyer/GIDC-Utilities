@@ -1020,7 +1020,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.19 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.20 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -6821,9 +6821,9 @@ function customsHtml(fields, invoices, title){
    and re stiles are not lines on it: the export app's service words spread
    their value into the doors, as it already did for rerails, so the
    customs value still matches what was billed. */
-const CUSTOMS_FIXED = {docType: "Commercial Invoice",
+const CUSTOMS_FIXED = {docType: "Commercial Invoice", tscaType: "negative",
   chargeWords: "charge, fee, rerail, re rail, rework, remake, labour, labor, paint, prime, stain, glaze, service, " +
-               "astragal, astragals, re stile, restile"};
+               "astragal, astragals, re stile, restile, re style, restyle"};
 /* the export app's dealer book, so a dealer with nothing remembered still
    gets its full block. Anything typed on the invoice screen is remembered
    per dealer and wins. */

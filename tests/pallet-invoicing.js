@@ -33,7 +33,7 @@ const order = (id, ref, rows, extra) => Object.assign({id, dealer_id:'D1', order
   created_at:'2026-11-20', files:[], pallet_name:'SFD 7', form:{rows}}, extra || {});
 const ORDERS = [
   order('o1', 'Cortes', [
-    row('a', 'Kingston', 'Single Swing', '1.375 Hollow', 2, 80),
+    row('a', 'Kingston', 'Single Swing', '1.375 Hollow', 2, 80, {reStile:'YES', reRail:'YES'}),
     row('b', '4 Panel True Shaker', 'Double Swing AST', '1.375 Solid', 2, 80, {reRail:'YES'})]),
   order('o2', 'Aris', [row('c', 'Kingston', 'Single Swing', '1.375 Hollow', 1, 80)],
         {redo_of:'o9', redo_seq:1, redo_reason:'shipping_damage'}),
