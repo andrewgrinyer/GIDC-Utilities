@@ -1019,7 +1019,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.12 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.13 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -6125,20 +6125,13 @@ function buildInvoiceLines(o, back){
 }
 
 const lineAmount = l => cents((Number(l.qty) || 0) * (Number(l.rate) || 0));
-/* THE DISCOUNT IS IN THE PRICE
-   Andrew, 23 November: QuickBooks Online will not import a negative line,
-   and its invoice import has no discount column. A positive discount line
-   would add to the invoice instead. So the discount comes off each line's
-   rate, every number in the file is positive, and the total is what it was.
-   The tariff goes on what is left, as the wholesale tool has always done. */
-const discPct = s => Math.min(100, Math.max(0, Number(s.discount_pct) || 0));
-const netRate = (rate, s) => cents((Number(rate) || 0) * (100 - discPct(s)) / 100);
-const netAmount = (l, s) => cents((Number(l.qty) || 0) * netRate(l.rate, s));
+/* the discount comes off everything, and the tariff goes on what is left,
+   as the wholesale tool has always done it */
 function invoiceTotals(lines, s, free){
   if(free) return {sub: 0, discount: 0, after: 0, tariff: 0, total: 0};
   const sub = cents(lines.reduce((a, l) => a + lineAmount(l), 0));
-  const after = cents(lines.reduce((a, l) => a + netAmount(l, s), 0));
-  const discount = cents(sub - after);
+  const discount = cents(sub * Math.max(0, Number(s.discount_pct) || 0) / 100);
+  const after = cents(sub - discount);
   const tariff = cents(after * Math.max(0, Number(s.tariff_pct) || 0) / 100);
   return {sub: sub, discount: discount, after: after, tariff: tariff, total: cents(after + tariff)};
 }
@@ -6433,11 +6426,12 @@ function invoiceRecord(o, i){
   const t = invoiceTotals(lines, s, free);
   const po = o.order_ref || "";
   const why = free ? "No charge" + (v.reason[o.id] ? " (" + v.reason[o.id] + ")" : "") + ": " : "";
-  const off = !free && discPct(s) > 0;
-  const out = lines.map(l => ({item: l.item,
-    desc: why + l.desc + (off && Number(l.rate) ? " (list " + cents(l.rate).toFixed(2) + " less " + discPct(s) + "%)" : ""),
-    qty: Number(l.qty) || 0, rate: free ? 0 : netRate(l.rate, s), amount: free ? 0 : netAmount(l, s),
-    po: po, terms: s.terms, tax: s.tax_code}));
+  const out = lines.map(l => ({item: l.item, desc: why + l.desc, qty: Number(l.qty) || 0,
+    rate: free ? 0 : cents(l.rate), amount: free ? 0 : lineAmount(l), po: po, terms: s.terms,
+    tax: s.tax_code}));
+  if(t.discount > 0) out.push({item: itemFor("extra:discount", INV_EXTRA_ITEMS.discount),
+    desc: "Discount (" + s.discount_pct + "% of products)", qty: 1, rate: t.discount,
+    amount: t.discount, po: po, terms: s.terms, tax: s.tax_code});
   if(t.tariff > 0) out.push({item: itemFor("extra:tariff", INV_EXTRA_ITEMS.tariff),
     desc: "Tariff (" + s.tariff_pct + "% of the net products)", qty: 1, rate: t.tariff,
     amount: t.tariff, po: po, terms: s.terms, tax: s.tax_code});
@@ -6754,7 +6748,7 @@ function customsFiles(invoices){
     return {name: name, extras: [], lines: (inv.lines || []).map(l => {
       /* a no charge remake still crosses the border: its doors go on the
          papers as doors, not as a charge, so the label comes off */
-      const d = String(l.desc || "").replace(/^No charge[^:]*:\s*/, "").replace(/\s*\(list [\d.]+ less [\d.]+%\)$/, "");
+      const d = String(l.desc || "").replace(/^No charge[^:]*:\s*/, "");
       return {item: String(l.item || "").split(":").pop(), desc: d, rawDesc: d,
         qty: Number(l.qty) || 0, unit: Number(l.rate) || 0, amount: Number(l.amount) || 0,
         hs: "", hsFromSource: false, src: name, keep: true};
