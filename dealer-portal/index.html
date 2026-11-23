@@ -306,6 +306,17 @@ tr.moved:hover > td{background:var(--info-soft)}
 .inv-sum div.g{border-top:1px solid var(--rule);margin-top:4px;padding-top:6px;font-size:15px;font-weight:700}
 .inv-foot{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
 .inv-check{display:block;font-size:13.5px;line-height:1.5;cursor:pointer}
+.qbo-pop{position:fixed;z-index:1000;max-height:300px;overflow-y:auto;background:var(--card,#fff);
+  border:1px solid var(--rule);border-radius:9px;box-shadow:0 10px 30px rgba(0,0,0,.16);padding:4px}
+.qbo-opt{padding:7px 10px;border-radius:6px;font-size:13.5px;cursor:pointer;white-space:nowrap;
+  overflow:hidden;text-overflow:ellipsis}
+.qbo-opt:hover{background:var(--rule-soft)}
+.qbo-opt.on{background:var(--info-soft);font-weight:600}
+.qbo-none{padding:8px 10px;font-size:13px;color:var(--muted)}
+.qbo-add{margin-top:4px;border-top:1px solid var(--rule-soft);padding:8px 10px;font-size:13px;
+  font-weight:600;color:var(--info);cursor:pointer}
+.qbo-add span{display:block;font-weight:400;color:var(--muted);font-size:12px}
+.qbo-add:hover{background:var(--rule-soft)}
 .inv-check input{width:16px;height:16px;vertical-align:-3px}
 .inv-grid textarea{width:100%;font:inherit;font-size:13.5px;padding:8px 10px}
 
@@ -1008,7 +1019,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.09 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.10 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -6311,8 +6322,10 @@ function renderInvoice(){
       if(foreign){ notOurs++; blocked++; }
       const at = o.id + "|" + j;
       h += '<tr class="' + (miss ? "miss" : "") + '">' +
-        '<td><input class="inline' + (unknown ? " amber" : "") + '" list="inv-items" data-invl="' + at +
-          '" data-k="item" value="' + esc(l.item) + '"></td>' +
+        '<td><input class="inline qbo-in' + (unknown ? " amber" : "") + '" autocomplete="off" data-invl="' + at +
+          '" data-k="item" value="' + esc(l.item) + '"' +
+          (unknown ? ' title="Not in the QuickBooks item list. Click to pick one, or add this name to the list."' : "") +
+          "></td>" +
         '<td><input class="inline" data-invl="' + at + '" data-k="desc" value="' + esc(l.desc) + '">' +
         (foreign ? '<div class="inv-warn">"' + esc(l.notOurs) + '" is not one of our names. ' +
            "Pick the door style on the order, or type the description in our words.</div>" : "") +
@@ -6339,7 +6352,6 @@ function renderInvoice(){
           " before discount and tariff. This invoice comes to " + money(t.sub) + ".</p>" : "") +
       "</div></div></div></div>";
   });
-  h += '<datalist id="inv-items">' + v.items.map(x => '<option value="' + esc(x) + '">').join("") + "</datalist>";
   h += '<div class="card"><div class="card-b inv-foot">' +
     "<div><b>" + invPicked().length + (invPicked().length === 1 ? " invoice" : " invoices") +
     ", " + money(cents(grand)) + " " + esc(s.currency || "") + "</b>" +
@@ -6543,6 +6555,89 @@ async function voidInvoice(id){
   }
   render();
 }
+
+/* THE QUICKBOOKS ITEM PICKER
+   Andrew, 23 November: the item box did not drop down. It was a browser
+   datalist, which only offers items that start with what is already in the
+   box, so a box holding a full name offered nothing. This is the wholesale
+   tool's picker instead: click shows the whole list, typing narrows it to
+   anything containing the words, and a name that is not on the list can be
+   added to it from the bottom of the list. */
+let qboIn = null;
+const qboPop = document.createElement("div");
+qboPop.className = "qbo-pop"; qboPop.hidden = true;
+document.body.appendChild(qboPop);
+function qboShow(inp, all){
+  qboIn = inp;
+  const v = state.inv; if(!v){ qboPop.hidden = true; return; }
+  const typed = inp.value.trim(), q = typed.toLowerCase();
+  const words = q.split(/\s+/).filter(Boolean);
+  const list = (all || !typed || v.itemSet.has(typed)) ? v.items
+    : v.items.filter(x => words.every(w => x.toLowerCase().indexOf(w) !== -1));
+  qboPop.innerHTML = (list.length
+      ? list.slice(0, 400).map(x => '<div class="qbo-opt' + (x === typed ? " on" : "") + '" data-v="' + esc(x) + '">' +
+          esc(x) + "</div>").join("")
+      : '<div class="qbo-none">No QuickBooks item has those words.</div>') +
+    (typed && !v.itemSet.has(typed)
+      ? '<div class="qbo-add" data-add="' + esc(typed) + '">Add "' + esc(typed) + '" to the QuickBooks list ' +
+        '<span>Only once it is in QuickBooks too</span></div>' : "");
+  qboPop.style.width = Math.max(inp.getBoundingClientRect().width, 320) + "px";
+  qboPop.hidden = false;
+  qboPlace();
+}
+function qboHide(){ qboPop.hidden = true; qboIn = null; }
+function qboSet(inp, val){
+  const v = state.inv; if(!v || !inp) return;
+  const [oid, j] = inp.dataset.invl.split("|");
+  v.lines[oid][Number(j)].item = val;
+  qboHide(); render();
+}
+qboPop.addEventListener("mousedown", async e => {
+  e.preventDefault();
+  const inp = qboIn, opt = e.target.closest(".qbo-opt"), add = e.target.closest(".qbo-add");
+  if(opt) return qboSet(inp, opt.dataset.v);
+  if(add){
+    const name = add.dataset.add;
+    const r = await sb("/rest/v1/qbo_items?on_conflict=name", {method: "POST",
+      headers: Object.assign(headers(true), {Prefer: "resolution=ignore-duplicates"}),
+      body: JSON.stringify([{name: name}])});
+    if(!r.ok) return toast("Could not add it to the list");
+    const v = state.inv;
+    if(v && !v.itemSet.has(name)){ v.items.push(name); v.items.sort(); v.itemSet.add(name); }
+    toast('"' + name + '" is on the QuickBooks list now');
+    qboSet(inp, name);
+  }
+});
+document.addEventListener("focusin", e => {
+  if(e.target.classList && e.target.classList.contains("qbo-in")){ e.target.select(); qboShow(e.target, true); }
+});
+document.addEventListener("focusout", e => {
+  if(e.target === qboIn) setTimeout(() => { if(document.activeElement !== qboIn) qboHide(); }, 150);
+});
+document.addEventListener("input", e => {
+  if(e.target.classList && e.target.classList.contains("qbo-in")) qboShow(e.target, false);
+});
+document.addEventListener("keydown", e => {
+  if(!qboIn || qboPop.hidden) return;
+  if(e.key === "Escape"){ qboHide(); return; }
+  if(e.key === "Enter"){
+    const first = qboPop.querySelector(".qbo-opt");
+    if(first){ e.preventDefault(); qboSet(qboIn, first.dataset.v); }
+  }
+});
+/* the page scrolling moves the list with its box; the list scrolling itself
+   is left alone, or it would jump back to the top under the pointer */
+function qboPlace(){
+  if(!qboIn || qboPop.hidden) return;
+  if(!document.body.contains(qboIn)) return qboHide();
+  const r = qboIn.getBoundingClientRect(), h = qboPop.offsetHeight;
+  qboPop.style.left = Math.max(8, Math.min(r.left, innerWidth - qboPop.offsetWidth - 8)) + "px";
+  /* below the box, unless it would run off the bottom and there is more
+     room above, as there is on the last invoice of a long pallet */
+  const below = innerHeight - r.bottom, above = r.top;
+  qboPop.style.top = (below < h + 8 && above > below ? Math.max(8, r.top - h - 3) : r.bottom + 3) + "px";
+}
+window.addEventListener("scroll", e => { if(e.target !== qboPop) qboPlace(); }, true);
 
 /* the screen's own clicks and fields */
 document.addEventListener("click", e => {

@@ -55,7 +55,7 @@ const QBO = ['GMD-Wholesale:Kingston HC', 'GMD-Wholesale:Kingston SC', 'GMD-Whol
 let PALLET = {id:'P1', name:'SFD 7', dealer_id:'D1', dealer:'South Florida', built_on:'2026-11-22',
   doors:7, max_rows:40};
 let INVOICES = [{id:'old', order_id:'zz', invoice_no:'1042', charge:'charge', created_at:'2026-11-01', voided_at:null}];
-let POSTED = null, SETTINGS = null, MAP = null, CUSTOMS = [];
+let POSTED = null, SETTINGS = null, MAP = null, CUSTOMS = [], ADDED = null;
 let ONPAL = ['o1', 'o2', 'o3', 'o4'];
 /* one more order, not on the pallet yet */
 ORDERS.push(order('o5', 'Evans', [row('f', 'Kingston', 'Single Swing', '1.375 Hollow', 1, 80)], {pallet_name:null}));
@@ -97,7 +97,7 @@ let WHO = ME;
         if(m === 'POST'){ CUSTOMS.unshift(Object.assign({id:'c' + CUSTOMS.length, created_at:'2026-11-23T17:50:00Z'}, body())); return j([], 201); }
         if(u.search.includes('id=eq')) return j(CUSTOMS.filter(c => u.search.includes('id=eq.' + c.id)));
         return j(CUSTOMS.map(c => Object.assign({}, c, {html: undefined})));
-      case '/rest/v1/qbo_items': return j(QBO.map(name => ({name})));
+      case '/rest/v1/qbo_items': if(m === 'POST'){ ADDED = body(); return j([], 201); } return j(QBO.map(name => ({name})));
       case '/rest/v1/qbo_item_map': if(m === 'POST'){ MAP = body(); return j([]); } return j([]);
       case '/rest/v1/invoice_settings': if(m === 'POST'){ SETTINGS = body(); return j([]); } return j([]);
       case '/rest/v1/dealer_invoices':
@@ -163,6 +163,22 @@ let WHO = ME;
   await (await desc.$('input[data-k="desc"]')).dispatchEvent('change');
   await (await (await page.$$('.inv-card'))[diaz].$('input[data-k="rate"]')).fill('150');
   await (await (await page.$$('.inv-card'))[diaz].$('input[data-k="rate"]')).dispatchEvent('change');
+  /* the item picker: a click shows the whole list, typing narrows it, a
+     click on one sets it, and a name not on the list can be added */
+  const item = async () => (await page.$$('.inv-card'))[diaz].$('input[data-k="item"]');
+  await (await item()).click();
+  console.log('picker on click:', await page.$$eval('.qbo-pop .qbo-opt', x => x.length), 'items shown, add offered:',
+              !!(await page.$('.qbo-pop .qbo-add')));
+  await (await item()).fill('kingston hc');
+  console.log('picker after typing "kingston hc":', await page.$$eval('.qbo-pop .qbo-opt', x => x.map(o => o.innerText).join(', ')));
+  await page.click('.qbo-pop .qbo-opt');
+  console.log('picked:', await (await item()).inputValue(), '/ amber:', await (await item()).evaluate(x => x.classList.contains('amber')));
+  await (await item()).click();
+  await (await item()).fill('GMD Doors:Flat Slab');
+  await page.click('.qbo-pop .qbo-add');
+  await page.waitForTimeout(200);
+  console.log('added to list:', JSON.stringify(ADDED), '/ now', await (await item()).inputValue(), 'amber:',
+              await (await item()).evaluate(x => x.classList.contains('amber')));
   /* the item is typed and Make pressed straight after, with no other click
      in between, which is the order a person does it in */
   await (await (await page.$$('.inv-card'))[diaz].$('input[data-k="item"]')).fill('GMD-Wholesale:Kingston HC');
