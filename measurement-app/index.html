@@ -3578,6 +3578,33 @@ async function loadJob(id){
   }
   return JSON.parse(await Local.get(jobKey(id)));
 }
+/* 2.67, Andrew 23 Nov: a name or address changed on a job linked to Access
+   emails the office (info@grinyer.ca, "Customer Profile Update Required"),
+   so they change it in Access too. The database records the change when the
+   job saves (sql/customer-profile-update.sql); this only says when to send:
+   a minute after the last change, so a name and an address typed one after
+   the other go as one email, or straight away when the person leaves the
+   job. The hourly sync sends anything still waiting. */
+const PROFILE_WAIT_MS = 60000;
+let profileT = null, profileDue = false;
+const profileKey = j => ['customer', 'address', 'city'].map(k => String((j && j[k]) || '').trim().replace(/\s+/g, ' ')).join('|');
+function profileWatch(before, job){
+  if(!before || !before.accEst || profileKey(before) === profileKey(job)) return;
+  profileDue = true;
+  clearTimeout(profileT);
+  profileT = setTimeout(profileSend, PROFILE_WAIT_MS);
+}
+async function profileSend(){
+  clearTimeout(profileT); profileT = null;
+  if(!profileDue || !SB) return;
+  profileDue = false;
+  try{
+    const r = await sb('/functions/v1/customer-update-email', {method:'POST', headers:sbHeaders(true), body:'{}'});
+    if(r.ok){ const b = await r.json().catch(() => ({})); if(b.sent) toast('The office has been emailed the new customer details'); }
+  }catch(e){ /* the hourly sync sends it */ }
+}
+document.addEventListener('visibilitychange', () => { if(document.visibilityState === 'hidden' && profileDue) profileSend(); });
+
 async function saveJob(job){
   job.updated = Date.now();
   job.closetCount = (job.closets || []).length;      // 2.64.2: for the job list
@@ -3588,7 +3615,9 @@ async function saveJob(job){
       headers: Object.assign(sbHeaders(true), {Prefer:'resolution=merge-duplicates'}),
       body: JSON.stringify(row)});
     if(!r.ok){ toast('Not saved (' + r.status + '). Check your connection.'); throw new Error('save failed'); }
+    const before = state.jobs.find(x => x.id === job.id);
     state.jobs = await loadIndex();
+    profileWatch(before, job);
     return;
   }
   try{
@@ -5947,6 +5976,7 @@ document.addEventListener('change', e => {
 });
 
 function render(){
+  if(profileDue && state.view !== 'job' && state.view !== 'review' && state.view !== 'closets') saveChain.then(profileSend);
   document.body.classList.remove('reviewing');
   document.body.classList.remove('closets');
   if(state.job && state.view !== 'remote'){ syncPlans(state.job); syncConditions(state.job); syncHandles(state.job); }

@@ -186,7 +186,20 @@ Deno.serve(async (req) => {
       return json({ error: "The sync itself failed", detail: await ran.text() }, 500);
     const result = await ran.json();
 
-    return json({ staged: rows.length, dropped: dropped.length ? dropped : undefined, ...result });
+    /* 2.67: any customer profile update email the app did not get to send
+       (a phone closed or out of signal) goes now. Never fails the sync. */
+    let profileEmails: unknown = undefined;
+    if (!preview) {
+      try {
+        const pe = await call("profile update emails", `${url}/functions/v1/customer-update-email`,
+          { method: "POST", headers: { "Content-Type": "application/json", "x-gidc-key": secret }, body: "{}" });
+        profileEmails = pe.ok ? await pe.json().catch(() => undefined)
+          : pe.status === 404 ? "customer-update-email is not deployed yet" : `not sent (${pe.status})`;
+      } catch (e) { profileEmails = `not sent (${(e as Error)?.message ?? e})`; }
+    }
+
+    return json({ staged: rows.length, dropped: dropped.length ? dropped : undefined, ...result,
+                  profile_emails: profileEmails });
   } catch (e) {
     console.log("failed:", (e as Error)?.message ?? e);
     return json({ error: (e as Error)?.message ?? "Something went wrong" }, 500);

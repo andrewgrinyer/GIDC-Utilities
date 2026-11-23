@@ -12,11 +12,12 @@ T="${TMPDIR:-/tmp}/gidc-measurement-test"; mkdir -p "$T"
 $P -c "drop database if exists t" -c "create database t" postgres >/dev/null
 sed 's/NOTNULL_HERE//' "$D"/mock-live-shape.sql | $P t >/dev/null || exit 1
 $P t -f "$D"/mock-measurement-jobs.sql >/dev/null || exit 1
-files="measurement-access-link.sql measurement-access-link.sql"
+files="measurement-access-link.sql measurement-access-link.sql customer-profile-update.sql customer-profile-update.sql"
 [ "$1" = after ] && files="security-tighten.sql two-sided-access.sql $files"
 for f in $files; do
   echo "== $f"; $P t -f "$D"/../$f >/dev/null 2>"$T"/err || { echo FAIL; cat "$T"/err; exit 1; }
 done
 python3 "$D"/make-measurement-data.py "$T"/data.sql "$T"/expected.json || exit 1
 $P t -f "$T"/data.sql >/dev/null || exit 1
-python3 -I "$D"/measurement-link-checks.py "$T"/expected.json
+python3 -I "$D"/measurement-link-checks.py "$T"/expected.json || exit 1
+python3 -I "$D"/profile-update-checks.py

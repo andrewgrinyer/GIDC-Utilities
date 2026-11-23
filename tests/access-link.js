@@ -60,6 +60,7 @@ const server = http.createServer(async (q, r) => {
       return send(200, {linked: !!b.p_estimate, order_no: b.p_estimate ? String(b.p_estimate) : null});
     }
   }
+  if(u === '/functions/v1/customer-update-email'){ calls.push({fn: 'customer-update-email', auth: q.headers.authorization}); return send(200, {sent: 1}); }
   if(u.startsWith('/rest/') || u.startsWith('/auth/') || u.startsWith('/functions/')) return send(200, []);
   let p = u.split('?')[0]; if(p === '/') p = '/index.html';
   const f = path.join(DIR, p);
@@ -175,6 +176,28 @@ const pills = page => page.evaluate(() => Object.fromEntries([...document.queryS
   const save = calls.filter(c => c.save).pop();
   check('a save sends the job but nothing about Access', save && save.save.data.phone === '519 555 0199' &&
     !Object.keys(save.save).some(k => k.startsWith('access')), save && Object.keys(save.save));
+  // 2.67: a name or address change on a linked job emails the office
+  const mails = () => calls.filter(c => c.fn === 'customer-update-email').length;
+  check('a phone change does not email the office', mails() === 0);
+  await page.fill('[data-j="customer"]', 'Mary Smith-Jones'); await page.dispatchEvent('[data-j="customer"]', 'change');
+  await page.waitForTimeout(800);
+  check('a name change waits for any more changes first', mails() === 0);
+  await page.fill('[data-j="address"]', '5 New St'); await page.dispatchEvent('[data-j="address"]', 'change');
+  await page.waitForTimeout(800);
+  await page.evaluate(() => { state.view = 'jobs'; render(); });
+  await page.waitForTimeout(800);
+  check('leaving the job sends one email for both changes', mails() === 1, mails());
+  await page.click('[data-open="j1"]'); await page.waitForSelector('.jobcard, .custline');
+  if(await page.$('[data-custopen="1"]')) await page.click('[data-custopen="1"]');
+  await page.evaluate(() => { state.view = 'jobs'; render(); }); await page.waitForTimeout(500);
+  check('opening and leaving without a change sends nothing more', mails() === 1, mails());
+  await page.click('[data-open="j55555"]'); await page.waitForSelector('.jobcard, .custline');
+  if(await page.$('[data-custopen="1"]')) await page.click('[data-custopen="1"]');
+  if(await page.$('[data-j="customer"]')){
+    await page.fill('[data-j="customer"]', 'Someone New'); await page.dispatchEvent('[data-j="customer"]', 'change');
+    await page.waitForTimeout(800); await page.evaluate(() => { state.view = 'jobs'; render(); }); await page.waitForTimeout(500);
+    check('a job not linked to Access does not email', mails() === 1, mails());
+  }
   check('no page errors for the administrator', errors.length === 0, errors);
 
   // ---------- a sales rep, desktop ----------------------------------
