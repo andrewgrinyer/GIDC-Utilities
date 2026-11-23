@@ -136,6 +136,7 @@ let WHO = ME;
   console.log('customer guessed:', await page.$eval('input[data-invf="qbo_customer"]', x => x.value),
               '/ first number:', await page.$eval('input[data-invf="firstNo"]', x => x.value));
   await page.click('button[data-invpick="o2"][data-v="no_charge"]');
+  console.log('ship to with only a name is red:', await page.$eval('textarea[data-invc="shipTo"]', x => x.classList.contains('red')));
   await page.fill('textarea[data-invc="shipTo"]', 'South Florida Doors & Closets\n2372 Some Rd\nMiami, FL 33101');
   await page.fill('input[data-invc="grossWt"]', '940');
   await page.fill('input[data-invc="waybill"]', 'BOL 5521');

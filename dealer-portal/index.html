@@ -297,6 +297,7 @@ tr.moved:hover > td{background:var(--info-soft)}
 .inv-lines input.inline{width:100%;min-width:0;font-size:13px;padding:6px 8px}
 .inv-lines input.num{text-align:right}
 .inv-lines input.amber{border-color:#E0A96D;background:#FFF7ED}
+.inv-set textarea.red{border-color:#E24B4A;background:#FCEBEB}
 .inv-lines tr.miss > td{background:var(--red-soft)}
 .inv-lines td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .inv-warn{color:var(--red);font-size:12.5px;font-weight:600;margin-top:4px}
@@ -1019,7 +1020,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.18 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.19 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -6184,7 +6185,7 @@ async function openInvoicing(palletId, btn){
       firstNo: nextInvoiceNo(), step: 1, choice: {}, reason: {}, lines: {},
       /* the shipment half of the customs papers. Ship to is remembered per
          dealer; the rest is this load's and starts empty. */
-      customs: {make: state.customs !== null, shipTo: settings.ship_to || dealer.name || "",
+      customs: {make: state.customs !== null, shipTo: shipToFor(dealer, settings),
         shipDate: new Date().toISOString().slice(0, 10), shipVia: "TransPro", waybill: "",
         grossWt: "", palletCt: "1", entryNo: "", containerNo: ""}};
     /* 2.18: coming back to a pallet, the shipment details are the ones its
@@ -6243,11 +6244,16 @@ function renderInvoice(){
     h += '<div class="card inv-set"><div class="card-b">' +
       '<label class="inv-check"><input type="checkbox" data-invc="make"' + (c.make ? " checked" : "") +
       (state.customs === null ? " disabled" : "") + "> <b>Make the customs papers too</b> " +
-      '<span class="muted">Proforma invoice, Lacey PPQ 505 and TSCA, as the export documents app makes them, ' +
+      '<span class="muted">Commercial invoice, Lacey PPQ 505 and TSCA, as the export documents app makes them, ' +
       "for every invoiced order on the pallet. Kept on the pallet to print or download.</span></label>" +
       (state.customs === null ? '<p class="inv-note">The database has no place for them yet. Run dealer-invoicing.sql.</p>' : "") +
       (c.make ? '<div class="inv-grid" style="margin-top:12px">' +
-        '<label class="wide">Ship to<textarea class="inline" rows="4" data-invc="shipTo">' + esc(c.shipTo) + "</textarea></label>" +
+        '<label class="wide">Ship to (the customer, as it goes on the commercial invoice and the Lacey form)' +
+          '<textarea class="inline' + (shipToShort(c.shipTo) ? " red" : "") + '" rows="5" data-invc="shipTo" ' +
+          'placeholder="Company name&#10;Contact&#10;Street&#10;City, State ZIP&#10;Tax ID">' + esc(c.shipTo) + "</textarea>" +
+          (shipToShort(c.shipTo) ? '<span class="inv-warn">Put in the customer\'s full name and address, one item a line, ' +
+            "with the contact and Tax ID as on the export app. It is remembered for this dealer.</span>" : "") +
+          "</label>" +
         invCField("Ship date", "shipDate", c.shipDate, "date") +
         invCField("Ship via", "shipVia", c.shipVia) +
         invCField("Waybill or bill of lading", "waybill", c.waybill) +
@@ -6690,7 +6696,13 @@ document.addEventListener("click", e => {
   }
   if(!v) return;
   if(d.invpick !== undefined){ v.choice[d.invpick] = d.v; return render(); }
-  if(d.invstep !== undefined){ v.step = Number(d.invstep); render(); return window.scrollTo(0, 0); }
+  if(d.invstep !== undefined){
+    /* the customer block must be whole before the papers can be made */
+    if(Number(d.invstep) === 2 && v.customs.make && shipToShort(v.customs.shipTo)){
+      render(); return toast("Put the customer's full name and address in Ship to first");
+    }
+    v.step = Number(d.invstep); render(); return window.scrollTo(0, 0);
+  }
   if(d.invmake !== undefined) return makeInvoices(t);
   if(d.invrm !== undefined){
     const [oid, j] = d.invrm.split("|"); v.lines[oid].splice(Number(j), 1); return render();
@@ -6804,7 +6816,31 @@ function customsHtml(fields, invoices, title){
 }
 
 /* reads every live invoice on the pallet, makes the papers and keeps them */
+/* ANDREW, 23 NOVEMBER: A COMMERCIAL INVOICE, AND NO ASTRAGALS OR RERAILS
+   The papers are a commercial invoice, not a proforma. Astragals, rerails
+   and re stiles are not lines on it: the export app's service words spread
+   their value into the doors, as it already did for rerails, so the
+   customs value still matches what was billed. */
+const CUSTOMS_FIXED = {docType: "Commercial Invoice",
+  chargeWords: "charge, fee, rerail, re rail, rework, remake, labour, labor, paint, prime, stain, glaze, service, " +
+               "astragal, astragals, re stile, restile"};
+/* the export app's dealer book, so a dealer with nothing remembered still
+   gets its full block. Anything typed on the invoice screen is remembered
+   per dealer and wins. */
+const CUSTOMS_DEALER_BOOK = [
+  {keys: ["chicago doors", "brad hughes"],
+   block: "Chicago Doors & Closets LLC\nBrad Hughes\n6240 Oakton St.\nMorton Grove, IL 60053\nTax ID 84-2284272"}
+];
+function shipToFor(dealer, settings){
+  if(settings && settings.ship_to) return settings.ship_to;
+  const n = String((dealer && dealer.name) || "").toLowerCase();
+  const hit = CUSTOMS_DEALER_BOOK.find(d => d.keys.some(k => n.indexOf(k) !== -1));
+  return hit ? hit.block : ((dealer && dealer.name) || "");
+}
+/* the customer block must be whole: name, then the address under it */
+const shipToShort = t => String(t || "").split("\n").map(x => x.trim()).filter(Boolean).length < 3;
 async function makeCustoms(p, fields){
+  fields = Object.assign({}, fields || {}, CUSTOMS_FIXED);
   const r = await sb("/rest/v1/dealer_invoices?select=invoice_no,order_id,lines&voided_at=is.null" +
                      "&pallet_id=eq." + encodeURIComponent(String(p.id)) + "&order=invoice_no",
                      {headers: headers()});
