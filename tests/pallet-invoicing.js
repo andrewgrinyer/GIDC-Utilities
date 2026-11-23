@@ -217,7 +217,16 @@ let WHO = ME;
   await page.click('button[data-invopen="P1"]');
   await page.waitForSelector('button[data-invvoid]');
   console.log('Invoices screen when all are invoiced, Void buttons:', (await page.$$('button[data-invvoid]')).length);
-  await page.evaluate(() => { state.inv = null; render(); });
+  /* back on step 1 the weights are the ones the papers were made with, and
+     can be changed and the papers made again */
+  console.log('weight shown again:', await page.inputValue('input[data-invc="grossWt"]'));
+  await page.fill('input[data-invc="grossWt"]', '955');
+  await page.click('button[data-invcus]');
+  await page.waitForTimeout(400);
+  console.log('papers made again:', CUSTOMS.length, 'weight', CUSTOMS[0].fields.grossWt, '/',
+              await page.$eval('#toast', x => x.innerText));
+  CUSTOMS.shift();   // the rest of the test reads the first set
+  await page.evaluate(() => { state.customs = null; state.inv = null; return loadCustoms().then(c => { state.customs = c; render(); }); });
   await page.waitForSelector('.pal-card');
   /* the customs papers */
   console.log('customs kept:', CUSTOMS.length, 'orders', JSON.stringify(CUSTOMS[0].order_ids), 'total', CUSTOMS[0].total,

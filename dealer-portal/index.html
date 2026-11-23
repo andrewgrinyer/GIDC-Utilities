@@ -1019,7 +1019,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.17 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.18 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -5433,7 +5433,7 @@ function renderPallets(){
         ? '<button class="btn sm primary" data-invopen="' + p.id + '">Invoice pallet</button>'
         /* 2.16: once every order is invoiced the screen still opens, so an
            invoice can be voided and made again */
-        : billed ? '<button class="btn sm" data-invopen="' + p.id + '">Invoices</button>' : "") +
+        : billed ? '<button class="btn sm" data-invopen="' + p.id + '">Review invoices and weights</button>' : "") +
       (billed ? '<button class="btn sm" data-invagain="' + p.id + '">QuickBooks files</button>' : "") +
       (cus ? '<button class="btn sm" data-cusprint="' + esc(cus.id) + '">Print customs papers</button>' +
              '<button class="btn sm" data-cusdl="' + esc(cus.id) + '">Download customs papers</button>' : "") +
@@ -6187,6 +6187,14 @@ async function openInvoicing(palletId, btn){
       customs: {make: state.customs !== null, shipTo: settings.ship_to || dealer.name || "",
         shipDate: new Date().toISOString().slice(0, 10), shipVia: "TransPro", waybill: "",
         grossWt: "", palletCt: "1", entryNo: "", containerNo: ""}};
+    /* 2.18: coming back to a pallet, the shipment details are the ones its
+       customs papers were last made with, so the weights can be corrected */
+    const lastCus = customsFor(palletId);
+    if(lastCus && lastCus.fields){
+      ["shipTo","shipDate","shipVia","waybill","grossWt","palletCt","entryNo","containerNo"].forEach(k => {
+        if(lastCus.fields[k] != null && lastCus.fields[k] !== "") state.inv.customs[k] = lastCus.fields[k];
+      });
+    }
     full.forEach(o => {
       const done = liveInvoice(o.id);
       /* a redo starts on nothing: whether a remake is billed is asked
@@ -6285,6 +6293,8 @@ function renderInvoice(){
     const n = invPicked().length;
     h += '<div class="row" style="margin:16px 0;gap:8px;align-items:center;flex-wrap:wrap">' +
       '<button class="btn" data-pallets="1">Back to pallets</button>' +
+      (v.customs.make && v.orders.some(o => v.choice[o.id] === "done")
+        ? '<button class="btn" data-invcus="1">Make the customs papers again with these details</button>' : "") +
       '<button class="btn primary" data-invstep="2"' + (open || !n ? " disabled" : "") + ">" +
       "Next: check " + n + (n === 1 ? " invoice" : " invoices") + "</button>" +
       (open ? '<span class="muted">' + open + (open === 1 ? " redo needs" : " redos need") +
@@ -6658,7 +6668,7 @@ window.addEventListener("scroll", e => { if(e.target !== qboPop) qboPlace(); }, 
 document.addEventListener("click", e => {
   if(sureGo || !e.target.closest || e.target.closest("#sure")) return;
   const t = e.target.closest("[data-cusprint],[data-cusdl],[data-cusredo],[data-invopen],[data-invagain],[data-invpick]," +
-    "[data-invstep],[data-invmake],[data-invrm],[data-invadd],[data-invvoid]");
+    "[data-invstep],[data-invmake],[data-invrm],[data-invadd],[data-invvoid],[data-invcus]");
   if(!t) return;
   /* this listener is added before the page's main one, which closes any
      open question on a click outside it. Without this, a question asked
@@ -6671,6 +6681,13 @@ document.addEventListener("click", e => {
   if(d.cusredo !== undefined) return redoCustoms(d.cusredo, t);
   if(d.invagain !== undefined) return invoiceFileAgain(d.invagain, t);
   if(d.invvoid !== undefined) return voidInvoice(d.invvoid);
+  if(d.invcus !== undefined){
+    const v = state.inv; if(!v) return;
+    t.disabled = true; t.textContent = "Making…";
+    return makeCustoms(v.pallet, customsFields(v))
+      .then(() => toast("Customs papers made again for " + v.pallet.name), err => toast(err.message))
+      .then(() => { t.disabled = false; t.textContent = "Make the customs papers again with these details"; });
+  }
   if(!v) return;
   if(d.invpick !== undefined){ v.choice[d.invpick] = d.v; return render(); }
   if(d.invstep !== undefined){ v.step = Number(d.invstep); render(); return window.scrollTo(0, 0); }
