@@ -213,6 +213,12 @@ let WHO = ME;
   console.log('files again:', dl2.suggestedFilename(), unzip(await dl2.path()) === csv);
 
   console.log('toast:', await page.$eval('#toast', x => x.innerText));
+  /* every order invoiced: the screen still opens, so one can be voided */
+  await page.click('button[data-invopen="P1"]');
+  await page.waitForSelector('button[data-invvoid]');
+  console.log('Invoices screen when all are invoiced, Void buttons:', (await page.$$('button[data-invvoid]')).length);
+  await page.evaluate(() => { state.inv = null; render(); });
+  await page.waitForSelector('.pal-card');
   /* the customs papers */
   console.log('customs kept:', CUSTOMS.length, 'orders', JSON.stringify(CUSTOMS[0].order_ids), 'total', CUSTOMS[0].total,
               'fields', JSON.stringify(CUSTOMS[0].fields));

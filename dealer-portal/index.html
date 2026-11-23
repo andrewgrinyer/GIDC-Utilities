@@ -1019,7 +1019,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.15 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.16 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -5430,7 +5430,10 @@ function renderPallets(){
          As soon as an order is on a pallet it can be invoiced, whatever its
          status says. The button stays until every order on it is invoiced. */
       (on.length && billed < on.length
-        ? '<button class="btn sm primary" data-invopen="' + p.id + '">Invoice pallet</button>' : "") +
+        ? '<button class="btn sm primary" data-invopen="' + p.id + '">Invoice pallet</button>'
+        /* 2.16: once every order is invoiced the screen still opens, so an
+           invoice can be voided and made again */
+        : billed ? '<button class="btn sm" data-invopen="' + p.id + '">Invoices</button>' : "") +
       (billed ? '<button class="btn sm" data-invagain="' + p.id + '">QuickBooks files</button>' : "") +
       (cus ? '<button class="btn sm" data-cusprint="' + esc(cus.id) + '">Print customs papers</button>' +
              '<button class="btn sm" data-cusdl="' + esc(cus.id) + '">Download customs papers</button>' : "") +
