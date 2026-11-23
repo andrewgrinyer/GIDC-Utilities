@@ -196,15 +196,15 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(/Next 2 weeks 2\.2 \(1 job\)/.test(c) && /On order 20/.test(c) && /OK/.test(c),
     'Pine: three 70" valance backers fit two 16 foot pieces, 2.2 with waste; 20 on order (' + c + ')');
   c = await card(page, 'ReRail');
-  check(/3 pieces in stock/.test(c) && /Next 2 weeks 2\.2/.test(c) && /Left after 2 weeks 0\.8/.test(c) && /Low/.test(c) && /Suggest ordering 10 pieces/.test(c),
+  check(/3 pieces in stock/.test(c) && /Next 2 weeks 2\.2/.test(c) && /Left after 2 weeks 0\.8/.test(c) && /Below minimum/.test(c) && /Minimum on hand 5 pieces/.test(c) && /Suggest ordering 10 pieces/.test(c),
     'Rerail: five door widths fit two 12 foot pieces, low, suggests the standard order of 10 (' + c + ')');
   c = await card(page, 'Small Valance');
-  check(/Next 2 weeks 2\.2/.test(c) && /Low/.test(c) && /Suggest ordering 6 pieces/.test(c),
+  check(/Next 2 weeks 2\.2/.test(c) && /Below minimum/.test(c) && /Suggest ordering 6 pieces/.test(c),
     'Small valance: three 70" valances, never pieced, two lengths, low (' + c + ')');
   c = await card(page, 'Large Valance');
   check(/Not counted yet/.test(c) && /Next 2 weeks 0/.test(c), 'Large valance: not counted, its job is past the two weeks (' + c + ')');
   c = await card(page, 'Oversize Valance');
-  check(/not in Access/.test(c) && /Low/.test(c) && /Suggest ordering 2 pieces/.test(c), 'Oversize valance: counted only, low at 0, suggests 2 (' + c + ')');
+  check(/not in Access/.test(c) && /Below minimum/.test(c) && /Suggest ordering 2 pieces/.test(c), 'Oversize valance: counted only, low at 0, suggests 2 (' + c + ')');
 
   // coming up
   let s = await text(page, '#sched');

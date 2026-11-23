@@ -20,7 +20,8 @@
          INST and five digits), emailed to that supplier with the
          purchasing manager copied (Ashley to start with).
        Stock works like paint: a count, taken down as the schedule passes,
-         a warning level.
+         a minimum on hand (Andrew, 23 November: stock never planned below it;
+         the suggestion orders enough to cover the next two weeks and keep it).
 
      Shop Supplies predicts from the doors in Access, sent every hour by
      gidc-supplies-sync.ps1: rerail (door widths), pine (bump stops and a
@@ -81,6 +82,9 @@ h2{font-size:17px;margin:26px 0 10px}
 .chip.short{background:var(--brass-soft);color:var(--brass)}
 .chip.info{background:var(--info-soft);color:var(--info)}
 .chip.grey{background:var(--rule-soft);color:var(--ink)}
+.min{font-size:13px;margin:-2px 0 8px;color:var(--ink,inherit)}
+.min b{font-weight:600}
+.sc.low .min b,.sc.short .min b{color:var(--warn)}
 .suggest{font-size:13px;color:var(--warn);margin:0 0 9px}
 h2.withbtn{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .areyousure{margin:0 0 9px;padding:9px 11px;border-radius:9px;background:var(--brass-soft);color:var(--brass);font-size:13.5px}
@@ -209,7 +213,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.1 &middot; 23 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.2 &middot; 23 Nov 2026</div>
 
 <script>
 (function(){
@@ -442,7 +446,7 @@ function card(it){
   var s = stockOf(it), sup = supplierOf(it), u = it.unit;
   var chip = s.state === 'unknown' ? '<span class="chip grey">Not counted yet</span>'
            : s.state === 'short' ? '<span class="chip short">Runs short' + (s.runsOut ? ' ' + esc(nice(s.runsOut, true)) : '') + '</span>'
-           : s.state === 'low' ? '<span class="chip low">Low</span>'
+           : s.state === 'low' ? '<span class="chip low">Below minimum</span>'
            : '<span class="chip ok">OK</span>';
   var how = s.last
     ? 'Counted ' + esc(qtyText(s.last.qty, u)) + ' on ' + esc(nice(s.last.counted_on)) +
@@ -454,16 +458,16 @@ function card(it){
     '<div class="nm"><span>' + esc(it.shop_name) + (sub ? '<div class="sup">' + sub + '</div>' : '') + '</span>' +
       '<span style="margin-left:auto">' + chip + '</span></div>' +
     '<div class="big">' + (s.now == null ? '?' : n1(s.now)) + ' <small>' + esc(plural(s.now == null ? 2 : n1(s.now), u)) + ' in stock</small></div>' +
+    '<div class="min">Minimum on hand <b>' + (Number(it.warn_qty) ? esc(qtyText(it.warn_qty, u)) : 'not set') + '</b></div>' +
     '<div class="how">' + how + '</div>' +
     '<dl>' +
       (it.uses ? '<dt>Next 2 weeks</dt><dd>' + n1(s.need2) + (s.jobs2 ? ' <span style="color:var(--muted)">(' + s.jobs2 + ' job' + (s.jobs2 === 1 ? '' : 's') + ')</span>' : '') + '</dd>'
                : '<dt>Next 2 weeks</dt><dd><span class="tiny">not in Access</span></dd>') +
       '<dt>On order</dt><dd>' + (s.onOrder ? n1(s.onOrder) : 'none') + '</dd>' +
       (s.after == null ? '' : '<dt>Left after 2 weeks</dt><dd>' + n1(s.after) + '</dd>') +
-      '<dt>Warn below</dt><dd>' + n1(it.warn_qty) + '</dd>' +
       '<dt>Standard order</dt><dd>' + (Number(it.standard_order) ? n1(it.standard_order) : 'not set') + '</dd>' +
     '</dl>' +
-    (s.suggest ? '<div class="suggest">Suggest ordering ' + esc(qtyText(s.suggest, u)) + '</div>' : '') +
+    (s.suggest ? '<div class="suggest">Suggest ordering ' + esc(qtyText(s.suggest, u)) + ', to stay at or above the minimum</div>' : '') +
     (askRemove === it.id
       ? '<div class="areyousure">Take ' + esc(it.shop_name) + ' off the list, with its counts? Orders keep their record.' +
         '<div class="acts"><button class="save small" data-removeyes="' + esc(it.id) + '">Yes, remove it</button>' +
@@ -690,7 +694,7 @@ function drawPanel(){
     '<div><label for="i-sup">Supplier</label><select id="i-sup">' + opt('', 'None yet', e.supplier_id || '') +
       SUPPLIERS.map(function(s){ return opt(s.id, s.name, e.supplier_id); }).join('') + '</select></div>' +
     '<div><label for="i-unit">Unit</label><input id="i-unit" value="' + esc(e.unit || 'piece') + '" placeholder="piece, box, roll"></div>' +
-    '<div><label for="i-warn">Warn below</label><input id="i-warn" inputmode="decimal" value="' + esc(e.warn_qty == null ? '' : e.warn_qty) + '"></div>' +
+    '<div><label for="i-warn">Minimum on hand</label><input id="i-warn" inputmode="decimal" value="' + esc(e.warn_qty == null ? '' : e.warn_qty) + '"></div>' +
     '<div><label for="i-std">Standard order</label><input id="i-std" inputmode="decimal" value="' + esc(e.standard_order == null ? '' : e.standard_order) + '"></div>' +
     '<div class="wide"><label for="i-uses">Predicted from</label><select id="i-uses">' + opt('', 'Not predicted: counted only', uses) +
       Object.keys(USES).map(function(k){ return opt(k, USES[k].label, uses); }).join('') + '</select></div>' +
@@ -747,7 +751,7 @@ function saveItem(){
   var name = $('i-name').value.trim(), uses = $('i-uses').value || null;
   var warn = numOf('i-warn'), std = numOf('i-std'), per = numOf('i-per'), waste = numOf('i-waste');
   if(!name) return message('bad', 'Type the shop name.');
-  if(isNaN(warn) || warn < 0 || isNaN(std) || std < 0) return message('bad', 'Warn below and standard order should be numbers, or left blank.');
+  if(isNaN(warn) || warn < 0 || isNaN(std) || std < 0) return message('bad', 'Minimum on hand and standard order should be numbers, or left blank.');
   if(uses && !(per > 0)) return message('bad', USES[uses].cut ? 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.' : 'Type how many doors one unit covers.');
   if(uses && (waste == null || isNaN(waste) || waste < 0 || waste > 100)) return message('bad', 'The waste allowance is a percentage from 0 to 100.');
   var row = {shop_name: name, supplier_item: $('i-sitem').value.trim() || null, supplier_id: $('i-sup').value || null,

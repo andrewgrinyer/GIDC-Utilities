@@ -24,12 +24,13 @@
          Chantilly Lace. Anything else is custom, bought per job.
        Stock goes down as scheduled days pass; a count replaces it.
        Warn when stock, with what is on order, will not cover the next
-         two weeks and still leave the warning level.
+         two weeks and still leave the minimum on hand (was the warning
+         level; Andrew, 23 November: stock is never planned below it).
        Orders are in 5 gallon or 1 gallon pails and go by email to
          Ashley (the paint-order edge function).
        The schedule shows a week, a month, or any range, and prints.
 
-     Coverage and warning levels are on the page under Settings, so a
+     Coverage and minimums on hand are on the page under Settings, so a
      change is an edit and never a change of code. -->
 <script>window.GIDC_TOOL = {who: 'shop'};</script>
 <script src="/gate.js"></script>
@@ -82,6 +83,9 @@ h2{font-size:17px;margin:26px 0 10px}
 .chip.short{background:var(--brass-soft);color:var(--brass)}
 .chip.info{background:var(--info-soft);color:var(--info)}
 .chip.grey{background:var(--rule-soft);color:var(--ink)}
+.min{font-size:13px;margin:-2px 0 8px}
+.min b{font-weight:600}
+.sc.low .min b,.sc.short .min b{color:var(--warn)}
 .suggest{font-size:13px;color:var(--warn);margin:0 0 9px}
 h2.withbtn{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .areyousure{margin:0 0 9px;padding:9px 11px;border-radius:9px;background:var(--brass-soft);color:var(--brass);font-size:13.5px}
@@ -214,12 +218,12 @@ table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var
     <div class="list" id="orders"><div class="empty">Loading&hellip;</div></div>
 
     <details class="set" id="settings">
-      <summary>Settings: coverage, warning levels, counts</summary>
+      <summary>Settings: coverage, minimum on hand, counts</summary>
       <div id="setbody"></div>
     </details>
   </div>
 </div>
-<div class="gidc-build">Paint 1.3 &middot; 20 Nov 2026</div>
+<div class="gidc-build">Paint 1.4 &middot; 23 Nov 2026</div>
 
 <script>
 (function(){
@@ -400,7 +404,7 @@ function card(c){
   var s = stockOf(c), other = c.kind === 'other';
   var chip = s.state === 'unknown' ? '<span class="chip grey">Not counted yet</span>'
            : s.state === 'short' ? '<span class="chip short">Runs short' + (s.runsOut ? ' ' + esc(nice(s.runsOut, true)) : '') + '</span>'
-           : s.state === 'low' ? '<span class="chip low">Low</span>'
+           : s.state === 'low' ? '<span class="chip low">Below minimum</span>'
            : '<span class="chip ok">OK</span>';
   var how = s.last
     ? 'Counted ' + g1(s.last.gallons) + ' gal on ' + esc(nice(s.last.counted_on)) +
@@ -413,12 +417,13 @@ function card(c){
     '<div class="nm"><span class="sw" style="background:' + (SWATCH[c.name] || '#eee') + '"></span>' + esc(c.name) +
       '<span style="margin-left:auto">' + chip + '</span></div>' +
     '<div class="big">' + (now == null ? '?' : g1(now)) + ' <small>gal in stock</small></div>' +
+    (other && !Number(c.warn_gallons) ? '' : '<div class="min">Minimum on hand <b>' + (Number(c.warn_gallons) ? g1(c.warn_gallons) + ' gal' : 'not set') + '</b></div>') +
     '<div class="how">' + how + '</div>' +
     '<dl><dt>Next 2 weeks</dt><dd>' + g1(s.need2) + ' gal <span style="color:var(--muted)">(' + whole(s.doors2) + ' doors)</span></dd>' +
         '<dt>On order</dt><dd>' + (s.onOrder ? g1(s.onOrder) + ' gal' : 'none') + '</dd>' +
         (s.after == null ? '' : '<dt>Left after 2 weeks</dt><dd>' + g1(s.after) + ' gal</dd>') +
-        (other && !Number(c.warn_gallons) ? '' : '<dt>Warn below</dt><dd>' + g1(c.warn_gallons) + ' gal</dd>') + '</dl>' +
-    (s.suggest5 ? '<div class="suggest">Suggest ordering ' + s.suggest5 + ' x 5 gal</div>' : '') +
+        '</dl>' +
+    (s.suggest5 ? '<div class="suggest">Suggest ordering ' + s.suggest5 + ' x 5 gal, to stay at or above the minimum</div>' : '') +
     (other && askRemove === c.name
       ? '<div class="areyousure">Remove ' + esc(c.name) + ' and its counts for good? Orders keep their record.' +
         '<div class="acts"><button class="save small" data-removeyes="' + esc(c.name) + '">Yes, used up</button>' +
@@ -632,10 +637,10 @@ function drawSettings(){
       '<div class="acts"><button class="plain small" data-uncount="' + x.id + '">Remove</button></div></div>';
   }).join('');
   $('setbody').innerHTML =
-    '<table class="cov"><thead><tr><th></th><th>Doors per 5 gal pail</th><th>Warn below (gal)</th></tr></thead><tbody>' + rows + '</tbody></table>' +
-    '<p><button class="save" id="savecov">Save coverage and warnings</button></p>' +
-    '<p class="sub">Stock is warned about when, after the next two weeks of the schedule and with what is on order, ' +
-    'it would fall below the warning level.</p>' +
+    '<table class="cov"><thead><tr><th></th><th>Doors per 5 gal pail</th><th>Minimum on hand (gal)</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<p><button class="save" id="savecov">Save coverage and minimums</button></p>' +
+    '<p class="sub">Minimum on hand: stock is never planned below it. When the next two weeks of the schedule, with what is on order, ' +
+    'would take a colour below its minimum, the card says so and suggests enough pails to keep it.</p>' +
     '<h2>Recent counts</h2><div class="list">' + (counts || '<div class="empty">No counts yet.</div>') + '</div>';
 }
 
@@ -798,7 +803,7 @@ function saveCoverage(){
   COLOURS.forEach(function(c){
     var cov = Number($$('[data-cov="' + c.name + '"]').value), w = $$('[data-warn="' + c.name + '"]');
     var warn = w ? (w.value.trim() === '' ? 0 : Number(w.value)) : c.warn_gallons;
-    if(!(Number.isInteger(cov) && cov > 0) || !(warn == null || warn >= 0)){ jobs.push(Promise.reject(new Error(c.name + ': coverage must be a whole number of doors, and the warning a number of gallons.'))); return; }
+    if(!(Number.isInteger(cov) && cov > 0) || !(warn == null || warn >= 0)){ jobs.push(Promise.reject(new Error(c.name + ': coverage must be a whole number of doors, and the minimum a number of gallons.'))); return; }
     if(cov === Number(c.doors_per_pail) && warn == c.warn_gallons) return;
     jobs.push(send('PATCH', '/rest/v1/paint_colours?name=eq.' + encodeURIComponent(c.name), {doors_per_pail: cov, warn_gallons: warn}));
   });

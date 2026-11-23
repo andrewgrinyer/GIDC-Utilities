@@ -159,7 +159,7 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(/4\.0 gal in stock/.test(c) && /Next 2 weeks 5\.0 gal \(35 doors\)/.test(c) && /Runs short Tue Nov 24/.test(c) && /Suggest ordering 2 x 5 gal/.test(c),
     'Extra White: 4 on hand, 35 doors next week need 5.0, runs short Tue Nov 24, suggests 2 x 5 (' + c + ')');
   c = await card(page, 'Primer');
-  check(/20\.0 gal in stock/.test(c) && /Next 2 weeks 11\.5 gal \(115 doors\)/.test(c) && /Low/.test(c) && /Suggest ordering 1 x 5 gal/.test(c),
+  check(/20\.0 gal in stock/.test(c) && /Next 2 weeks 11\.5 gal \(115 doors\)/.test(c) && /Below minimum/.test(c) && /Minimum on hand/.test(c) && /Suggest ordering 1 x 5 gal/.test(c),
     'Primer: every door in the next two weeks, primer only included, 115 doors 11.5 gal, low (' + c + ')');
   c = await card(page, 'Pearly');
   check(/\? gal in stock/.test(c) && /Not counted yet/.test(c) && /On order 10\.0 gal/.test(c), 'Pearly: not counted yet, 10 on order');
