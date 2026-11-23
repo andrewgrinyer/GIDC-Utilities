@@ -149,6 +149,15 @@ every hour, so an invoiced mark on the status would be overwritten.
 is drawn from it. Invoices use Grinyer's door names, never a dealer's.
 Details in `docs/dealer-invoicing.md`.
 
+**A split part follows its own Access job or nobody.** Decided 23
+November with split orders (portal 2.21). One Access job is linked to one
+portal order, so after a split Part 1 keeps the link and Part 2 is set by
+hand: a trigger puts back anything the hourly sync writes onto it, and
+admins see in red that its ship date is manual entry. Linking Part 2 to
+its own job hands it back to the sync. An order must be off its pallet
+to be split, and taking an order off a pallet voids the customs papers
+that covered it. See `sql/dealer-split-order.sql`.
+
 **Explicit access beats a fallback.** A staff login with no dealer of its
 own acts for Grinyer's record. One that has been given real dealer access
 acts for that dealer instead.

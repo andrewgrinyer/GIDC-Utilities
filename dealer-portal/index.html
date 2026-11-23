@@ -165,6 +165,7 @@ h1{font-size:23px;margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
 .redo-row{display:flex;align-items:baseline;gap:9px;padding:8px 11px;cursor:pointer;
   border-bottom:1px solid var(--rule-soft);font-size:13.5px}
 .redo-row:last-child{border-bottom:0}
+.manual-ship{color:var(--red);font-size:12px;font-weight:600;margin-top:4px;white-space:normal}
 .redo-row:hover{background:var(--rule-soft)}
 .redo-row.on{background:var(--info-soft)}
 .redo-row input{margin:0;flex:0 0 auto}
@@ -1020,7 +1021,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.20 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.21 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -1540,6 +1541,7 @@ const state = {
   seen: {},
   moved: {},          // order id -> {status: was, ship: was}
   redo: null,         // while the reorder panel is up: ticks, reason, photos
+  split: null,        // while the split panel is up: ticks, the part number
   alink: null,        // the Access job search on the admin panel
   reopenRead: {}      // order id -> the reopen answer already read, at load
 };
@@ -1575,7 +1577,7 @@ function clearPersonal(){
   state.palShowShipped = false;
   state.invoices = null; state.inv = null; state.customs = null;
   state.order = null; state.ask = null; state.expanded = null;
-  state.redo = null; state.notice = null;
+  state.redo = null; state.split = null; state.notice = null;
   const vb = document.getElementById("verify-banner"); if(vb) vb.remove();
   state.tab = "all";
   /* the filters, which are the ones that caused this */
@@ -1984,7 +1986,10 @@ async function loadOrders(){
      and keeps the search and the redo marks */
   const accno = ",access_order_no";
   const url = s => "/rest/v1/dealer_orders?select=" + s + "&order=created_at.desc";
-  let r = await sb(url(sel + extra + accno), {headers: headers()});
+  /* the split parts arrive with dealer-split-order.sql, dropped first of all */
+  const split = ",access_order_id,split_of,split_part";
+  let r = await sb(url(sel + extra + accno + split), {headers: headers()});
+  if(!r.ok) r = await sb(url(sel + extra + accno), {headers: headers()});
   if(r.ok) state.hasAccNo = true;
   else {
     state.hasAccNo = false;
@@ -4894,6 +4899,208 @@ async function redoSend(){
   }
 }
 
+/* ---------------- SPLITTING AN ORDER INTO PARTS ----------------
+ *
+ * Andrew, 23 November: Grinyer opens an order anywhere in the process
+ * except Shipped, ticks the doors to take off it, and those doors become a
+ * second order. Same name with Part 1 and Part 2 added, the same dealer
+ * and customer, no ship date on Part 2, and the office can link Part 2 to
+ * its own Access job. The same tick boxes as a reorder.
+ *
+ * The split itself is gidc_split_order() in the database, administrators
+ * only, done in one go so an order is never left half split. What this
+ * does on top is copy the Proliner files across, so the doors on Part 2
+ * keep their measurements. See sql/dealer-split-order.sql.
+ */
+let splitFor = null;
+const SPLIT_NOT_SET_UP = "Splitting is not set up yet. Run dealer-split-order.sql in " +
+  "Supabase first.";
+const canSplit = o => isAdmin() && !!o && !!o.id && o.status !== "shipped" &&
+  ((o.form && o.form.rows) || []).length > 1;
+/* Part 2 and later, until it is linked to its own Access job. The sync
+   leaves it alone, so its status and ship date are whatever Grinyer types. */
+const splitManual = o => !!(o && o.split_of && !o.access_order_id);
+/* Andrew: red, and only on the admin side. Only ever drawn inside isAdmin()
+   branches, and dealers are never sent this text. */
+const MANUAL_SHIP = '<div class="manual-ship">Ship date is set to manual entry</div>';
+const splitBase = ref => String(ref || "Order").replace(/\s+Part\s+\d+\s*$/i, "");
+function nextSplitPart(o){
+  const root = o.split_of || o.id;
+  return (state.orders || []).filter(x => x.id === root || x.split_of === root)
+    .reduce((m, x) => Math.max(m, x.split_part || 1), Math.max(1, o.split_part || 1)) + 1;
+}
+
+function askSplit(order){
+  const box = $("sure");
+  const rows = (order.form && order.form.rows) || [];
+  const s = state.split;
+  const chosen = rows.filter(x => s.pick[x.id]);
+  const doors = chosen.reduce((n, x) => n + doorsFor(x), 0);
+  const base = splitBase(order.order_ref);
+  const keepRef = base + " Part " + (order.split_part || 1);
+  const newRef = base + " Part " + s.part;
+  const all = chosen.length === rows.length;
+  const why = s.pallet ? "Take it off the pallet first"
+    : s.invoiced ? "Void its invoice on the pallet first"
+    : !chosen.length ? "Tick at least one door"
+    : all ? "At least one door has to stay on this order" : "";
+
+  box.style.display = "";
+  box.innerHTML = '<div class="ask-card sure-card redo-card"><div class="ask-h">' +
+    "<b>Split " + esc(order.order_ref || "this order") + "</b>" +
+    '<button class="ask-x" data-split="no" title="Close">&times;</button></div>' +
+    '<div class="ask-b">' +
+    '<p class="sure-what" style="margin:0 0 8px">Tick the doors to move to ' +
+      "<b>" + esc(newRef) + "</b>. The rest stay on <b>" + esc(keepRef) + "</b>.</p>" +
+    '<div class="row" style="margin:0 0 8px;gap:8px">' +
+      '<span class="muted">' + (chosen.length
+        ? chosen.length + (chosen.length === 1 ? " opening, " : " openings, ") +
+          doors + (doors === 1 ? " door" : " doors") + " to move"
+        : "none ticked yet") + "</span></div>" +
+    '<div class="redo-list">' +
+    rows.map(x => '<label class="redo-row' + (s.pick[x.id] ? " on" : "") + '">' +
+      '<input type="checkbox" data-splitpick="' + esc(x.id) + '"' +
+      (s.pick[x.id] ? " checked" : "") + ">" +
+      "<span class=\"redo-n\">" + esc(x.opening || "") + "</span>" +
+      '<span class="redo-w">' + esc(x.location || "an opening") + "</span>" +
+      '<span class="redo-d">' + esc([x.doorType, styleOf(x)].filter(Boolean).join(", ")) +
+      (x.width && x.height ? " · " + esc(x.width) + '" x ' + esc(x.height) + '"' : "") +
+      (doorsFor(x) > 1 ? " · " + doorsFor(x) + " doors" : "") + "</span></label>").join("") +
+    "</div>" +
+    '<p class="hint" style="margin:14px 0 0">' + esc(newRef) + " keeps the dealer, the " +
+      "customer and the status, starts with no ship date, and is not " +
+      "linked to Access. Its ship date is typed by hand until you link it to its own " +
+      "Access job." + (keptFile(order, "proliner") ? " The Proliner file goes with it." : "") +
+      " Press Save first if you changed anything on this screen.</p>" +
+    (s.invoiced
+      ? '<p class="hint" style="margin:10px 0 0;color:var(--red)">This order has been ' +
+        "invoiced. Void its invoice on the pallet first, then split it.</p>" : "") +
+    (s.pallet
+      ? '<p class="hint" style="margin:10px 0 0;color:var(--red)">This order is on pallet ' +
+        esc(s.pallet) + ". Take it off the pallet first, then split it. Taking it off " +
+        "voids the pallet's customs papers if they include this order.</p>" : "") +
+    (!order.access_order_id && order.status !== "draft"
+      ? '<p class="hint" style="margin:10px 0 0;color:var(--warn)">This order is not ' +
+        "linked to Access yet. Both parts will carry the same name, so the sync cannot " +
+        "tell them apart by name. Put the Access order number on " + esc(keepRef) +
+        " in the Order # box once Access has the job.</p>" : "") +
+    '<div class="row" style="margin-top:14px;justify-content:flex-end">' +
+      '<button class="btn ghost" data-split="no">Cancel</button>' +
+      '<button class="btn primary" data-split="go"' +
+      (why ? ' disabled title="' + esc(why) + '"' : "") + ">Split the order</button></div>" +
+    "</div></div>";
+  splitFor = order;
+}
+function splitClose(){
+  splitFor = null; state.split = null;
+  const box = $("sure"); box.innerHTML = ""; box.style.display = "none";
+}
+/* Opens the panel on the order as it is saved, so the doors ticked are the
+   doors the database has. Anything on what is ticked and not yet saved
+   would not come across. */
+async function splitStart(){
+  const o = state.order;
+  if(!canSplit(o)) return toast("An order needs two or more openings, and not to have shipped");
+  let saved;
+  try{ saved = await loadOrder(o.id); }catch(err){ return toast(err.message); }
+  const ids = r => ((r && r.rows) || []).map(x => x.id).join("|");
+  if(ids(saved.form) !== ids(o.form))
+    return toast("Save the order first, then split it");
+  if(!canSplit(saved)) return toast("This order has shipped, so it cannot be split");
+  const s = {pick: {}, part: nextSplitPart(saved), invoiced: false, pallet: ""};
+  /* the database refuses these as well; looking first means the panel can
+     say so before anybody ticks anything */
+  try{
+    const r = await sb("/rest/v1/dealer_invoices?select=id&voided_at=is.null&order_id=eq." +
+                       encodeURIComponent(saved.id), {headers: headers()});
+    if(r.ok) s.invoiced = (await r.json()).length > 0;
+  }catch(err){}
+  /* Andrew: off the pallet before it is split */
+  const link = palletOf(saved.id);
+  if(link || saved.pallet_name){
+    const p = link && palletById(link.pallet_id);
+    s.pallet = (p && p.name) || saved.pallet_name || "a pallet";
+  }
+  state.split = s;
+  askSplit(Object.assign(saved, {form: saved.form || {rows: []}}));
+}
+async function splitSend(){
+  const box = $("sure"), src = splitFor, s = state.split;
+  if(!src || !s) return splitClose();
+  const rows = (src.form || {}).rows || [];
+  const move = rows.filter(x => s.pick[x.id]);
+  const keep = rows.filter(x => !s.pick[x.id]);
+  if(!move.length) return toast("Tick at least one door");
+  if(!keep.length) return toast("At least one door has to stay on this order");
+  const counts = list => ({
+    door_count: list.reduce((n, x) => n + doorsFor(x), 0),
+    panel_count: list.reduce((n, x) => n + panelsFor(x), 0),
+    paint_colour: (list.find(x => x.paintColour) || {}).paintColour || null});
+  const btn = box.querySelector('[data-split="go"]');
+  if(btn){ btn.disabled = true; btn.textContent = "Splitting…"; }
+  try{
+    const r = await sb("/rest/v1/rpc/gidc_split_order", {
+      method: "POST", headers: headers(true),
+      body: JSON.stringify({p_order: src.id, p_rows: move.map(x => x.id),
+                            p_keep: counts(keep), p_move: counts(move)})});
+    if(!r.ok){
+      const txt = await r.clone().text();
+      if(/PGRST202|schema cache|function public\.gidc_split_order.*does not exist/i.test(txt))
+        throw new Error(SPLIT_NOT_SET_UP);
+      throw new Error(await friendlyError(r, "split this order"));
+    }
+    const made = await r.json();
+
+    /* THE PROLINER FILES GO WITH THE DOORS
+       Copied rather than shared, for the reason a redo copies them:
+       deleting either order takes its files out of the bucket. */
+    let carried = true;
+    const pend = [];
+    for(const kind of ["proliner", "prld"]){
+      const f = keptFile(src, kind);
+      if(!f || !f.path) continue;
+      try{
+        const res = await fetchKept(f.path);
+        pend.push({name: f.name || (kind === "prld" ? "measurements.prld" : "measurements.xml"),
+                   bytes: new Uint8Array(await res.arrayBuffer()),
+                   type: kind === "prld" ? "application/octet-stream" : "text/xml", kind: kind});
+      }catch(err){ carried = false; }
+    }
+    let part2 = null;
+    try{ part2 = await loadOrder(made.id); }catch(err){}
+    if(part2 && pend.length){
+      try{
+        const o2 = Object.assign(part2, {files: [], pending: pend});
+        await flushFiles(o2, src.dealer_id);
+        await patchOrder(made.id, {files: o2.files});
+      }catch(err){ carried = false; }
+    }
+
+    splitClose();
+    try{ state.orders = await loadOrders(); }catch(err){}
+    const back = await loadOrder(src.id);
+    back.form = back.form || {rows: []};
+    back.form.rows = back.form.rows || [];
+    back.form.rows.forEach(setOpening);
+    back.form.rows.forEach(syncMeasurement);
+    normaliseBlanks(back.form.rows);
+    state.order = back;
+    await loadAccessLink(state.order);
+    state.view = "order";
+    state.notice = {kind: carried ? "info" : "warn",
+      head: carried ? null : "Split, but a Proliner file did not copy across.",
+      text: "Split. " + made.kept_ref + " has " + made.kept +
+        (made.kept === 1 ? " opening" : " openings") + " and " + made.order_ref + " has " +
+        made.moved + (made.moved === 1 ? " opening" : " openings") + ". " + made.order_ref +
+        " is on the order list with no ship date." +
+        (carried ? "" : " Open it and add the Proliner file by hand.")};
+    render();
+  }catch(err){
+    if(btn){ btn.disabled = false; btn.textContent = "Split the order"; }
+    toast(err.message);
+  }
+}
+
 function askReopen(order){
   const box = $("sure");
   const open = openUnlock(order.id);
@@ -6190,7 +6397,7 @@ async function openInvoicing(palletId, btn){
         grossWt: "", palletCt: "1", entryNo: "", containerNo: ""}};
     /* 2.18: coming back to a pallet, the shipment details are the ones its
        customs papers were last made with, so the weights can be corrected */
-    const lastCus = customsFor(palletId);
+    const lastCus = customsLast(palletId);
     if(lastCus && lastCus.fields){
       ["shipTo","shipDate","shipVia","waybill","grossWt","palletCt","entryNo","containerNo"].forEach(k => {
         if(lastCus.fields[k] != null && lastCus.fields[k] !== "") state.inv.customs[k] = lastCus.fields[k];
@@ -6770,13 +6977,19 @@ document.addEventListener("change", e => {
 async function loadCustoms(){
   if(!isAdmin()) return null;
   try{
-    const r = await sb("/rest/v1/pallet_customs_docs?select=id,pallet_id,pallet_name,order_ids," +
-                       "fields,total,created_at&order=created_at.desc&limit=2000", {headers: headers()});
+    const q = more => sb("/rest/v1/pallet_customs_docs?select=id,pallet_id,pallet_name,order_ids," +
+                       "fields,total,created_at" + more + "&order=created_at.desc&limit=2000", {headers: headers()});
+    /* voided_at arrives with dealer-split-order.sql */
+    let r = await q(",voided_at");
+    if(!r.ok) r = await q("");
     return r.ok ? await r.json() : null;
   }catch(_){ return null; }
 }
 /* the newest papers for a pallet */
-const customsFor = pid => (state.customs || []).find(c => String(c.pallet_id) === String(pid)) || null;
+const customsFor = pid => (state.customs || []).find(c => String(c.pallet_id) === String(pid) && !c.voided_at) || null;
+/* 2.21: the newest papers even if voided, so making them again starts
+   from the weights they were last made with */
+const customsLast = pid => (state.customs || []).find(c => String(c.pallet_id) === String(pid)) || null;
 /* what changed on the pallet since its papers were made */
 function customsDrift(p){
   const c = customsFor(p.id); if(!c) return null;
@@ -7473,7 +7686,8 @@ function renderList(){
             })() +
             "</td>" +
             '<td data-noopen="1"><input class="inline" type="date" data-oship="' + o.id +
-              '" value="' + esc(o.est_ship_date || "") + '"></td>'
+              '" value="' + esc(o.est_ship_date || "") + '">' +
+              (splitManual(o) ? MANUAL_SHIP : "") + "</td>"
           : '<td><span class="chip ' + o.status + (mv && mv.status !== undefined ? " new" : "") +
             '"' + (mv && mv.status !== undefined
               ? ' title="Changed since you last looked. It was ' +
@@ -7695,6 +7909,11 @@ function renderOrder(){
             '<span class="hint" style="margin:0">Grinyer put this back to a draft. ' +
             "Change what you need and submit it again.</span>"
           : ""; })()) +
+    /* ANDREW, 23 NOVEMBER: SPLITTING AN ORDER INTO PARTS
+       Grinyer only, anywhere in the process except Shipped. */
+    (canSplit(o)
+      ? '<button class="btn" data-splitask="1" title="Move some of the doors to a ' +
+        'new order, Part 2">Split this order</button>' : "") +
     "</div>";
 
   if(state.notice)
@@ -8036,7 +8255,8 @@ function renderOrder(){
       STATUSES.map(([k,l]) => '<option value="' + k + '"' + (o.status===k?" selected":"") + ">" + l + "</option>").join("") +
       "</select></div>" +
       '<div class="field"><label>Estimated ship date</label>' +
-      '<input type="date" data-admin="est_ship_date" value="' + esc(o.est_ship_date || "") + '"></div>' +
+      '<input type="date" data-admin="est_ship_date" value="' + esc(o.est_ship_date || "") + '">' +
+      (splitManual(o) ? MANUAL_SHIP : "") + "</div>" +
       '<div class="field" style="grid-column:1/-1"><label>Note for the dealer</label>' +
       '<input type="text" data-admin="admin_note" value="' + esc(o.admin_note || "") + '"></div>' +
       "</div><p class=\"hint\">Only Grinyer can change these. Saved when you press Save below.</p>" +
@@ -9474,7 +9694,7 @@ const CLICK_KEYS = ["tick","tickall","untick","addpallet","pallets","palrm","pal
                     "rm","save","submit","xlsx","adminsave","signout","comboval","tab","expand",
                 "users","adduser","genpw","askclose","step","adddealer","getfile","emailorder","pwfor","pwcancel","pwmake","pwsave","rmuser","reread",
                 "fclear","rmorder","setall","sure","noticeclose","reopenask","reopen",
-                "unlockdraft","unlockno","unlockclear","redoask",
+                "unlockdraft","unlockno","unlockclear","redoask","splitask",
                 "alfind","allink","alunlink","alhand",
                 "uedit","usave","ucancel"];
 const CLICK_SEL = CLICK_KEYS.map(k => "[data-" + k + "]").join(",");
@@ -9487,6 +9707,19 @@ document.addEventListener("click", async e => {
     const btn = e.target.closest("[data-sure]");
     if(btn) return sureClose(btn.dataset.sure);
     if(!e.target.closest(".sure-card")) sureClose(false);
+    return;
+  }
+  /* the split panel answers for itself too */
+  if(splitFor){
+    const pick = e.target.closest("[data-splitpick]");
+    if(pick){
+      const id = pick.dataset.splitpick;
+      if(state.split.pick[id]) delete state.split.pick[id];
+      else state.split.pick[id] = true;
+      return askSplit(splitFor);
+    }
+    const btn = e.target.closest("[data-split]");
+    if(btn) return btn.dataset.split === "go" ? splitSend() : splitClose();
     return;
   }
   /* the reorder panel answers for itself, the same way, so a click behind
@@ -9615,9 +9848,13 @@ document.addEventListener("click", async e => {
         /* ANDREW, 23 NOVEMBER: warn when the customs papers are already done */
         const link = palletOf(d.palrm), c = link && customsFor(link.pallet_id);
         const inv = liveInvoice(d.palrm);
-        return (c ? " WARNING: the customs papers for this pallet were made on " + fmtDate(c.created_at) +
-                    ((c.order_ids || []).map(String).indexOf(String(d.palrm)) !== -1 ? " and include this order." : ".") +
-                    " They will need making again." : "") +
+        /* 2.21, Andrew: taking an order off voids the commercial invoice and
+           packing list that covered it. The database does the voiding. */
+        return (c ? ((c.order_ids || []).map(String).indexOf(String(d.palrm)) !== -1
+                      ? " WARNING: the customs papers for this pallet, made on " + fmtDate(c.created_at) +
+                        ", include this order. Taking it off voids them. Make them again from Invoice pallet."
+                      : " WARNING: the customs papers for this pallet were made on " + fmtDate(c.created_at) +
+                        ". They will need making again.") : "") +
                (inv ? " It stays invoiced as " + inv.invoice_no + "; void that from the pallet's Invoice screen if it is not going." : "");
       })(),
       go: "Take it off"
@@ -9628,6 +9865,7 @@ document.addEventListener("click", async e => {
     if(!r.ok) return toast("Could not take it off");
     await refreshPallets();
     try{ state.orders = await loadOrders(); }catch(err){}
+    if(state.customs !== null){ try{ state.customs = await loadCustoms(); }catch(err){} }
     return render();
   }
   if(d.palname !== undefined){
@@ -9927,6 +10165,7 @@ document.addEventListener("click", async e => {
   }
 
   if(d.reopenask !== undefined){ askReopen(state.order); return; }
+  if(d.splitask !== undefined){ splitStart(); return; }
   if(d.redoask !== undefined){
     const o = state.order;
     if(!canReorder(o)) return toast("Only a shipped order can be reordered");
