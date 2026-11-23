@@ -168,6 +168,7 @@ h1{font-size:23px;margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
 .sure-big{border:3px solid var(--red)}
 .sure-big .ask-h b{color:var(--red);font-size:18px}
 .sure-big .sure-what{font-size:16px;font-weight:600}
+.split-n{font-weight:700;white-space:nowrap;min-width:62px}
 .manual-ship{color:var(--red);font-size:12px;font-weight:600;margin-top:4px;white-space:normal}
 .redo-row:hover{background:var(--rule-soft)}
 .redo-row.on{background:var(--info-soft)}
@@ -1024,7 +1025,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.21 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.21.1 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -4961,10 +4962,13 @@ function askSplit(order){
           doors + (doors === 1 ? " door" : " doors") + " to move"
         : "none ticked yet") + "</span></div>" +
     '<div class="redo-list">' +
-    rows.map(x => '<label class="redo-row' + (s.pick[x.id] ? " on" : "") + '">' +
+    /* 2.21.1, Andrew: the door number first on every line. A door typed
+       in by hand has no opening number, so it is called by its line
+       number, the same as the order screen and the packing list do. */
+    rows.map((x, i) => '<label class="redo-row' + (s.pick[x.id] ? " on" : "") + '">' +
       '<input type="checkbox" data-splitpick="' + esc(x.id) + '"' +
       (s.pick[x.id] ? " checked" : "") + ">" +
-      "<span class=\"redo-n\">" + esc(x.opening || "") + "</span>" +
+      '<span class="split-n">Door ' + esc(x.opening || x.xmlOpen || String(i + 1)) + "</span>" +
       '<span class="redo-w">' + esc(x.location || "an opening") + "</span>" +
       '<span class="redo-d">' + esc([x.doorType, styleOf(x)].filter(Boolean).join(", ")) +
       (x.width && x.height ? " · " + esc(x.width) + '" x ' + esc(x.height) + '"' : "") +

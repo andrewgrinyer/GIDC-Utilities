@@ -32,7 +32,7 @@ let ORDERS = [
           {kind:'prld', name:'cortes.prld', path:'D1/aa/cortes.prld', at:'2026-11-10T14:00:00Z'},
           {kind:'orderform', name:'SFD - Cortes.xlsx', path:'D1/aa/f.xlsx', at:'2026-11-10T14:00:00Z'}],
    form:{rows:[row('r1','1','Hall closet','Double Bifold','4 Panel True Shaker','48','80'),
-               row('r2','2','Bedroom 1','Single Swing','4 Panel True Shaker','30','80'),
+               row('r2','','Bedroom 1','Single Swing','4 Panel True Shaker','30','80'),
                row('r3','3','Pantry','Single Swing','Kingston','24','80'),
                row('r4','4','Laundry','Bypass','Kingston','60','80')], custom:{}, sources:{xml:'cortes.xml'}}},
   {id:'s1', dealer_id:'D1', order_ref:'SFD ABRAHAM 6938', customer_name:'SFDA', status:'shipped',
