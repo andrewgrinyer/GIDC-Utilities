@@ -7,7 +7,7 @@ $$ select set_config('request.jwt.claim.sub', md5(n)::text, false); $$;
 insert into auth.users(id,email) values (md5('manufacturing')::uuid,'manufacturing@x.ca') on conflict do nothing;
 update profiles set name='manufacturing', role='manufacturing' where id=md5('manufacturing')::uuid;
 
-\echo -- seeded: three lists, five shop items (want SHP SND INST, Ashley copied)
+\echo -- seeded: three lists, seven shop items, astragals included (want SHP HDW SND INST, Ashley copied)
 select code, po_prefix, copy_to from supply_categories order by sort;
 select shop_name, uses, per_unit, waste_pct from supply_items order by sort;
 
@@ -30,7 +30,7 @@ select supply_schedule_load('[{"order_id":5069,"order_no":"5067","job":"Aris","u
 reset role;
 select job, uses, amount from supply_schedule order by job, uses;
 
-\echo -- who can see the items (want admin and manufacturing 5; everybody else 0)
+\echo -- who can see the items (want admin and manufacturing 7; everybody else 0)
 do $$ declare n text; c int; begin
   foreach n in array array['admin','user','sales','manufacturing','installer','dealer','dadmin','cdealer','stranger'] loop
     perform set_config('request.jwt.claim.sub', md5(n)::text, false);
@@ -110,3 +110,15 @@ delete from supply_items where shop_name like 'Pine%';
 reset role;
 select shop_name, item_id is null as gone from supply_order_lines order by shop_name;
 select count(*) as counts_left from supply_counts;
+
+\echo -- hardware: one order, two hinge specs and a track, kept apart by spec (want 3 rows: 12, 4, 1)
+set role service_role;
+select supply_schedule_load('[
+ {"order_id":6001,"order_no":"6000","job":"Hinge","uses":"hinge","spec":"size=3.5; radius=0.25; finish=Satin Nickel","need_on":"2026-11-30","amount":8},
+ {"order_id":6001,"order_no":"6000","job":"Hinge","uses":"hinge","spec":"size=3.5; radius=0.25; finish=Satin Nickel","need_on":"2026-11-30","amount":4},
+ {"order_id":6001,"order_no":"6000","job":"Hinge","uses":"hinge","spec":"size=4; radius=0.625; finish=Black","need_on":"2026-11-30","amount":4},
+ {"order_id":6001,"order_no":"6000","job":"Hinge","uses":"track","spec":"length=72","need_on":"2026-11-30","amount":1}
+]'::jsonb, '2026-11-05');
+reset role;
+select uses, spec, amount from supply_schedule where access_order_id = 6001 order by amount desc;
+

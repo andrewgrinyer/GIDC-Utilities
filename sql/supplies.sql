@@ -115,6 +115,7 @@ comment on table public.supply_categories is
 -- Added once. A second run leaves alone whatever was changed on the page.
 insert into public.supply_categories (code, name, po_prefix, copy_to, sort) values
   ('shop',    'Shop Supplies',    'SHP',  'ashley@grinyer.ca', 10),
+  ('hardware','Hardware',         'HDW',  'ashley@grinyer.ca', 15),
   ('sanding', 'Sanding Supplies', 'SND',  'ashley@grinyer.ca', 20),
   ('install', 'Install Supplies', 'INST', 'ashley@grinyer.ca', 30)
 on conflict (code) do nothing;
@@ -156,12 +157,20 @@ create table if not exists public.supply_items (
 alter table public.supply_items drop constraint if exists supply_items_ok;
 alter table public.supply_items add constraint supply_items_ok
   check (btrim(shop_name) <> '' and btrim(unit) <> ''
-         and (uses is null or uses in ('rerail', 'pine', 'valance_small', 'valance_large', 'doors'))
+         and (uses is null or uses in ('rerail', 'pine', 'valance_small', 'valance_large', 'doors',
+                                       'astragal_7', 'astragal_8', 'hinge', 'track', 'roller_set',
+                                       'floor_guide', 'finger_pull', 'flush_bolt'))
          and (uses is null or coalesce(per_unit, 0) > 0)
          and (per_unit is null or per_unit < 100000)
          and waste_pct >= 0 and waste_pct <= 100
          and (warn_qty is null or warn_qty >= 0)
          and (standard_order is null or standard_order >= 0));
+-- Andrew, 23 November: hardware comes in sizes and colours, so an item
+-- is matched to what Access asks for by its spec as well as its use:
+-- for a hinge 'size=3.5; radius=0.25; finish=Satin Nickel', for a track
+-- 'length=72', for a finger pull 'shape=round; finish=Black'. Blank
+-- for anything with only one kind. The sync writes the same words.
+alter table public.supply_items add column if not exists spec text not null default '';
 create unique index if not exists supply_items_same_name
   on public.supply_items (category, lower(regexp_replace(shop_name, '[^A-Za-z0-9]', '', 'g')));
 comment on table public.supply_items is
@@ -184,6 +193,17 @@ select 'shop', v.n, 'piece', v.u, v.p, v.w, v.s
   ) as v(n, u, p, w, s)
  where not exists (select 1 from public.supply_items i where i.category = 'shop');
 
+-- Andrew, 23 November: astragals, 7 and 8 feet, one for each Double
+-- Swing AST door, the length by the door's height. Each added once, by
+-- name, and from Elmira Doors & Trim when that supplier is on the list.
+insert into public.supply_items (category, shop_name, unit, uses, per_unit, waste_pct, sort, supplier_id)
+select 'shop', v.n, 'piece', v.u, 1, 0, v.s,
+       (select s.id from public.supply_suppliers s
+         where lower(regexp_replace(s.name, '[^A-Za-z0-9]', '', 'g')) = 'elmiradoorstrim' limit 1)
+  from (values ('Astragal 7''', 'astragal_7', 60), ('Astragal 8''', 'astragal_8', 70)) as v(n, u, s)
+ where not exists (select 1 from public.supply_items i
+                    where i.category = 'shop' and i.uses = v.u);
+
 -- ---------- 4. the schedule from Access -----------------------------------
 create table if not exists public.supply_schedule (
   access_order_id  integer not null,
@@ -196,6 +216,17 @@ create table if not exists public.supply_schedule (
   pulled_at        timestamptz not null default now(),
   primary key (access_order_id, uses)
 );
+-- One row per order, use and spec (Andrew, 23 November: hardware comes
+-- in sizes and colours). Added to a table from an earlier run too.
+alter table public.supply_schedule add column if not exists spec text not null default '';
+do $$
+begin
+  if not exists (select 1 from pg_index i join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any(i.indkey)
+                  where i.indrelid = 'public.supply_schedule'::regclass and i.indisprimary and a.attname = 'spec') then
+    alter table public.supply_schedule drop constraint if exists supply_schedule_pkey;
+    alter table public.supply_schedule add primary key (access_order_id, uses, spec);
+  end if;
+end $$;
 comment on table public.supply_schedule is
   'Sent from Access every hour by gidc-supplies-sync.ps1. One row per '
   'order and use. For cut uses, amount is the inches and cuts each piece; '
@@ -217,20 +248,21 @@ begin
   get diagnostics removed = row_count;
 
   with r as (
-    select (x->>'order_id')::int as o, x->>'uses' as u, x from jsonb_array_elements(p_rows) x
+    select (x->>'order_id')::int as o, x->>'uses' as u, coalesce(btrim(x->>'spec'), '') as sp, x
+      from jsonb_array_elements(p_rows) x
   ), a as (
-    select o, u, max(x->>'order_no') as order_no, max(x->>'job') as job,
+    select o, u, sp, max(x->>'order_no') as order_no, max(x->>'job') as job,
            max((x->>'need_on')::date) as need_on,
            sum(coalesce((x->>'amount')::numeric, 0)) as amount
-      from r group by o, u
+      from r group by o, u, sp
   ), c as (
-    select o, u, array_agg(v::numeric order by v::numeric desc) as cuts
+    select o, u, sp, array_agg(v::numeric order by v::numeric desc) as cuts
       from r, jsonb_array_elements_text(coalesce(x->'cuts', '[]'::jsonb)) v
-     group by o, u
+     group by o, u, sp
   )
-  insert into supply_schedule (access_order_id, uses, order_no, job, need_on, amount, cuts, pulled_at)
-  select a.o, a.u, a.order_no, a.job, a.need_on, a.amount, coalesce(c.cuts, '{}'), now()
-    from a left join c on c.o = a.o and c.u = a.u
+  insert into supply_schedule (access_order_id, uses, spec, order_no, job, need_on, amount, cuts, pulled_at)
+  select a.o, a.u, a.sp, a.order_no, a.job, a.need_on, a.amount, coalesce(c.cuts, '{}'), now()
+    from a left join c on c.o = a.o and c.u = a.u and c.sp = a.sp
    where a.need_on is not null;
   get diagnostics added = row_count;
 
@@ -381,6 +413,7 @@ begin
     new.shop_name := btrim(regexp_replace(coalesce(new.shop_name, ''), '\s+', ' ', 'g'));
     new.supplier_item := nullif(btrim(coalesce(new.supplier_item, '')), '');
     new.unit := coalesce(nullif(btrim(coalesce(new.unit, '')), ''), 'piece');
+    new.spec := btrim(coalesce(new.spec, ''));
     if tg_op = 'UPDATE' then new.category := old.category; end if;
   elsif tg_table_name = 'supply_counts' then
     if tg_op = 'INSERT' then new.created_at := now(); new.created_by := who; end if;
