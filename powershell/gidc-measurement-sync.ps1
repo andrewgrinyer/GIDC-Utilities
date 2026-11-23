@@ -178,16 +178,19 @@ $estStatus = StatusList "def_EstimateStatus" "EstimateStatusID"
 $ordStatus = StatusList "def_OrderStatus" "OrderStatusID"
 
 # ---- the customers --------------------------------------------------
+# EVERY COLUMN COMES BACK UNDER A NAME OF ITS OWN, q AND THE NAME
+# Access refuses "OrderID as OrderID" as a circular reference, so no alias
+# is ever the same as a column it could be read as.
 function Col($table, $cols, $name, $as) {
-  if ($name -and $cols -contains $name) { return "$table.[$name] as [$as]" } else { return "null as [$as]" }
+  if ($name -and $cols -contains $name) { return "$table.[$name] as [q$as]" } else { return "null as [q$as]" }
 }
 $sel = @(
-  "e.EstimateID as [EstimateID]",
+  "e.EstimateID as [qEstimateID]",
   (Col "e" $ecols "OrderID" "OrderID"),
-  "e.FirstName as [FirstName]", "e.LastName as [LastName]",
+  "e.FirstName as [qFirstName]", "e.LastName as [qLastName]",
   (Col "e" $ecols "EstimateStatusID" "EstimateStatusID"),
   (Col "e" $ecols "SalesAssociateID" "SalesAssociateID"),
-  "e.DateTimeCreated as [DateTimeCreated]",
+  "e.DateTimeCreated as [qDateTimeCreated]",
   (Col "e" $ecols "MeasureDate" "MeasureDate"),
   (Col "e" $ecols "SaleTypeID" "SaleTypeID"),
   (Col "e" $ecols $AddressColumn "Addr"),
@@ -204,56 +207,57 @@ if ($joinOrders) {
             (Col "o" $ocols "SalesDate" "SalesDate"), (Col "o" $ocols "CompletedDate" "CompletedDate"))
   $from = "Estimates as e left join Orders as o on o.OrderID = e.OrderID"
 } else {
-  $sel += @("null as [OrderNo]", "null as [OrderStatusID]", "null as [SalesDate]", "null as [CompletedDate]")
+  $sel += @("null as [qOrderNo]", "null as [qOrderStatusID]", "null as [qSalesDate]", "null as [qCompletedDate]")
   $from = "Estimates as e"
 }
 $since = (Get-Date).Date.AddYears(-$Years)
 $sql = "select " + ($sel -join ", ") + " from $from where e.DateTimeCreated >= #" + $since.ToString("MM/dd/yyyy") + "#"
 
 $TagSet = @($DealerTags | ForEach-Object { $_.ToUpper() })
-$rows = @()
+# a list rather than an array, which would be copied whole on every row
+$rows = New-Object System.Collections.Generic.List[object]
 $skipDealer = 0; $skipWholesale = 0; $skipNoName = 0
 try { $rs = $cn.Execute($sql) } catch { $cn.Close(); Stop-Badly ("Access did not like the query: " + $_.Exception.Message) }
 while (-not $rs.EOF) {
-  $last  = T (V $rs "LastName")
-  $first = T (V $rs "FirstName")
+  $last  = T (V $rs "qLastName")
+  $first = T (V $rs "qFirstName")
   $tag = if ($last) { (@($last -split '\s+')[0]).ToUpper() } else { "" }
-  $saleType = I (V $rs "SaleTypeID")
+  $saleType = I (V $rs "qSaleTypeID")
   if (-not $last -and -not $first)                                   { $skipNoName++;    $rs.MoveNext(); continue }
   if ($TagSet -contains $tag)                                        { $skipDealer++;    $rs.MoveNext(); continue }
   if ($saleType -ne $null -and $ExcludeSaleTypes -contains $saleType) { $skipWholesale++; $rs.MoveNext(); continue }
 
-  $addr = T (V $rs "Addr")
-  if (-not $addr) { $addr = T ((@((T (V $rs "AddrNo")), (T (V $rs "AddrStreet"))) | Where-Object { $_ }) -join " ") }
-  $esId = I (V $rs "EstimateStatusID"); $osId = I (V $rs "OrderStatusID")
+  $addr = T (V $rs "qAddr")
+  if (-not $addr) { $addr = T ((@((T (V $rs "qAddrNo")), (T (V $rs "qAddrStreet"))) | Where-Object { $_ }) -join " ") }
+  $esId = I (V $rs "qEstimateStatusID"); $osId = I (V $rs "qOrderStatusID")
   # a hashtable will not be asked for a null key, so look only when there is one
   $es = if ($esId -ne $null -and $estStatus.ContainsKey($esId)) { $estStatus[$esId] } else { $null }
   $os = if ($osId -ne $null -and $ordStatus.ContainsKey($osId)) { $ordStatus[$osId] } else { $null }
-  $repId = I (V $rs "SalesAssociateID")
-  $rows += [pscustomobject]@{
-    estimate_id          = I (V $rs "EstimateID")
-    order_id             = I (V $rs "OrderID")
-    order_no             = T (V $rs "OrderNo")
+  $repId = I (V $rs "qSalesAssociateID")
+  $rows.Add([pscustomobject]@{
+    estimate_id          = I (V $rs "qEstimateID")
+    order_id             = I (V $rs "qOrderID")
+    order_no             = T (V $rs "qOrderNo")
     first_name           = $first
     last_name            = $last
     address              = $addr
-    city                 = T (V $rs "City")
-    phone                = T (V $rs "Phone1")
-    phone2               = T (V $rs "Phone2")
-    email                = T (V $rs "Email")
+    city                 = T (V $rs "qCity")
+    phone                = T (V $rs "qPhone1")
+    phone2               = T (V $rs "qPhone2")
+    email                = T (V $rs "qEmail")
     rep                  = $(if ($repId -ne $null -and $reps.ContainsKey([string]$repId)) { $reps[[string]$repId] } else { $null })
-    created_on           = D (V $rs "DateTimeCreated")
-    measure_on           = D (V $rs "MeasureDate")
-    sold_on              = D (V $rs "SalesDate")
-    completed_on         = D (V $rs "CompletedDate")
-    estimate_status_id   = I (V $rs "EstimateStatusID")
+    created_on           = D (V $rs "qDateTimeCreated")
+    measure_on           = D (V $rs "qMeasureDate")
+    sold_on              = D (V $rs "qSalesDate")
+    completed_on         = D (V $rs "qCompletedDate")
+    estimate_status_id   = I (V $rs "qEstimateStatusID")
     estimate_status      = $(if ($es) { $es.name } else { $null })
     estimate_status_sort = $(if ($es) { $es.sort } else { $null })
-    order_status_id      = I (V $rs "OrderStatusID")
+    order_status_id      = I (V $rs "qOrderStatusID")
     order_status         = $(if ($os) { $os.name } else { $null })
     order_status_sort    = $(if ($os) { $os.sort } else { $null })
     sale_type_id         = $saleType
-  }
+  })
   $rs.MoveNext()
 }
 $rs.Close(); $cn.Close()
@@ -277,7 +281,7 @@ if ($joinOrders) { Say ("  job number from Orders.OrderNo, on {0} of them" -f (C
 else             { Say "  Estimates has no OrderID, so there is no job number to send" "Yellow" }
 Say ("  sales rep name on {0} (from def_Employees.CalendarName)" -f (CountOf { $_.rep }))
 Say ("  sold (Orders.SalesDate) {0}, completed (Orders.CompletedDate) {1}" -f (CountOf { $_.sold_on }), (CountOf { $_.completed_on }))
-$newOnes = Count { $_.created_on -ge "2026-11-24" }
+$newOnes = CountOf { $_.created_on -ge "2026-11-24" }
 Say ("  created on or after 24 November, so they become new jobs: {0}" -f $newOnes)
 
 Say ""
@@ -305,7 +309,7 @@ if ($WhatIfPreference) {
 if (-not $Key) { Stop-Badly "No key. Set GIDC_KPI_KEY on this machine, or pass -Key. Run the TRY to see the counts without one." }
 if (-not $rows.Count) { Stop-Badly "Nothing read out of Access, so nothing was sent." }
 
-$body = @{ preview = [bool]$Preview; customers = $rows } | ConvertTo-Json -Depth 5 -Compress
+$body = @{ preview = [bool]$Preview; customers = $rows.ToArray() } | ConvertTo-Json -Depth 5 -Compress
 $bytes = [System.Text.Encoding]::UTF8.GetBytes($body)
 $headers = @{ "apikey" = $Anon; "Authorization" = "Bearer $Anon"; "x-gidc-key" = $Key }
 try {

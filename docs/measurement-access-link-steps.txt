@@ -1,0 +1,72 @@
+MEASUREMENT APP JOBS LINKED TO ACCESS (23 November, app 2.66)
+
+What this does, once it is all in:
+  * Every hour the server sends the retail customers in Access to the
+    measurement app. Dealer orders and wholesale are left out.
+  * Every job in the app is linked to its Access customer. The status on
+    each job is the Access status, in Access's words, and it moves on
+    its own when Access changes. It can no longer be changed in the app.
+  * The jobs already in the app are matched to Access once, by name,
+    street number, phone, email and date. Where one customer clearly
+    matches, the job is linked. Where it is not clear, the job is flagged
+    and an administrator links it by hand (job list, Show them, Link).
+  * From tomorrow, 24 November, every new customer typed into Access
+    appears in the app as a new job within the hour, already linked,
+    with the sales rep from Access.
+
+Steps 1 to 4 change no job. Please send me the two result files from
+steps 3 and 4 before going on to step 5.
+
+1. SUPABASE, SQL editor: open 1-supabase-measurement-access-link.sql,
+   paste it all in, Run. It should say Success. Safe to run twice. It
+   adds the link and status columns to the jobs and changes no job.
+
+2. SUPABASE, Edge Functions: Deploy a new function, Via Editor, named
+   exactly measurement-sync. Paste in 2-supabase-edge-measurement-sync.ts
+   and Deploy. Then in that function's settings turn Verify JWT OFF and
+   save, the same as dealer-sync. It uses the KPI_IMPORT_KEY secret that
+   is already there, so there is nothing new to set.
+
+3. SERVER: copy everything in this zip except the steps, the .sql, the
+   .ts and the Cloudflare zip into C:\GIDC. Right click
+   3-TRY-MEASUREMENT-SYNC.bat, Run as administrator. It reads Access and
+   sends nothing. It saves measurement-sync-try-result.txt beside it,
+   which holds counts, column names and the Access status lists, and no
+   customer details. Please send me that file. It tells me which Access
+   columns hold the address, phone and email, which nothing here has
+   read before.
+
+4. SERVER: once I say the try looks right, right click
+   4-PREVIEW-MEASUREMENT-LINKS.bat, Run as administrator. It sends the
+   Access customer list up and works out every link, then undoes it, so
+   no job changes. It lists each job it would link and to whom, each job
+   it would flag and why, and saves measurement-sync-preview-result.txt.
+   That file has customer names in it. Please look it over or send it
+   to me.
+
+5. SERVER: when the preview looks right, double click
+   5-SEND-MEASUREMENT-SYNC-NOW.bat. This does the linking for real.
+   Then right click 6-SET-UP-HOURLY-MEASUREMENT-SYNC.bat, Run as
+   administrator. It asks for the account and password the same way the
+   other tasks did (the KPI import account, press Enter to take it) and
+   makes the hourly task GIDC measurement sync at 27 minutes past. Each
+   run adds a line to C:\GIDC\logs\measurement-sync.log.
+
+6. CLOUDFLARE: upload 7-cloudflare-measurement-app-2.66.zip to the
+   measurement app the usual way. It has no folders inside, only the
+   site files. The app then shows the Access status on every job, the
+   Status filter lists the Access statuses, Hide closed jobs becomes
+   Hide completed jobs, and the status box on the job is read only.
+   Administrators see how many jobs still need linking, and a Link
+   button on each.
+
+Linking by hand (administrators): on the job list tap Show them, then
+Link on a job. It shows the Access customers that match best, with what
+each matches on, and a search box for the whole Access list (name,
+address, phone or Access job number). Tap Link. If a job is a test or a
+duplicate, tap Not in Access and it stops being flagged. A job can also
+be relinked from inside the job, Change link.
+
+Two smaller changes that come with it: a sales rep can no longer delete
+a job that is linked to Access (an administrator still can), and a job
+the sync made that somebody deletes is not made again.
