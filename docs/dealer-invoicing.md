@@ -79,6 +79,12 @@ portal never asks for them and the database would refuse if it did.
 * **Pricing is the portal's**: `linePrice` and `orderPrice`, the same rules
   as the order screen and `gidc_order_total`. Discount comes off
   everything, tariff goes on what is left (20 and 50 to start).
+* **No negative numbers** (2.12). QuickBooks Online's invoice import refuses a
+  negative line and has no discount column, and a positive discount line
+  would add to the total. So the discount comes off each line's rate, the
+  description says "(list 150.00 less 20%)", and the tariff goes on the net.
+  The total is the same as before. The customs papers drop that note. The
+  file also has a DueDate column, the invoice date (terms are due on receipt).
 * **No charge** is a zero invoice with the lines at rate 0 and the reason in
   each description, so QuickBooks still records what shipped.
 * **Our names only.** The invoice never calls `styleOut` or `nameOut`. A line
