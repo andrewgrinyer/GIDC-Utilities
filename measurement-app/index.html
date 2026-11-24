@@ -3670,6 +3670,9 @@ async function importJob(file){
 }
 
 const isAdmin = () => state.me && state.me.role === 'admin';
+/* 2.68, Andrew 24 Nov: office staff (role user, "Staff") link jobs to Access too.
+   The database checks the same (can_link_access_jobs). */
+const canLinkAccess = () => !!state.me && ['admin', 'user'].indexOf(state.me.role) >= 0;
 
 /* ---------------- model ---------------- */
 /* Set once at the top of a job and every new opening starts with them filled in.
@@ -6193,7 +6196,7 @@ function jobRowsHtml(visible){
       jobCounts(j) + ' · ' +
       new Date(j.updated).toLocaleDateString() +
       (j.rep || j.owner ? ' · ' + esc(j.rep || j.owner) : '') + '</span></div>' +
-      (isAdmin() && needsLink(j)
+      (canLinkAccess() && needsLink(j)
         ? '<button class="btn btn-sm" data-acclink="' + j.id + '" title="' + esc(j.accFlag || 'Not linked to Access yet') + '">Link</button>'
         : '') +
       '<button class="btn btn-ghost btn-sm" data-exp="' + j.id + '">Save file</button>' +
@@ -6339,7 +6342,7 @@ async function accDone(msg){
   render();
 }
 async function accClick(d){
-  if(!isAdmin()) return toast('Only an administrator can link jobs to Access');
+  if(!canLinkAccess()) return toast('Only office staff or an administrator can link jobs to Access');
   if(d.accshow !== undefined){ state.jf.status = '_unlinked'; state.jfOpen = true; return render(); }
   if(d.acclink) return openAccLink(d.acclink);
   const a = state.acc; if(!a) return;
@@ -6424,7 +6427,7 @@ function renderJobs(){
     '</div><div class="filtercount" id="jobcount">' + (anyFilter() ? visible.length + ' of ' + state.jobs.length : '') + '</div>';
 
   /* 2.66: what the sync could not link, for an administrator to link by hand */
-  const toLink = isAdmin() ? state.jobs.filter(needsLink).length : 0;
+  const toLink = canLinkAccess() ? state.jobs.filter(needsLink).length : 0;
   if(toLink && state.jf.status !== '_unlinked')
     h += '<div class="accnote"><span><b>' + toLink + ' job' + (toLink === 1 ? '' : 's') +
          ' not linked to Access.</b> Link ' + (toLink === 1 ? 'it' : 'them') + ' by hand.</span>' +
@@ -6482,9 +6485,9 @@ function renderJob(){
     const a = accRow(job);
     h += '<div class="field jf-status"><label>Status, from Access</label>' +
          '<div class="accline"><b>' + esc(accText(a)) + '</b>' +
-         (isAdmin() ? '<button class="btn btn-ghost btn-sm" data-acclink="' + job.id + '">' +
+         (canLinkAccess() ? '<button class="btn btn-ghost btn-sm" data-acclink="' + job.id + '">' +
                       (a.accEst ? 'Change link' : 'Link') + '</button>' : '') +
-         (isAdmin() && needsLink(a) && a.accFlag ? '<small>' + esc(a.accFlag) + '</small>' : '') +
+         (canLinkAccess() && needsLink(a) && a.accFlag ? '<small>' + esc(a.accFlag) + '</small>' : '') +
          '</div></div>';
   }
   JOBFIELDS.forEach(f => {

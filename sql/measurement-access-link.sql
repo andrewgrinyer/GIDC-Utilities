@@ -47,7 +47,8 @@
 --  WHO MAY DO WHAT
 --
 --  Reading the Access list, and linking or unlinking a job, go through
---  can_link_access_jobs(), a helper, which is administrators for now.
+--  can_link_access_jobs(), a helper: administrators and office staff
+--  (role user, "Staff" on the tools site; Andrew, 24 Nov 2026).
 --  The status columns are written only by the sync. A trigger holds both
 --  for direct writes, so nothing can go round the functions. The app's
 --  normal save never sends these columns, so saving a job leaves them
@@ -160,10 +161,24 @@ comment on column public.jobs.access_status is
 
 -- ---------- 4. who may link ------------------------------------------
 -- An allowlist, like every other helper. Widening it is this one line.
+-- 24 Nov 2026, Andrew: office staff link too. Staff is role 'user'. Where
+-- is_staff() exists (two-sided-access.sql, email-verification.sql) it
+-- must pass as well, so a staff login keeps the same active and email
+-- checks every other staff rule has.
 create or replace function public.can_link_access_jobs()
-returns boolean language sql stable security definer set search_path = public as $$
-  select public.is_admin()
-$$;
+returns boolean language plpgsql stable security definer set search_path = public as $$
+declare ok boolean;
+begin
+  if public.is_admin() then return true; end if;
+  if not exists (select 1 from public.profiles p where p.id = auth.uid() and p.role = 'user') then
+    return false;
+  end if;
+  if to_regprocedure('public.is_staff()') is not null then
+    execute 'select public.is_staff()' into ok;
+    return coalesce(ok, false);
+  end if;
+  return true;
+end $$;
 
 -- ---------- 5. the guard on the columns ------------------------------
 -- auth.uid() is null for the service role, which is how the sync writes,
@@ -645,7 +660,7 @@ create or replace function public.gidc_access_suggest(p_job text)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 begin
   if not public.can_link_access_jobs() then
-    raise exception 'Only an administrator can link jobs to Access.';
+    raise exception 'Only office staff or an administrator can link jobs to Access.';
   end if;
   return coalesce((
     select jsonb_agg(to_jsonb(r) order by r.score desc, abs(coalesce(r.day_gap, 99999)))
@@ -666,7 +681,7 @@ returns jsonb language plpgsql stable security definer set search_path = public 
 declare w text[];
 begin
   if not public.can_link_access_jobs() then
-    raise exception 'Only an administrator can link jobs to Access.';
+    raise exception 'Only office staff or an administrator can link jobs to Access.';
   end if;
   w := array(select x from regexp_split_to_table(lower(btrim(coalesce(p_q, ''))), '\s+') x where x <> '');
   if cardinality(w) = 0 then return '[]'::jsonb; end if;
@@ -707,7 +722,7 @@ declare
   who   text := coalesce((select name from public.profiles where id = auth.uid()), 'an administrator');
 begin
   if not public.can_link_access_jobs() then
-    raise exception 'Only an administrator can link jobs to Access.';
+    raise exception 'Only office staff or an administrator can link jobs to Access.';
   end if;
   select * into j from public.jobs where id = p_job;
   if not found then raise exception 'That job is not there any more.'; end if;

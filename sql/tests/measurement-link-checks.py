@@ -145,7 +145,12 @@ check("a job made on a phone cannot bring a link with it",
 
 # ---- linking by hand ------------------------------------------------
 flagged = sql("select id from jobs where access_flag like 'More than one%' order by id limit 1")
-for who in ["sales", "user", "installer", "dealer", "dadmin"]:
+# 24 Nov: office staff (role user) link too
+r = sql("select jsonb_array_length(gidc_access_suggest('%s'))" % flagged, who="user", ok=False)
+check("office staff can see the suggestions", not r.startswith("ERROR"), r)
+r = sql("select jsonb_array_length(gidc_access_search('smith'))", who="user", ok=False)
+check("office staff can search Access", not r.startswith("ERROR") and int(r) > 0, r)
+for who in ["sales", "installer", "dealer", "dadmin"]:
     r = sql("select gidc_access_suggest('%s')" % flagged, who=who, ok=False)
     check("%s cannot see the Access list" % who, r.startswith("ERROR"), r)
     r = sql("select gidc_access_search('smith')", who=who, ok=False)

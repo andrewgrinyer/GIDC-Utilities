@@ -223,6 +223,19 @@ const pills = page => page.evaluate(() => Object.fromEntries([...document.queryS
     !(await page.$('.jf-status button')) && !(await page.$('[data-jstatus]')));
   check('no page errors for the rep', errors.length === 0, errors);
 
+  // ---------- office staff (role user), 24 Nov ------------------------
+  reset();
+  ({page, errors} = await boot(browser, {name: 'Office Person', role: 'user'}, {viewport: {width: 1280, height: 900}}));
+  check('office staff see the jobs to link', /2 jobs not linked to Access/.test(await page.locator('.accnote').textContent()));
+  await page.click('[data-acclink="j4444"]'); await page.waitForSelector('[data-accestq]');
+  check('and can open Link to Access, with the estimate number box', await page.locator('[data-accest]').textContent() === 'Link');
+  await page.click('[data-accpick="8201"]'); await page.waitForSelector('#joblist');
+  const staffLink = calls.filter(c => c.fn === 'gidc_link_job_access').pop();
+  check('and can link a job', staffLink && staffLink.b.p_job === 'j4444' && staffLink.b.p_estimate === 8201, staffLink);
+  const sdel = await page.evaluate(() => Object.fromEntries(state.jobs.map(j => [j.customer, canDelete(j)])));
+  check('but still cannot delete a linked job', sdel['Mary Smith'] === false, sdel);
+  check('no page errors for office staff', errors.length === 0, errors);
+
   // ---------- before the SQL has run ---------------------------------
   reset(); failAccessCols = true;
   const page2 = await (await browser.newContext({viewport: {width: 1280, height: 900}})).newPage();
