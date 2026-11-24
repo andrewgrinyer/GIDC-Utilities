@@ -5824,7 +5824,7 @@ function renderClosets(){
   const job = state.job;
   document.body.classList.add('closets');
   $('#bar').innerHTML =
-    '<button class="btn btn-ghost btn-sm" data-cl="doors">Back</button>' +
+    '<button class="btn btn-ghost btn-sm" data-cl="doors" data-clback="1">Back</button>' +
     '<h1>' + esc(job.customer || 'Untitled job') + '</h1><span class="crumb">Closets</span>';
   const list = closetsOf(job);
   let h = closetSwitch(job, 'closets');
@@ -5921,6 +5921,7 @@ document.addEventListener('click', async e => {
   const d = t.dataset, c = d.cid ? clFind(job, d.cid) : null;
   const act = d.cl;
   if(act === 'closets'){ state.view = 'closets'; window.scrollTo(0, 0); return render(); }
+  if(act === 'doors' && t.dataset.clback !== undefined && navBack()) return;   // 2.68: the closets Back
   if(act === 'doors'){ state.view = 'job'; window.scrollTo(0, 0); return render(); }
   if(act === 'newcloset'){ state.view = 'closets'; window.scrollTo(0, 0); }
   if(act === 'add' || act === 'newcloset'){
@@ -5976,7 +5977,70 @@ document.addEventListener('change', e => {
   c.location = v; render(); persistBg();
 });
 
+/* 2.68, Andrew 24 Nov: Back goes to the screen you were on before, however
+   deep you are, whether it is the Back button on the screen or the phone's
+   or browser's own back. Each screen the app moves to is one step in the
+   browser's history (the address does not change), and going back puts the
+   one before it back: the job list, a job, its closets, its review, or the
+   Link to Access screen. Sign in, first setup and a customer's signing page
+   are not steps. Back from the job list leaves the app, as before. */
+const NAV = {stack:[], idx:-1, busy:false};
+const NAV_SCREENS = ['jobs', 'job', 'closets', 'review', 'acclink', 'users'];
+const navJobOf = () => (state.view === 'acclink' ? '' : (state.job && state.job.id) || '');
+const navKey = sn => sn.view + '|' + (sn.job || '') + '|' + (sn.view === 'acclink' && sn.acc ? sn.acc.job : '');
+function navNote(){
+  if(NAV.busy || typeof history === 'undefined' || !history.pushState) return;
+  if(NAV_SCREENS.indexOf(state.view) < 0){ NAV.stack = []; NAV.idx = -1; return; }
+  const sn = {view:state.view, job:navJobOf(), acc:state.view === 'acclink' ? state.acc : null};
+  const cur = NAV.stack[NAV.idx];
+  if(cur && navKey(cur) === navKey(sn)){ NAV.stack[NAV.idx] = sn; return; }
+  NAV.stack = NAV.stack.slice(0, NAV.idx + 1); NAV.stack.push(sn); NAV.idx = NAV.stack.length - 1;
+  try{
+    if(NAV.idx === 0) history.replaceState({gidcNav:0}, '');
+    else history.pushState({gidcNav:NAV.idx}, '');
+  }catch(e){}
+}
+/* the on screen Back: one step back when there is one, else what it always did */
+function navBack(fallback){
+  if(NAV.idx > 0 && !NAV.busy){ history.back(); return true; }
+  if(fallback) fallback();
+  return false;
+}
+async function navGo(n){
+  const sn = NAV.stack[n];
+  if(!sn) return;
+  NAV.busy = true;
+  try{
+    comboClose && comboClose();
+    if(sn.view === 'jobs' || sn.view === 'users'){
+      if(state.job){ await saveChain; state.jobs = await loadIndex(); }
+      state.job = null; state.editOption = null; state.repOpen = false; state.acc = null;
+    } else if(sn.job && (!state.job || state.job.id !== sn.job)){
+      await saveChain;
+      const j = await loadJob(sn.job);
+      state.job = j; state.repOpen = false; state.custOpen = false;
+      const first = j.openings[0]; state.openOpening = first && first.id;
+      state.editOption = first && first.options[0] && first.options[0].id;
+    }
+    if(sn.view !== 'acclink') state.acc = null; else state.acc = sn.acc;
+    NAV.idx = n;
+    window.scrollTo && window.scrollTo(0, 0);
+    if(sn.view === 'review'){ NAV.busy = false; state.view = 'review'; return openReview(); }
+    state.view = sn.view;
+    render();
+  }catch(e){
+    toast(e.message || String(e));
+    state.job = null; state.view = 'jobs'; NAV.idx = 0; render();
+  }finally{ NAV.busy = false; }
+}
+window.addEventListener('popstate', e => {
+  const n = e.state && typeof e.state.gidcNav === 'number' ? e.state.gidcNav : null;
+  if(n === null || !NAV.stack[n]) return;
+  navGo(n);
+});
+
 function render(){
+  navNote();
   if(profileDue && state.view !== 'job' && state.view !== 'review' && state.view !== 'closets') saveChain.then(profileSend);
   document.body.classList.remove('reviewing');
   document.body.classList.remove('closets');
@@ -6268,6 +6332,7 @@ document.addEventListener('input', e => {
 async function accDone(msg){
   try{ state.jobs = await loadIndex(); }catch(e){}
   toast(msg);
+  if(navBack()) return;                // 2.68: back to the screen the link was opened from
   const back = state.acc && state.acc.back;
   state.acc = null;
   state.view = back === 'job' && state.job ? 'job' : 'jobs';
@@ -6278,7 +6343,7 @@ async function accClick(d){
   if(d.accshow !== undefined){ state.jf.status = '_unlinked'; state.jfOpen = true; return render(); }
   if(d.acclink) return openAccLink(d.acclink);
   const a = state.acc; if(!a) return;
-  if(d.accback !== undefined){ state.acc = null; state.view = a.back === 'job' && state.job ? 'job' : 'jobs'; return render(); }
+  if(d.accback !== undefined){ if(navBack()) return; state.acc = null; state.view = a.back === 'job' && state.job ? 'job' : 'jobs'; return render(); }
   try{
     if(d.accpick){
       if(d.accmove){
@@ -6769,7 +6834,7 @@ document.addEventListener('click', async e => {
   if(d.padof){ const o = job && job.openings.find(x => x.id === d.op); if(o) openPad(o, d.padof); return; }
   if(d.doorauto){ const o = job && job.openings.find(x => x.id === d.doorauto);
     if(o){ delete o.doorW; delete o.doorH; render(); persistBg(); } return; }
-  if(d.revback !== undefined){ state.view = 'job'; return render(); }
+  if(d.revback !== undefined){ if(navBack()) return; state.view = 'job'; return render(); }
   /* 2.20, Andrew 18 Nov: a door added straight from the review. It is a new
      opening with the job's defaults, and its line is filled in right here. */
   /* 2.26: remote signing */
@@ -7042,6 +7107,7 @@ document.addEventListener('click', async e => {
     catch(err){ return toast(err.message); }
     state.jobs = await loadIndex();
     toast((j.customer || 'That job') + ' deleted'); return render(); }
+  if(d.back !== undefined && navBack()) return;      // 2.68: the screen before
   if(d.back !== undefined){ state.view = 'jobs'; state.editOption = null; state.job = null;
     state.repOpen = false;
     await saveChain;                    // 2.30: the list after the last save has landed
@@ -7405,6 +7471,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.67 · 23 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.68 · 24 Nov 2026</div>
 </body>
 </html>
