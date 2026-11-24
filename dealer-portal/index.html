@@ -8808,7 +8808,7 @@ function renderOrder(){
           const snap = snapSizes(r);
           /* Andrew, 24 Nov: on a pocket or barn the Opening is the door they get */
           h += td + (isOpen && MADE_TO_SIZE.test(r.doorType || "")
-                 ? '<div class="sz-note">Requested door size</div>' : "") + '<div class="sz">' +
+                 ? '<div class="sz-note">Finished Door Size</div>' : "") + '<div class="sz">' +
                '<input type="text" inputmode="decimal" ' + fat + ' value="' + esc(r[field]) + '"' +
                (sz.why ? ' title="' + esc(sz.why) + '"' : "") + ">" +
                (snap ? '<span class="spin">' +

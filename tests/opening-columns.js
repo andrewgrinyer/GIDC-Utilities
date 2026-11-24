@@ -61,6 +61,11 @@ function sheetCells(file){
     const [dl] = await Promise.all([page.waitForEvent('download'), page.click('[data-xlsx]')]);
     r.xlsx = path.join(TMP, v + '-' + dl.suggestedFilename()); await dl.saveAs(r.xlsx);
     r.cells = sheetCells(r.xlsx);
+    // what the spreadsheet's Width cell says for the pivot on line 7 (Office)
+    r.pivotInSheet = (() => {
+      const all = Object.values(r.cells).join(' ');
+      return {has3025: /<v>30\.25<\/v>|>30\.25</.test(all), has2875: /<v>28\.75<\/v>|>28\.75</.test(all)};
+    })();
     // 4. that spreadsheet imported into a new order
     await page.click('[data-back]'); await page.waitForSelector('tr[data-open]');
     await page.click('[data-new]'); await page.waitForSelector('[data-import="sheet"]');
@@ -80,6 +85,8 @@ function sheetCells(file){
   console.log('2. pivot typed into', JSON.stringify(R.old.typedIn), 'on old and', JSON.stringify(R.new.typedIn), 'on new; saved:',
     same(strip(R.old.savedAfterTyping), strip(R.new.savedAfterTyping)) ? 'SAME' : 'DIFFERENT',
     '; re stile', R.old.restileAfterTyping, '/', R.new.restileAfterTyping);
+  console.log('   spreadsheet after typing 30.25 over 28.75 on the pivot: new has 30.25', R.new.pivotInSheet.has3025,
+    ', still has 28.75', R.new.pivotInSheet.has2875, '(old:', R.old.pivotInSheet.has3025, R.old.pivotInSheet.has2875 + ')');
   const files = Array.from(new Set(Object.keys(R.old.cells).concat(Object.keys(R.new.cells))));
   const diff = files.filter(f => R.old.cells[f] !== R.new.cells[f]);
   console.log('3. order form for Access:', files.length, 'parts compared,', diff.length ? 'DIFFERENT: ' + diff.join(', ') : 'SAME');
