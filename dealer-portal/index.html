@@ -1027,7 +1027,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.21.4 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.22 · 24 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -4470,7 +4470,7 @@ function renderBar(){
        the order, where it was one more thing pushing the grid down the page
        and was out of sight once you had scrolled. */
     (state.view === "order"
-      ? '<button class="btn sm barback" data-back="1">← All orders</button>' : "") +
+      ? '<button class="btn sm barback" data-back="1">← Back</button>' : "") +
     (lg ? '<span class="sep"></span><img class="dealer' + (lg.onDark ? " ondark" : "") +
           '" src="' + lg.src + '" alt="' + esc(d.name) + '">' : "") +
     stamp +
@@ -5321,6 +5321,123 @@ async function reopenSend(){
 }
 
 function render(){
+  const r = renderPage();
+  navTrack();
+  return r;
+}
+
+/* BACK GOES TO THE PAGE YOU WERE ON
+   Andrew, 24 November: Back took you to the main page however far in you
+   were. It now goes to whatever page you were on before, the browser's
+   and the phone's back as well as the Back button on an order. Every page
+   (orders list, an order, pallets, a packing list, invoicing a pallet,
+   dealers) is a step in the browser's history. Filters and ticks are kept
+   in memory, and each page comes back where it was scrolled to. */
+const NAV_VIEWS = {list: 1, order: 1, pallets: 1, packing: 1, invoice: 1, users: 1};
+let navRestoring = false, navStarted = false, navScroll = 0;
+const navStack = [];          // the pages behind this one, by depth
+function navPage(){
+  const v = state.view; if(!NAV_VIEWS[v]) return null;
+  const pal = v === "packing" ? state.packing && state.packing.pallet
+            : v === "invoice" ? state.inv && state.inv.pallet : null;
+  return {view: v,
+          order: v === "order" && state.order ? (state.order.id || "new") : "",
+          pallet: pal ? String(pal.id) : ""};
+}
+const navKey = p => p ? p.view + "|" + (p.order || "") + "|" + (p.pallet || "") : "";
+const navHere = () => (history.state && history.state.gidc) || null;
+function navTrack(){
+  if(navRestoring) return;
+  const p = navPage(); if(!p) return;
+  const cur = navHere();
+  /* the first page after the portal opens takes over the entry it opened on */
+  if(!navStarted || !cur){
+    navStarted = true;
+    p.depth = 0; navStack.length = 0; navStack[0] = p;
+    history.replaceState({gidc: p}, "");
+    return;
+  }
+  if(navKey(cur) === navKey(p)) return;
+  /* a new order just saved is the same page, now with its number */
+  if(cur.view === "order" && cur.order === "new" && p.view === "order"){
+    p.depth = cur.depth; navStack[p.depth] = p;
+    history.replaceState({gidc: p}, "");
+    return;
+  }
+  history.replaceState({gidc: Object.assign({}, cur, {scroll: navScroll})}, "");
+  navStack[cur.depth] = Object.assign({}, cur, {scroll: navScroll});
+  p.depth = cur.depth + 1;
+  navStack.length = p.depth; navStack[p.depth] = p;
+  history.pushState({gidc: p}, "");
+  navScroll = 0;
+}
+/* A Back or All orders button whose page is the one just behind this one
+   goes back to it, so the browser's history stays a straight line. */
+function navBackTo(view){
+  const cur = navHere();
+  const prev = cur && cur.depth > 0 && navStack[cur.depth - 1];
+  if(!prev || (view && prev.view !== view)) return false;
+  history.back();
+  return true;
+}
+window.addEventListener("scroll", () => { if(!navRestoring) navScroll = window.scrollY; }, {passive: true});
+window.addEventListener("popstate", e => {
+  const p = e.state && e.state.gidc;
+  if(!p || !NAV_VIEWS[state.view]) return;       // signed out: nothing to go back to
+  navGo(p);
+});
+async function navGo(p){
+  /* a question or panel open on the page being left closes with it */
+  if(splitFor) splitClose();
+  if(redoFor) redoClose();
+  if(sureGo) sureClose(false);
+  navRestoring = true;
+  try{
+    if(p.view === "order" && p.order && p.order !== "new") await openOrder(p.order);
+    else if(p.view === "packing" && p.pallet) await openPacking(p.pallet);
+    else if(p.view === "invoice" && p.pallet) await openInvoicing(p.pallet);
+    else if(p.view === "pallets" || p.view === "users"){
+      state.order = null; state.view = p.view; state.notice = null; render();
+    }else{
+      state.order = null; state.view = "list";
+      try{ state.orders = await loadOrders(); }catch(err){ toast(err.message); }
+      render();
+    }
+  }finally{ navRestoring = false; }
+  /* if the page could not be opened again (a pallet since deleted), this
+     step in history is whatever is showing */
+  const now = navPage();
+  if(now){
+    now.depth = p.depth; now.scroll = p.scroll || 0;
+    navStack[p.depth] = now;
+    history.replaceState({gidc: now}, "");
+  }
+  navScroll = p.scroll || 0;
+  requestAnimationFrame(() => window.scrollTo(0, p.scroll || 0));
+}
+
+/* opening an order, from the list or from Back (2.22) */
+async function openOrder(id){
+  try{ state.order = await loadOrder(id); state.order.form = state.order.form || {rows:[]};
+         /* an order saved by an earlier build can carry a blank that is not a
+            door we stock, so it is put right on the way in and said out loud */
+         state.order.form.rows.forEach(setOpening);
+         /* and a non swing line still carrying a swing's measurement, from an
+            order saved before the reading was put aside on a type change */
+         state.order.form.rows.forEach(syncMeasurement);
+         const fixed = normaliseBlanks(state.order.form.rows);
+         if(fixed.length) toast(fixed.length + (fixed.length === 1 ? " line" : " lines") +
+           " had a blank that is not a stock size, now corrected. " + fixed[0]);
+         /* 2.21.3: every door holds its number from the moment it is open,
+            so deleting one before saving cannot shift the rest */
+         lockDoorNumbers(state.order.form);
+         /* what Access job it is linked to, for the admin panel */
+         await loadAccessLink(state.order);
+         state.view = "order"; render(); }
+  catch(err){ toast(err.message); }
+}
+
+function renderPage(){
   renderBar();
   $("dock").style.display = "none";
   /* only an open submitted order is sealed, so every other screen clears it */
@@ -9994,7 +10111,8 @@ document.addEventListener("click", async e => {
     return render();
   }
   if(d.untick !== undefined){ state.ticked = {}; return render(); }
-  if(d.pallets !== undefined){ state.view = "pallets"; state.notice = null; return render(); }
+  if(d.pallets !== undefined){ if(navBackTo("pallets")) return;
+    state.view = "pallets"; state.notice = null; return render(); }
   if(d.palopen !== undefined){
     if(state.palOpen[d.palopen]) delete state.palOpen[d.palopen];
     else state.palOpen[d.palopen] = true;
@@ -10213,7 +10331,10 @@ document.addEventListener("click", async e => {
   if(d.tab !== undefined){ state.tab = d.tab; return render(); }
   if(d.expand !== undefined){
     state.expanded = state.expanded === d.expand ? null : d.expand; return render(); }
-  if(d.back !== undefined){ state.order = null; state.view = "list";
+  /* 2.22: the order's Back goes to the page before it, whatever that was;
+     All orders elsewhere goes back if the orders list is the page before */
+  if(d.back !== undefined){ if(navBackTo(state.view === "order" ? "" : "list")) return;
+    state.order = null; state.view = "list";
     try{ state.orders = await loadOrders(); }catch(err){ toast(err.message); } return render(); }
 
   if(d.new !== undefined){
@@ -10223,26 +10344,7 @@ document.addEventListener("click", async e => {
     state.alink = null;                /* a new order is linked to nothing */
     state.view = "order"; return render();
   }
-  if(d.open !== undefined){
-    try{ state.order = await loadOrder(d.open); state.order.form = state.order.form || {rows:[]};
-         /* an order saved by an earlier build can carry a blank that is not a
-            door we stock, so it is put right on the way in and said out loud */
-         state.order.form.rows.forEach(setOpening);
-         /* and a non swing line still carrying a swing's measurement, from an
-            order saved before the reading was put aside on a type change */
-         state.order.form.rows.forEach(syncMeasurement);
-         const fixed = normaliseBlanks(state.order.form.rows);
-         if(fixed.length) toast(fixed.length + (fixed.length === 1 ? " line" : " lines") +
-           " had a blank that is not a stock size, now corrected. " + fixed[0]);
-         /* 2.21.3: every door holds its number from the moment it is open,
-            so deleting one before saving cannot shift the rest */
-         lockDoorNumbers(state.order.form);
-         /* what Access job it is linked to, for the admin panel */
-         await loadAccessLink(state.order);
-         state.view = "order"; render(); }
-    catch(err){ toast(err.message); }
-    return;
-  }
+  if(d.open !== undefined) return openOrder(d.open);
   if(d.step !== undefined){
     /* one nudge along the standard sizes, then put the cursor back where it
        was so the arrows can be pressed again without hunting for the box */
