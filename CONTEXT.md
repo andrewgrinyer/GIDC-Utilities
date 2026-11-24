@@ -76,7 +76,7 @@ edge functions for anything needing an admin key.
 | `kpi-import` | the only door numbers come in through | `KPI_IMPORT_KEY` |
 | `send-goback` | emails a go back to the office | `RESEND_API_KEY` |
 | `send-order-function` | emails a dealer order | `RESEND_API_KEY` |
-| `customs-void-alert` | emails Ashley and accounting when an order comes off a pallet whose commercial invoice covered it | `RESEND_API_KEY` |
+| `customs-void-alert` | emails Ashley and accounting when an order comes off a pallet whose commercial invoice covered it, and when an order's QuickBooks invoice is voided in the portal (2.21.4) | `RESEND_API_KEY` |
 
 `kpi-import` writes all rows or none. One bad row rejects the batch with
 a sentence naming which. That is deliberate: a half imported night is

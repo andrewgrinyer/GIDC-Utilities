@@ -180,6 +180,42 @@ begin
 end $$;
 
 
+-- ---------- 2c. voiding a QuickBooks invoice ---------------------------
+-- Andrew, 23 November (2.21.4): voiding an order's QuickBooks invoice in
+-- the portal emails Ashley and accounting as well, so the invoice is
+-- changed in QuickBooks. Same table and same email function; kind says
+-- which. The record is written here, by the database, the moment the
+-- invoice is voided, so it exists even if the email never goes.
+alter table public.customs_void_alerts add column if not exists kind text not null default 'customs';
+
+create or replace function public.gidc_alert_invoice_void()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare
+  o    record;
+  who  text;
+begin
+  if old.voided_at is not null or new.voided_at is null then return new; end if;
+  select d.order_ref, d.dealer_id into o from public.dealer_orders d where d.id = new.order_id;
+  select coalesce(nullif(btrim(p.name), ''), p.email) into who
+    from public.profiles p where p.id = coalesce(new.voided_by, auth.uid());
+  insert into public.customs_void_alerts(kind, order_id, order_ref, dealer_id, pallet_id,
+      pallet_name, papers_made_at, qbo_invoice_no, changed_by, changed_by_name, changed_at)
+    values ('invoice', new.order_id, o.order_ref, o.dealer_id, new.pallet_id::text,
+      new.pallet_name, new.created_at, new.invoice_no, coalesce(new.voided_by, auth.uid()),
+      who, new.voided_at);
+  return new;
+end $$;
+
+do $$
+begin
+  if to_regclass('public.dealer_invoices') is not null then
+    drop trigger if exists dealer_invoices_void_alert on public.dealer_invoices;
+    create trigger dealer_invoices_void_alert
+      after update of voided_at on public.dealer_invoices
+      for each row execute function public.gidc_alert_invoice_void();
+  end if;
+end $$;
+
 -- ---------- 3. a part whose ship date is set by hand ------------------
 create or replace function public.gidc_split_manual(o public.dealer_orders)
 returns boolean language sql stable as $$
@@ -303,8 +339,7 @@ begin
                              where order_id = $1 and voided_at is null)'
       into billed using p_order;
     if billed then
-      raise exception 'This order has been invoiced. Void its invoice on the pallet '
-                      'first, then split it.';
+      raise exception 'This order has been invoiced. Void its invoice first, then split it.';
     end if;
   end if;
 

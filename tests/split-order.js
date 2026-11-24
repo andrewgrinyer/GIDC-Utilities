@@ -106,6 +106,11 @@ function splitOrder(b){
       calls.push('  split ' + req.postData());
       const [s, x] = splitOrder(JSON.parse(req.postData())); return j(x, s);
     }
+    if(u.pathname === '/rest/v1/dealer_invoices' && m === 'PATCH'){
+      const id = u.searchParams.get('id').replace(/^eq\./, ''), v = INVOICES.find(x => x.id === id);
+      Object.assign(v, JSON.parse(req.postData())); calls.push('  invoice voided ' + id);
+      return j([v]);
+    }
     if(u.pathname === '/rest/v1/dealer_invoices')
       return j(INVOICES.filter(v => !v.voided_at && ('eq.' + v.order_id) === u.searchParams.get('order_id')));
     if(u.pathname === '/rest/v1/pallet_customs_docs') return j(ME.role === 'admin' ? CUSTOMS : []);
@@ -212,7 +217,14 @@ function splitOrder(b){
   await page.reload(); await page.waitForSelector('tr[data-open]');
   await open('i1'); await page.click('[data-splitask]'); await page.waitForSelector('[data-splitpick]');
   await page.click('label:has([data-splitpick="m2"])');
-  console.log('invoiced, button:', await goOff(), '/', await page.$eval('.redo-card', x => x.innerText.match(/This order has been invoiced[^.]*\./)[0]));
+  console.log('invoiced, button:', await goOff(), '/', await page.$eval('.redo-card', x => x.innerText.match(/This order has QuickBooks invoice[^.]*\./)[0]));
+  await page.click('[data-splitvoid="ask"]');
+  await shot('split-void-invoice.png');
+  await page.click('[data-splitvoid="yes"]');
+  await page.waitForFunction(() => !document.querySelector('[data-splitvoid]'));
+  console.log('after void, button:', await goOff(), ' ticks kept:', await page.$$eval('[data-splitpick]:checked', x => x.length));
+  console.log('void toast:', await page.$eval('#toast', x => x.innerText).catch(() => '(no toast)'));
+  console.log('calls:', calls.filter(c => /invoice voided|alert/.test(c)).slice(-2).join(' | '));
   await page.click('[data-split="no"]');
 
   console.log('-- an order on a pallet');

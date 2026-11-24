@@ -23,6 +23,10 @@
 //                         ashley@grinyer.ca,accounting@grinyer.ca
 //   CUSTOMS_ALERT_FROM    optional, falls back to ORDER_EMAIL_FROM
 //
+// 2.21.4, Andrew: voiding an order's QuickBooks invoice in the portal
+// emails them too, so the invoice is changed in QuickBooks. Those alerts
+// have kind 'invoice' and their own wording.
+//
 // No imports, on purpose, the same as send-goback.
 
 const CORS = {
@@ -80,18 +84,59 @@ const when = (v: unknown) => {
 };
 
 type Alert = {
-  id: string; order_id: string | null; order_ref: string | null;
+  id: string; kind?: string | null; order_id: string | null; order_ref: string | null;
   pallet_name: string | null; papers_made_at: string | null;
   ci_no: string | null; qbo_invoice_no: string | null;
   changed_by_name: string | null; changed_at: string | null;
   emailed_at: string | null;
 };
 
+const row = (label: string, value: string) =>
+  `<tr><td style="padding:7px 14px 7px 0;color:#6E6E76;font-size:13px;` +
+  `vertical-align:top;white-space:nowrap">${esc(label)}</td>` +
+  `<td style="padding:7px 0;font-size:15px;color:#17171A">${value}</td></tr>`;
+
+function invoiceEmailFor(a: Alert) {
+  const html =
+    `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,` +
+    `Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;padding:4px 0">` +
+      `<div style="border:3px solid #C80000;border-radius:6px;padding:22px 24px">` +
+        `<h1 style="font-size:21px;margin:0 0 6px;color:#C80000">` +
+          `A QuickBooks invoice has been voided in the dealer portal</h1>` +
+        `<p style="margin:0 0 18px;color:#17171A;font-size:15px">` +
+          `The invoice below needs to be changed or voided in QuickBooks as well. ` +
+          `The order can now be changed or split, and invoiced again.</p>` +
+        `<table style="border-collapse:collapse;width:100%">` +
+          row("Order", `<b>${orDash(a.order_ref)}</b>`) +
+          row("QuickBooks invoice", `<b>${orDash(a.qbo_invoice_no)}</b>` +
+              (a.papers_made_at ? ", made " + esc(when(a.papers_made_at)) : "")) +
+          row("Pallet", orDash(a.pallet_name)) +
+          row("Voided by", orDash(a.changed_by_name)) +
+          row("When", esc(when(a.changed_at))) +
+        `</table>` +
+      `</div>` +
+      `<p style="color:#8E8E99;font-size:12px;margin:14px 2px 0">` +
+        `Sent by the Grinyer dealer portal. Replying to this email changes nothing.</p>` +
+    `</div>`;
+  const subject = `QuickBooks invoice ${a.qbo_invoice_no ?? ""} voided: ${a.order_ref ?? "an order"}, change it in QuickBooks`
+    .replace(/\s+/g, " ");
+  const text = [
+    "A QUICKBOOKS INVOICE HAS BEEN VOIDED IN THE DEALER PORTAL",
+    "",
+    "The invoice below needs to be changed or voided in QuickBooks as well.",
+    "The order can now be changed or split, and invoiced again.",
+    "",
+    `Order:               ${a.order_ref ?? ""}`,
+    `QuickBooks invoice:  ${a.qbo_invoice_no ?? ""}${a.papers_made_at ? ", made " + when(a.papers_made_at) : ""}`,
+    `Pallet:              ${a.pallet_name ?? ""}`,
+    `Voided by:           ${a.changed_by_name ?? ""}`,
+    `When:                ${when(a.changed_at)}`,
+  ].join("\n");
+  return { subject, html, text };
+}
+
 function emailFor(a: Alert) {
-  const row = (label: string, value: string) =>
-    `<tr><td style="padding:7px 14px 7px 0;color:#6E6E76;font-size:13px;` +
-    `vertical-align:top;white-space:nowrap">${esc(label)}</td>` +
-    `<td style="padding:7px 0;font-size:15px;color:#17171A">${value}</td></tr>`;
+  if (a.kind === "invoice") return invoiceEmailFor(a);
   const html =
     `<div style="font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,` +
     `Helvetica,Arial,sans-serif;max-width:620px;margin:0 auto;padding:4px 0">` +
@@ -187,7 +232,7 @@ Deno.serve(async (req) => {
         { method: "PATCH", headers: asAdmin, body: JSON.stringify(patch) }).catch(() => {});
     }
     if (failed.length)
-      return json({ error: "The papers are voided but the email to " + to.join(" and ") +
+      return json({ error: "It is voided but the email to " + to.join(" and ") +
         " would not send. Tell them directly.", sent }, 502);
     return json({ ok: true, sent, to });
   } catch (e) {

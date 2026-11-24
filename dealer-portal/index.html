@@ -1027,7 +1027,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.21.3 · 23 Nov 2026";
+const BUILD  = "Dealer portal 2.21.4 · 23 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -5011,7 +5011,7 @@ function askSplit(order){
   const newRef = base + " Part " + s.part;
   const all = rows.every(x => splitPicked(s, x).length === splitLeaves(x).length);
   const why = s.pallet ? "Take it off the pallet first"
-    : s.invoiced ? "Void its invoice on the pallet first"
+    : s.invoiced ? "Void its invoice first"
     : !chosen.length ? "Tick at least one door"
     : all ? "At least one door has to stay on this order" : "";
 
@@ -5056,9 +5056,21 @@ function askSplit(order){
       "linked to Access. Its ship date is typed by hand until you link it to its own " +
       "Access job." + (keptFile(order, "proliner") ? " The Proliner file goes with it." : "") +
       " Press Save first if you changed anything on this screen.</p>" +
+    /* 2.21.4, Andrew: once the order is off its pallet the pallet's invoice
+       screen no longer lists it, so its invoice is voided from here */
     (s.invoiced
-      ? '<p class="hint" style="margin:10px 0 0;color:var(--red)">This order has been ' +
-        "invoiced. Void its invoice on the pallet first, then split it.</p>" : "") +
+      ? '<div class="hint" style="margin:10px 0 0;color:var(--red)">This order has ' +
+        "QuickBooks invoice <b>" + esc(s.invoiced.invoice_no || "") + "</b>. Void it to split " +
+        "the order. " + (s.voidAsk
+          ? "Void invoice " + esc(s.invoiced.invoice_no || "") + "? The number is not used " +
+            "again. This only changes the portal's record. If the invoice is already in " +
+            "QuickBooks, void it there as well. Ashley and accounting are emailed that it " +
+            "has to be changed." +
+            '<div class="row" style="margin-top:8px;gap:8px">' +
+            '<button class="btn sm ghost" data-splitvoid="no">Keep it</button>' +
+            '<button class="btn sm primary" data-splitvoid="yes">Void it</button></div>'
+          : '<button class="btn sm" style="margin-left:6px" data-splitvoid="ask">Void invoice ' +
+            esc(s.invoiced.invoice_no || "") + "</button>") + "</div>" : "") +
     (s.pallet
       ? '<p class="hint" style="margin:10px 0 0;color:var(--red)">This order is on pallet ' +
         esc(s.pallet) + ". Take it off the pallet first, then split it. Taking it off " +
@@ -5074,6 +5086,22 @@ function askSplit(order){
       (why ? ' disabled title="' + esc(why) + '"' : "") + ">Split the order</button></div>" +
     "</div></div>";
   splitFor = order;
+}
+/* 2.21.4: void the order's QuickBooks invoice from the split panel */
+async function splitVoid(step, btn){
+  const s = state.split; if(!s || !s.invoiced) return;
+  if(step !== "yes"){ s.voidAsk = step === "ask"; return askSplit(splitFor); }
+  btn.disabled = true;
+  try{
+    const r = await sb("/rest/v1/dealer_invoices?id=eq." + encodeURIComponent(s.invoiced.id), {method: "PATCH",
+      headers: Object.assign(headers(true), {Prefer: "return=representation"}),
+      body: JSON.stringify({voided_at: new Date().toISOString(), voided_by: state.me.id})});
+    if(!r.ok || !(await r.json()).length) throw new Error("Could not void it");
+    toast(await invoiceVoidEmail(splitFor.id, s.invoiced.invoice_no || ""));
+    s.invoiced = false; s.voidAsk = false;
+    state.invoices = await loadInvoices();
+  }catch(err){ toast(err.message); btn.disabled = false; return; }
+  if(state.split === s) askSplit(splitFor);
 }
 function splitClose(){
   splitFor = null; state.split = null;
@@ -5095,9 +5123,9 @@ async function splitStart(){
   /* the database refuses these as well; looking first means the panel can
      say so before anybody ticks anything */
   try{
-    const r = await sb("/rest/v1/dealer_invoices?select=id&voided_at=is.null&order_id=eq." +
+    const r = await sb("/rest/v1/dealer_invoices?select=id,invoice_no&voided_at=is.null&order_id=eq." +
                        encodeURIComponent(saved.id), {headers: headers()});
-    if(r.ok) s.invoiced = (await r.json()).length > 0;
+    if(r.ok) s.invoiced = (await r.json())[0] || false;
   }catch(err){}
   /* Andrew: off the pallet before it is split */
   const link = palletOf(saved.id);
@@ -6884,13 +6912,30 @@ async function invoiceFileAgain(palletId, btn){
   finally{ if(btn) btn.disabled = false; }
 }
 
+/* 2.21.4, Andrew: voiding an invoice emails Ashley and accounting that it
+   has to be changed in QuickBooks. The database wrote the alert as the
+   invoice was voided; this sends it. Returns what to tell the person. */
+async function invoiceVoidEmail(orderId, no){
+  let why = "";
+  try{
+    const m = await sb("/functions/v1/customs-void-alert", {method: "POST",
+      headers: headers(true), body: JSON.stringify({order_id: orderId})});
+    const j = await m.json().catch(() => ({}));
+    if(m.ok) return "Invoice " + no + " voided. Ashley and accounting have been emailed to change it in QuickBooks.";
+    why = j.error || "";
+  }catch(err){ why = err.message; }
+  return "Invoice " + no + " voided, but the email to Ashley and accounting did not send" +
+         (why ? " (" + why.replace(/[.\s]+$/, "") + ")" : "") + ", so tell them directly.";
+}
+
 async function voidInvoice(id){
   const inv = (state.invoices || []).find(x => x.id === id); if(!inv) return;
   const ok = await sure({
     title: "Void invoice " + inv.invoice_no + "?",
     what: "The order can be invoiced again. The number is not used again.",
     detail: "This only changes the portal's record. If the invoice is already in " +
-            "QuickBooks, void it there as well.",
+            "QuickBooks, void it there as well. Ashley and accounting are emailed that " +
+            "it has to be changed.",
     final: "", go: "Void it"
   });
   if(!ok) return;
@@ -6898,6 +6943,7 @@ async function voidInvoice(id){
     headers: Object.assign(headers(true), {Prefer: "return=representation"}),
     body: JSON.stringify({voided_at: new Date().toISOString(), voided_by: state.me.id})});
   if(!r.ok || !(await r.json()).length) return toast("Could not void it");
+  toast(await invoiceVoidEmail(inv.order_id, inv.invoice_no));
   state.invoices = await loadInvoices();
   if(state.inv){
     state.inv.choice[inv.order_id] = isRedo(state.inv.orders.find(o => o.id === inv.order_id)) ? null : "charge";
@@ -9842,6 +9888,8 @@ document.addEventListener("click", async e => {
       if(!Object.keys(m).length) delete state.split.pick[id];
       return askSplit(splitFor);
     }
+    const sv = e.target.closest("[data-splitvoid]");
+    if(sv) return splitVoid(sv.dataset.splitvoid, sv);
     const btn = e.target.closest("[data-split]");
     if(btn) return btn.dataset.split === "go" ? splitSend() : splitClose();
     return;

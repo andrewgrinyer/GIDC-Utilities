@@ -58,6 +58,11 @@ update dealer_invoices set voided_at = now() where invoice_no = '1990';
 insert into dealer_invoices(order_id, invoice_no, charge, total) values (md5('c')::uuid, '2001', 'charge', 900);
 select gidc_split_order(md5('c')::uuid, array['r3','r4'], '{}', '{}');
 update dealer_invoices set voided_at = now() where invoice_no = '2001';
+\echo -- 2.21.4: voiding an invoice writes an invoice alert for the email, once
+update dealer_invoices set voided_at = now() where invoice_no = '2001';
+reset role;
+select kind, order_ref, qbo_invoice_no, changed_by_name, emailed_at from customs_void_alerts order by changed_at, kind;
+set role authenticated;
 \echo -- the administrator moves the pantry and the laundry to Part 2
 select gidc_split_order(md5('c')::uuid, array['r3','r4'],
   '{"door_count":3,"panel_count":3,"paint_colour":"Pearly"}', '{"door_count":3,"panel_count":3,"paint_colour":"Pearly","status":"shipped"}');
