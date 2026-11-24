@@ -14,7 +14,8 @@ const { execSync } = require('child_process');
 const fs = require('fs'), path = require('path'), os = require('os');
 const ROOT = path.join(__dirname, '..');
 const TMP = fs.mkdtempSync(path.join(os.tmpdir(), 'gidc-open-'));
-const ref = process.env.REF || execSync('git log -1 --format=%H -S "Dealer portal 2.22 ·" -- dealer-portal/version.txt', {cwd: ROOT}).toString().trim();
+const ref = process.env.REF || execSync('git log --format=%H -- dealer-portal/version.txt', {cwd: ROOT}).toString().trim().split('\n')
+  .find(h => /^Dealer portal 2\.22 /.test(execSync('git show ' + h + ':dealer-portal/version.txt', {cwd: ROOT}).toString()));
 fs.writeFileSync(path.join(TMP, 'old.html'), execSync('git show ' + ref + ':dealer-portal/index.html', {cwd: ROOT, maxBuffer: 1 << 28}));
 const build = (src, label, out) => execSync(['python3', path.join(ROOT, 'tests/offline/build.py'), src, JSON.stringify(label), out].join(' '));
 build(path.join(TMP, 'old.html'), 'old', path.join(TMP, 'off-old.html'));

@@ -528,6 +528,7 @@ table.lines tbody tr.flagged td{background:#FDF4F4}
 /* the ordered size. Swing doors come as standard blanks, so they get arrows
    that walk the sizes we stock. Everything else is typed in. */
 .sz{display:flex;align-items:stretch;gap:2px}
+.sz-note{font-size:10px;line-height:1.15;color:#6E6E76;margin:0 0 2px;white-space:normal;text-align:center;overflow-wrap:anywhere}  /* 2.23: over a pocket or barn Opening */
 .sz input{flex:1;min-width:0}
 .spin{display:flex;flex-direction:column;gap:1px;flex:none;width:14px}
 .spin button{flex:1;border:1px solid var(--rule);background:var(--card);border-radius:3px;
@@ -8805,7 +8806,9 @@ function renderOrder(){
           }
           const fat = 'data-r="' + r.id + '" data-k="' + field + '"';
           const snap = snapSizes(r);
-          h += td + '<div class="sz">' +
+          /* Andrew, 24 Nov: on a pocket or barn the Opening is the door they get */
+          h += td + (isOpen && MADE_TO_SIZE.test(r.doorType || "")
+                 ? '<div class="sz-note">Requested door size</div>' : "") + '<div class="sz">' +
                '<input type="text" inputmode="decimal" ' + fat + ' value="' + esc(r[field]) + '"' +
                (sz.why ? ' title="' + esc(sz.why) + '"' : "") + ">" +
                (snap ? '<span class="spin">' +
