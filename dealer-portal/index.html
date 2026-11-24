@@ -1027,7 +1027,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.22 · 24 Nov 2026";
+const BUILD  = "Dealer portal 2.23 · 24 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -8022,6 +8022,10 @@ const COLS = [
   ["doorType",   "Type",         "list",  122],
   ["doorStyle",  "Door style",   "combo", 150],
   ["productType","Product",      "list",  118],
+  /* 2.23, Andrew 24 Nov: the opening, between Product and Qty. Display only:
+     nothing new is saved. See OPENING AND DOOR SIZES below. */
+  ["openW",      "Opening Width", "open", 88],
+  ["openH",      "Opening Height","open", 92],
   ["qty",        "Qty",          "num",   46],
   ["width",      "Door Width",   "num",   82],
   ["height",     "Door Height",  "num",   84],
@@ -8033,6 +8037,58 @@ const COLS = [
      else can be typed, the same way the door style box works */
   ["jambW",      "Jamb",         "combo", 88]
 ];
+/* OPENING AND DOOR SIZES (2.23)
+ *
+ * Andrew, 24 November: Door Width meant the door on some lines and the
+ * opening on others, and that was confusing. What the dealer types into the
+ * Width and Height cells of the order spreadsheet is, by type:
+ *
+ *   bifold, pivot, double pivot, bypass   the overall opening
+ *   pocket, barn                          the door, made to that size
+ *   single and double swing               the blank slab; the opening comes
+ *                                         from the Proliner XML
+ *
+ * That is exactly what is saved in r.width and r.height, and exactly what
+ * goes to Access, and none of it changes. Only the screen does: the Opening
+ * columns show the opening (typed for every type but a swing, where it is
+ * the XML's widest opening and tallest worked out height, locked), and the
+ * Door columns show the door (typed for a swing as before, worked out and
+ * locked for everything else). A typed Opening on a non swing line writes
+ * the same r.width and r.height the old Door cells wrote. */
+const MADE_TO_SIZE = /pocket|barn/i;
+const BY_OPENING   = /bifold|pivot|bypass/i;
+/* a type Andrew has not named (pre hung, anything custom) stays as it was:
+   the Door cells typed, the Opening cells empty */
+const sizedAsBefore = r => !isSwing(r.doorType) && !MADE_TO_SIZE.test(r.doorType || "") &&
+                           !BY_OPENING.test(r.doorType || "");
+const sizeOut = v => v == null || v === "" || isNaN(Number(v)) ? "\u2014" : String(+Number(v).toFixed(4));
+function openingOf(r){
+  if(isSwing(r.doorType)){
+    const ob = openingBand(r);
+    return {w: ob ? ob.wMax : null, h: ob ? ob.hMax : null, typed: false,
+      why: ob ? "From the Proliner file: the widest opening and the tallest worked out height. Locked."
+              : "Comes from the Proliner file, and this line has no measurement yet."};
+  }
+  if(sizedAsBefore(r)) return {w: null, h: null, typed: false,
+    why: "Not used for this door type. Type the door size in Door Width and Door Height."};
+  return {w: r.width, h: r.height, typed: true,
+    why: MADE_TO_SIZE.test(r.doorType || "")
+      ? "The size the door is made to. Type it here."
+      : "The overall opening. Type it here; the door size is worked out from it."};
+}
+function doorOf(r){
+  if(isSwing(r.doorType) || sizedAsBefore(r)) return {w: r.width, h: r.height, typed: true};
+  if(MADE_TO_SIZE.test(r.doorType || ""))
+    return {w: r.width, h: r.height, typed: false,
+            why: "Made to the size typed in Opening. Locked."};
+  const pp = panelPlan(r);
+  const each = pp.panels > 1 ? " Each of " + pp.panels + " panels" + (pp.label ? " (" + pp.label + ")" : "") + "." : "";
+  return {w: pp.width, h: pp.height, typed: false,
+          why: "Worked out from the opening, less " +
+               [pp.deductW ? sizeOut(pp.deductW) + '" on width' : "", pp.deductH ? sizeOut(pp.deductH) + '" on height' : ""]
+                 .filter(Boolean).join(" and ") .replace(/^$/, "nothing") + "." + each + " Locked."};
+}
+
 /* A COLOUR WE DO NOT STOCK
  *
  * Picking Custom on a line says the colour is not one of ours, and the two
@@ -8622,7 +8678,13 @@ function renderOrder(){
       COLS.map(c => '<th style="width:' + c[3] + 'px"' +
         (c[0] === "reRail" || c[0] === "reStile"
           ? ' title="Worked out by the portal from the cut and the door type. ' +
-            'Hover a cell to see how. There is nothing to choose here."' : "") +
+            'Hover a cell to see how. There is nothing to choose here."'
+          : c[0] === "openW" || c[0] === "openH"
+          ? ' title="Bifold, pivot and bypass: the overall opening. Pocket and barn: ' +
+            'the door size. Swing: from the Proliner file, locked."'
+          : c[0] === "width" || c[0] === "height"
+          ? ' title="Swing: the blank slab, typed. Every other type: worked out ' +
+            'from the Opening, locked."' : "") +
         ">" + c[1] + "</th>").join("") +
       '<th>Per leaf</th>' +
       '<th>Panels</th><th>Panel W</th><th>Overlap</th><th>Panel H</th>' +
@@ -8704,8 +8766,11 @@ function renderOrder(){
 
       COLS.forEach(([k, , kind]) => {
         const at = 'data-r="' + r.id + '" data-k="' + k + '"';
+        /* 2.23: the warning sits on whichever cell is typed */
+        const typedHere = (k === "width" || k === "height") ? (isSwing(r.doorType) || sizedAsBefore(r))
+                        : (k === "openW" || k === "openH") ? !(isSwing(r.doorType) || sizedAsBefore(r)) : false;
         const bad = (k === "qty" && c.qtyWrong) || (k === "productType" && c.thickMismatch) ||
-                    ((k === "width" || k === "height") && (c.noCover || c.offStep)) ||
+                    (typedHere && (c.noCover || c.offStep)) ||
                     (k === "pinStop" && needsPinStop(r) && !r.pinStop);
         const td = '<td class="ed' + (bad ? " red-cell" : "") + '">';
         if(k === "pinStop" && !needsPinStop(r)){
@@ -8726,6 +8791,28 @@ function renderOrder(){
           h += '<td class="auto' + (on ? " on" : "") + '" title="' +
                esc(k === "reRail" ? railWhy(r, c) : stileWhy(r, c)) + '">' +
                (val ? esc(nameOut(k, val)) : "—") + "</td>";
+          return;
+        }
+        /* 2.23: the opening and the door, by type (OPENING AND DOOR SIZES) */
+        if(k === "openW" || k === "openH" || k === "width" || k === "height"){
+          const isOpen = k === "openW" || k === "openH", axis = k === "openW" || k === "width" ? "w" : "h";
+          const sz = isOpen ? openingOf(r) : doorOf(r);
+          const field = axis === "w" ? "width" : "height";
+          if(!sz.typed || locked){
+            h += '<td class="' + (sz.typed ? "" : "auto ") + "mono" + (bad && sz.typed ? " red-cell" : "") + '"' +
+                 (sz.why ? ' title="' + esc(sz.why) + '"' : "") + ">" + esc(sizeOut(sz[axis])) + "</td>";
+            return;
+          }
+          const fat = 'data-r="' + r.id + '" data-k="' + field + '"';
+          const snap = snapSizes(r);
+          h += td + '<div class="sz">' +
+               '<input type="text" inputmode="decimal" ' + fat + ' value="' + esc(r[field]) + '"' +
+               (sz.why ? ' title="' + esc(sz.why) + '"' : "") + ">" +
+               (snap ? '<span class="spin">' +
+                 '<button type="button" data-step="up" ' + fat + ' title="Next standard size">&#9650;</button>' +
+                 '<button type="button" data-step="down" ' + fat + ' title="Previous standard size">&#9660;</button>' +
+                 "</span>" : "") +
+               "</div></td>";
           return;
         }
         if(locked) h += '<td class="' + (bad ? "red-cell" : "") + '">' +
