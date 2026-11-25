@@ -8066,9 +8066,19 @@ const sizeOut = v => v == null || v === "" || isNaN(Number(v)) ? "\u2014" : Stri
 function openingOf(r){
   if(isSwing(r.doorType)){
     const ob = openingBand(r);
-    return {w: ob ? ob.wMax : null, h: ob ? ob.hMax : null, typed: false,
-      why: ob ? "From the Proliner file: the widest opening and the tallest worked out height. Locked."
-              : "Comes from the Proliner file, and this line has no measurement yet."};
+    /* Andrew, 25 Nov: a double (astragal or dummy) is measured the same
+       way, a leaf at a time, and its opening is both leaves with a reveal
+       each side, plus the Astragal figure when the file has one. */
+    const dbl = /double/i.test(r.doorType || "");      // always two leaves (QTY_RULES)
+    const ast = dbl ? (num(r.astragal) || 0) : 0;
+    const leaf = ob && ob.wMax != null && r.topReveal != null ? r4(ob.wMax - 2 * r.topReveal) : null;
+    const w = !ob ? null : !dbl ? ob.wMax : leaf == null ? null : r4(2 * leaf + 2 * r.topReveal + ast);
+    return {w: w, h: ob ? ob.hMax : null, typed: false,
+      why: !ob ? "Comes from the Proliner file, and this line has no measurement yet."
+         : dbl ? "From the Proliner file: two leaves of " + sizeOut(leaf) + ", a reveal of " +
+                 sizeOut(r.topReveal) + " each side" + (ast ? ", and an astragal of " + sizeOut(ast) : "") +
+                 ". Height is the tallest worked out height. Locked."
+         : "From the Proliner file: the widest opening and the tallest worked out height. Locked."};
   }
   if(sizedAsBefore(r)) return {w: null, h: null, typed: false,
     why: "Not used for this door type. Type the door size in Door Width and Door Height."};
