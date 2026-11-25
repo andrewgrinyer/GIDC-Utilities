@@ -171,6 +171,11 @@ h1{font-size:23px;margin:0 0 4px;font-weight:700;letter-spacing:-.01em}
 .split-n{font-weight:700;white-space:nowrap;min-width:62px}
 .redo-row.split-leaf{padding-left:34px;background:var(--rule-soft)}
 .redo-row.split-leaf.on{background:#E4ECF8}
+.split-to{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;margin:0 0 10px;padding:8px 10px;
+  border:1px solid var(--rule);border-radius:8px}
+.split-to-o{display:flex;align-items:center;gap:6px;cursor:pointer;white-space:nowrap}
+.split-to-o.on{font-weight:700}
+.split-to-o.off{opacity:.5;cursor:default}
 .manual-ship{color:var(--red);font-size:12px;font-weight:600;margin-top:4px;white-space:normal}
 .redo-row:hover{background:var(--rule-soft)}
 .redo-row.on{background:var(--info-soft)}
@@ -1028,7 +1033,7 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
    is enforced by the database, not here.
    ===================================================================== */
 
-const BUILD  = "Dealer portal 2.23 · 25 Nov 2026";
+const BUILD  = "Dealer portal 2.24 · 25 Nov 2026";
 const CONFIG = { supabaseUrl: "https://baakegbtuygtldksmant.supabase.co", supabaseAnonKey: "sb_publishable_CSwwslH9Jt60-WK2fEJORw_k-R9n8Vj" };
 const LISTS  = {
  "location": [
@@ -4972,8 +4977,15 @@ async function redoSend(){
 let splitFor = null;
 const SPLIT_NOT_SET_UP = "Splitting is not set up yet. Run dealer-split-order.sql in " +
   "Supabase first.";
+/* 2.24, Andrew 25 November: doors also move between the parts that are
+   already there, so a part with one opening can still give it back. */
+const isSplitPart = o => !!(o && (o.split_of || o.split_part));
+const splitFamily = o => (state.orders || []).filter(x => x.id !== o.id &&
+    (x.id === (o.split_of || o.id) || x.split_of === (o.split_of || o.id)) && isSplitPart(x))
+  .sort((a, b) => (a.split_part || 1) - (b.split_part || 1));
+const canMoveDoors = o => isSplitPart(o) && splitFamily(o).some(x => x.status !== "shipped");
 const canSplit = o => isAdmin() && !!o && !!o.id && o.status !== "shipped" &&
-  ((o.form && o.form.rows) || []).length > 1;
+  (((o.form && o.form.rows) || []).length > 1 || canMoveDoors(o));
 /* Part 2 and later, until it is linked to its own Access job. The sync
    leaves it alone, so its status and ship date are whatever Grinyer types. */
 const splitManual = o => !!(o && o.split_of && !o.access_order_id);
@@ -5022,18 +5034,46 @@ function askSplit(order){
   const keepRef = base + " Part " + (order.split_part || 1);
   const newRef = base + " Part " + s.part;
   const all = rows.every(x => splitPicked(s, x).length === splitLeaves(x).length);
+  /* 2.24: an existing part to move the doors to, or a new one */
+  const to = s.to === "new" ? null : (s.parts || []).find(x => x.id === s.to) || null;
+  const toRef = to ? to.ref : newRef;
+  const part1 = !order.split_of;
   const why = s.pallet ? "Take it off the pallet first"
     : s.invoiced ? "Void its invoice first"
+    : to && to.pallet ? "Take " + to.ref + " off the pallet first"
+    : to && to.invoiced ? "Void the invoice on " + to.ref + " first"
     : !chosen.length ? "Tick at least one door"
-    : all ? "At least one door has to stay on this order" : "";
+    : all && !to ? "At least one door has to stay on this order"
+    : all && part1 ? "Part 1 keeps at least one door" : "";
+  const voidNote = (who, inv, ref) => '<div class="hint" style="margin:10px 0 0;color:var(--red)">' +
+    esc(ref) + " has QuickBooks invoice <b>" + esc(inv.invoice_no || "") + "</b>. Void it to " +
+    (to ? "move the doors. " : "split the order. ") + (s.voidAsk === who
+      ? "Void invoice " + esc(inv.invoice_no || "") + "? The number is not used " +
+        "again. This only changes the portal's record. If the invoice is already in " +
+        "QuickBooks, void it there as well. Ashley and accounting are emailed that it " +
+        "has to be changed." +
+        '<div class="row" style="margin-top:8px;gap:8px">' +
+        '<button class="btn sm ghost" data-splitvoid="no" data-splitvoidfor="' + esc(who) + '">Keep it</button>' +
+        '<button class="btn sm primary" data-splitvoid="yes" data-splitvoidfor="' + esc(who) + '">Void it</button></div>'
+      : '<button class="btn sm" style="margin-left:6px" data-splitvoid="ask" data-splitvoidfor="' + esc(who) + '">' +
+        "Void invoice " + esc(inv.invoice_no || "") + "</button>") + "</div>";
 
   box.style.display = "";
   box.innerHTML = '<div class="ask-card sure-card redo-card"><div class="ask-h">' +
-    "<b>Split " + esc(order.order_ref || "this order") + "</b>" +
+    "<b>" + ((s.parts || []).length ? "Move doors off " : "Split ") + esc(order.order_ref || "this order") + "</b>" +
     '<button class="ask-x" data-split="no" title="Close">&times;</button></div>' +
     '<div class="ask-b">' +
+    ((s.parts || []).length
+      ? '<div class="split-to"><span class="muted">Move them to</span>' +
+        '<label class="split-to-o' + (to ? "" : " on") + (rows.length < 2 ? " off" : "") + '">' +
+        '<input type="radio" name="splitto" data-splitto="new"' + (to ? "" : " checked") +
+        (rows.length < 2 ? " disabled" : "") + "> a new part, " + esc(newRef) + "</label>" +
+        s.parts.map(x => '<label class="split-to-o' + (to === x ? " on" : "") + (x.shipped ? " off" : "") + '">' +
+          '<input type="radio" name="splitto" data-splitto="' + esc(x.id) + '"' +
+          (to === x ? " checked" : "") + (x.shipped ? " disabled" : "") + "> " + esc(x.ref) +
+          (x.shipped ? " (shipped)" : "") + "</label>").join("") + "</div>" : "") +
     '<p class="sure-what" style="margin:0 0 8px">Tick the doors to move to ' +
-      "<b>" + esc(newRef) + "</b>. The rest stay on <b>" + esc(keepRef) + "</b>.</p>" +
+      "<b>" + esc(toRef) + "</b>. The rest stay on <b>" + esc(to ? order.order_ref || keepRef : keepRef) + "</b>.</p>" +
     '<div class="row" style="margin:0 0 8px;gap:8px">' +
       '<span class="muted">' + (chosen.length
         ? doors + (doors === 1 ? " door" : " doors") + " to move, from " +
@@ -5063,31 +5103,33 @@ function askSplit(order){
           : "");
     }).join("") +
     "</div>" +
-    '<p class="hint" style="margin:14px 0 0">' + esc(newRef) + " keeps the dealer, the " +
+    (to
+      ? '<p class="hint" style="margin:14px 0 0">Every door keeps its number. A door that was ' +
+        "split out of its opening goes back into the same line, so 12A and 12P read as one " +
+        "opening again. Press Save first if you changed anything on this screen.</p>" +
+        (all && !part1
+          ? '<p class="hint" style="margin:10px 0 0;color:var(--red)">Every door is ticked, so ' +
+            esc(order.order_ref || keepRef) + " is left with no doors and is deleted.</p>" : "")
+      : '<p class="hint" style="margin:14px 0 0">' + esc(newRef) + " keeps the dealer, the " +
       "customer and the status, starts with no ship date, and is not " +
       "linked to Access. Its ship date is typed by hand until you link it to its own " +
       "Access job." + (keptFile(order, "proliner") ? " The Proliner file goes with it." : "") +
-      " Press Save first if you changed anything on this screen.</p>" +
+      " Press Save first if you changed anything on this screen.</p>") +
     /* 2.21.4, Andrew: once the order is off its pallet the pallet's invoice
        screen no longer lists it, so its invoice is voided from here */
     (s.invoiced
-      ? '<div class="hint" style="margin:10px 0 0;color:var(--red)">This order has ' +
-        "QuickBooks invoice <b>" + esc(s.invoiced.invoice_no || "") + "</b>. Void it to split " +
-        "the order. " + (s.voidAsk
-          ? "Void invoice " + esc(s.invoiced.invoice_no || "") + "? The number is not used " +
-            "again. This only changes the portal's record. If the invoice is already in " +
-            "QuickBooks, void it there as well. Ashley and accounting are emailed that it " +
-            "has to be changed." +
-            '<div class="row" style="margin-top:8px;gap:8px">' +
-            '<button class="btn sm ghost" data-splitvoid="no">Keep it</button>' +
-            '<button class="btn sm primary" data-splitvoid="yes">Void it</button></div>'
-          : '<button class="btn sm" style="margin-left:6px" data-splitvoid="ask">Void invoice ' +
-            esc(s.invoiced.invoice_no || "") + "</button>") + "</div>" : "") +
+      ? voidNote(order.id, s.invoiced, to ? order.order_ref || "This order" : "This order") : "") +
     (s.pallet
       ? '<p class="hint" style="margin:10px 0 0;color:var(--red)">This order is on pallet ' +
-        esc(s.pallet) + ". Take it off the pallet first, then split it. Taking it off " +
-        "voids the pallet's customs papers if they include this order.</p>" : "") +
-    (!order.access_order_id && order.status !== "draft"
+        esc(s.pallet) + ". Take it off the pallet first, then " + (to ? "move the doors" : "split it") +
+        ". Taking it off voids the pallet's customs papers if they include this order.</p>" : "") +
+    /* 2.24: the same rules on the part the doors land on */
+    (to && to.invoiced ? voidNote(to.id, to.invoiced, to.ref) : "") +
+    (to && to.pallet
+      ? '<p class="hint" style="margin:10px 0 0;color:var(--red)">' + esc(to.ref) + " is on pallet " +
+        esc(to.pallet) + ". Take it off the pallet first, then move the doors. Taking it off " +
+        "voids the pallet's customs papers if they include it.</p>" : "") +
+    (!to && !order.access_order_id && order.status !== "draft"
       ? '<p class="hint" style="margin:10px 0 0;color:var(--warn)">This order is not ' +
         "linked to Access yet. Both parts will carry the same name, so the sync cannot " +
         "tell them apart by name. Put the Access order number on " + esc(keepRef) +
@@ -5095,22 +5137,27 @@ function askSplit(order){
     '<div class="row" style="margin-top:14px;justify-content:flex-end">' +
       '<button class="btn ghost" data-split="no">Cancel</button>' +
       '<button class="btn primary" data-split="go"' +
-      (why ? ' disabled title="' + esc(why) + '"' : "") + ">Split the order</button></div>" +
+      (why ? ' disabled title="' + esc(why) + '"' : "") + ">" + (to ? "Move the doors" : "Split the order") +
+      "</button></div>" +
     "</div></div>";
   splitFor = order;
 }
 /* 2.21.4: void the order's QuickBooks invoice from the split panel */
 async function splitVoid(step, btn){
-  const s = state.split; if(!s || !s.invoiced) return;
-  if(step !== "yes"){ s.voidAsk = step === "ask"; return askSplit(splitFor); }
+  const s = state.split; if(!s) return;
+  /* 2.24: the order's own invoice, or the one on the part the doors go to */
+  const who = btn.dataset.splitvoidfor || splitFor.id;
+  const part = who === splitFor.id ? s : (s.parts || []).find(x => x.id === who);
+  const inv = part && part.invoiced; if(!inv) return;
+  if(step !== "yes"){ s.voidAsk = step === "ask" ? who : false; return askSplit(splitFor); }
   btn.disabled = true;
   try{
-    const r = await sb("/rest/v1/dealer_invoices?id=eq." + encodeURIComponent(s.invoiced.id), {method: "PATCH",
+    const r = await sb("/rest/v1/dealer_invoices?id=eq." + encodeURIComponent(inv.id), {method: "PATCH",
       headers: Object.assign(headers(true), {Prefer: "return=representation"}),
       body: JSON.stringify({voided_at: new Date().toISOString(), voided_by: state.me.id})});
     if(!r.ok || !(await r.json()).length) throw new Error("Could not void it");
-    toast(await invoiceVoidEmail(splitFor.id, s.invoiced.invoice_no || ""));
-    s.invoiced = false; s.voidAsk = false;
+    toast(await invoiceVoidEmail(who, inv.invoice_no || ""));
+    part.invoiced = false; s.voidAsk = false;
     state.invoices = await loadInvoices();
   }catch(err){ toast(err.message); btn.disabled = false; return; }
   if(state.split === s) askSplit(splitFor);
@@ -5131,19 +5178,31 @@ async function splitStart(){
   if(ids(saved.form) !== ids(o.form))
     return toast("Save the order first, then split it");
   if(!canSplit(saved)) return toast("This order has shipped, so it cannot be split");
-  const s = {pick: {}, part: nextSplitPart(saved), invoiced: false, pallet: ""};   // pick: {lineId: {leafIndex: true}}
+  const s = {pick: {}, part: nextSplitPart(saved), invoiced: false, pallet: "", to: "new",
+             /* 2.24: the other parts of the same order, to move doors to */
+             parts: (isSplitPart(saved) ? splitFamily(saved) : []).map(x => ({id: x.id,
+               ref: x.order_ref || "Part " + (x.split_part || 1), shipped: x.status === "shipped",
+               invoiced: false, pallet: "", pallet_name: x.pallet_name}))};   // pick: {lineId: {leafIndex: true}}
   /* the database refuses these as well; looking first means the panel can
      say so before anybody ticks anything */
-  try{
-    const r = await sb("/rest/v1/dealer_invoices?select=id,invoice_no&voided_at=is.null&order_id=eq." +
-                       encodeURIComponent(saved.id), {headers: headers()});
-    if(r.ok) s.invoiced = (await r.json())[0] || false;
-  }catch(err){}
-  /* Andrew: off the pallet before it is split */
-  const link = palletOf(saved.id);
-  if(link || saved.pallet_name){
-    const p = link && palletById(link.pallet_id);
-    s.pallet = (p && p.name) || saved.pallet_name || "a pallet";
+  for(const x of [s].concat(s.parts)){
+    const id = x === s ? saved.id : x.id;
+    if(x.shipped) continue;
+    try{
+      const r = await sb("/rest/v1/dealer_invoices?select=id,invoice_no&voided_at=is.null&order_id=eq." +
+                         encodeURIComponent(id), {headers: headers()});
+      if(r.ok) x.invoiced = (await r.json())[0] || false;
+    }catch(err){}
+    /* Andrew: off the pallet before it is split */
+    const link = palletOf(id), pn = x === s ? saved.pallet_name : x.pallet_name;
+    if(link || pn){
+      const p = link && palletById(link.pallet_id);
+      x.pallet = (p && p.name) || pn || "a pallet";
+    }
+  }
+  /* one opening cannot make a new part, so it goes to a part already there */
+  if(((saved.form || {}).rows || []).length < 2){
+    const t = s.parts.find(x => !x.shipped); if(t) s.to = t.id;
   }
   state.split = s;
   askSplit(Object.assign(saved, {form: saved.form || {rows: []}}));
@@ -5151,6 +5210,7 @@ async function splitStart(){
 async function splitSend(){
   const box = $("sure"), src = splitFor, s = state.split;
   if(!src || !s) return splitClose();
+  if(s.to && s.to !== "new") return moveSend();
   const rows = (src.form || {}).rows || [];
   /* whole lines move by id; a line split inside its opening sends what
      each half carries: how many doors, which letters, and its share of
@@ -5237,6 +5297,77 @@ async function splitSend(){
     render();
   }catch(err){
     if(btn){ btn.disabled = false; btn.textContent = "Split the order"; }
+    toast(err.message);
+  }
+}
+
+/* 2.24, MOVING DOORS TO A PART THAT IS ALREADY THERE
+   Andrew, 25 November: a door on Part 2 can go back to Part 1, a door on
+   Part 3 to Part 1 or 2, as long as neither part has shipped, with the
+   same pallet and invoice rules as a split. A part left with no doors is
+   deleted; Part 1 always keeps one. gidc_move_split_doors() does it in
+   one go in the database (sql/dealer-split-move.sql). Door numbers never
+   change, and a door split out of its opening goes back into its line. */
+async function moveSend(){
+  const box = $("sure"), src = splitFor, s = state.split;
+  const to = (s.parts || []).find(x => x.id === s.to);
+  if(!to) return toast("Pick the part to move the doors to");
+  const rows = (src.form || {}).rows || [];
+  const whole = [], leaves = {}, move = [], keep = [], shared = [];
+  rows.forEach(x => {
+    const L = splitLeaves(x), got = splitPicked(s, x);
+    if(!got.length) return keep.push(x);
+    if(!widthPerDoor(x)) shared.push(x.id);
+    if(got.length === L.length){ whole.push(x.id); return move.push(x); }
+    const half = ks => {
+      const h = {qty: ks.length, leaves: ks.map(k => L[k])};
+      if(!widthPerDoor(x) && num(x.width)) h.width = String(r4(num(x.width) * ks.length / L.length));
+      return h;
+    };
+    const m = half(got), k_ = half(L.map((_, k) => k).filter(k => got.indexOf(k) === -1));
+    leaves[x.id] = {keep: k_, move: m};
+    keep.push(Object.assign({}, x, k_)); move.push(Object.assign({}, x, m));
+  });
+  if(!move.length) return toast("Tick at least one door");
+  if(!keep.length && !src.split_of) return toast("Part 1 keeps at least one door");
+  const counts = list => ({
+    door_count: list.reduce((n, x) => n + doorsFor(x), 0),
+    panel_count: list.reduce((n, x) => n + panelsFor(x), 0),
+    paint_colour: (list.find(x => x.paintColour) || {}).paintColour || null});
+  const btn = box.querySelector('[data-split="go"]');
+  if(btn){ btn.disabled = true; btn.textContent = "Moving…"; }
+  try{
+    const there = await loadOrder(to.id);
+    const after = (((there || {}).form || {}).rows || []).concat(move);
+    const r = await sb("/rest/v1/rpc/gidc_move_split_doors", {
+      method: "POST", headers: headers(true),
+      body: JSON.stringify({p_from: src.id, p_to: to.id, p_rows: whole,
+        p_from_counts: keep.length ? counts(keep) : {}, p_to_counts: counts(after),
+        p_leaves: leaves, p_shared: shared})});
+    if(!r.ok){
+      const txt = await r.clone().text();
+      if(/PGRST202|schema cache|function public\.gidc_move_split_doors.*does not exist/i.test(txt))
+        throw new Error("Moving doors between parts is not set up yet. Run dealer-split-move.sql " +
+                        "in Supabase first.");
+      throw new Error(await friendlyError(r, "move these doors"));
+    }
+    const done = await r.json();
+    /* a part that was deleted takes its copied Proliner files out of the bucket */
+    if(done.deleted) for(const f of (src.files || [])){
+      try{ await removeKept(f.path); }catch(err){}
+    }
+    splitClose();
+    try{ state.orders = await loadOrders(); }catch(err){}
+    const n = done.moved;
+    state.notice = {kind: "info", head: null,
+      text: "Moved " + n + (n === 1 ? " opening" : " openings") + " from " + done.from_ref +
+        " to " + done.to_ref + "." + (done.deleted
+          ? " " + done.from_ref + " had no doors left, so it was deleted."
+          : " " + done.from_ref + " has " + done.kept + (done.kept === 1 ? " opening" : " openings") + " left.")};
+    if(done.deleted) navReplace = true;   // Back must not lead to the deleted part
+    await openOrder(done.deleted ? to.id : src.id);
+  }catch(err){
+    if(btn){ btn.disabled = false; btn.textContent = "Move the doors"; }
     toast(err.message);
   }
 }
@@ -5347,6 +5478,8 @@ function render(){
    in memory, and each page comes back where it was scrolled to. */
 const NAV_VIEWS = {list: 1, order: 1, pallets: 1, packing: 1, invoice: 1, users: 1};
 let navRestoring = false, navStarted = false, navScroll = 0;
+/* 2.24: the next page takes over this entry, for a part just deleted */
+let navReplace = false;
 const navStack = [];          // the pages behind this one, by depth
 function navPage(){
   const v = state.view; if(!NAV_VIEWS[v]) return null;
@@ -5367,6 +5500,14 @@ function navTrack(){
     navStarted = true;
     p.depth = 0; navStack.length = 0; navStack[0] = p;
     history.replaceState({gidc: p}, "");
+    return;
+  }
+  if(navReplace){
+    navReplace = false;
+    if(navKey(cur) !== navKey(p)){
+      p.depth = cur.depth; navStack[p.depth] = p;
+      history.replaceState({gidc: p}, "");
+    }
     return;
   }
   if(navKey(cur) === navKey(p)) return;
@@ -8276,8 +8417,11 @@ function renderOrder(){
     /* ANDREW, 23 NOVEMBER: SPLITTING AN ORDER INTO PARTS
        Grinyer only, anywhere in the process except Shipped. */
     (canSplit(o)
-      ? '<button class="btn" data-splitask="1" title="Move some of the doors to a ' +
-        'new order, Part 2">Split this order</button>' : "") +
+      ? (canMoveDoors(o)
+        ? '<button class="btn" data-splitask="1" title="Move some of the doors to a new ' +
+          'part or to another part of this order">Split or move doors</button>'
+        : '<button class="btn" data-splitask="1" title="Move some of the doors to a ' +
+          'new order, Part 2">Split this order</button>') : "") +
     "</div>";
 
   if(state.notice)
@@ -10133,6 +10277,8 @@ document.addEventListener("click", async e => {
     }
     const sv = e.target.closest("[data-splitvoid]");
     if(sv) return splitVoid(sv.dataset.splitvoid, sv);
+    const st = e.target.closest("[data-splitto]");
+    if(st && !st.disabled){ state.split.to = st.dataset.splitto; state.split.voidAsk = false; return askSplit(splitFor); }
     const btn = e.target.closest("[data-split]");
     if(btn) return btn.dataset.split === "go" ? splitSend() : splitClose();
     return;

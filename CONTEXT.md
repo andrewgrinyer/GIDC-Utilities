@@ -162,6 +162,15 @@ accounting@grinyer.ca through the `customs-void-alert` edge function from
 the `customs_void_alerts` record the database writes. See
 `sql/dealer-split-order.sql`.
 
+**Doors move between parts too, and an empty part is deleted.** Decided
+25 November (portal 2.24). Grinyer can move doors from any part to any
+other part of the same order that has not shipped, with the same pallet
+and invoice rules on both parts. Door numbers never change; a door split
+out of its opening goes back into the line it came from. A part left with
+no doors is deleted and its voided invoices move to the part the doors
+went to, so no invoice number is reused. Part 1 always keeps a door. See
+`sql/dealer-split-move.sql`.
+
 **Explicit access beats a fallback.** A staff login with no dealer of its
 own acts for Grinyer's record. One that has been given real dealer access
 acts for that dealer instead.
