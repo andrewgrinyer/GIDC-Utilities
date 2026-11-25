@@ -1,7 +1,7 @@
 [
  {"id":"sample-draft","dealer_id":"D1","order_ref":"SAMPLE EVERY DOOR TYPE","customer_name":"Sample","status":"draft",
   "door_count":0,"panel_count":0,"created_at":"2026-11-24T15:00:00Z","files":[],
-  "form":{"lastDoorNo":12,"rows":[
+  "form":{"lastDoorNo":13,"rows":[
    {"id":"s1","opening":"1","location":"Foyer 1","doorType":"Single Swing","doorStyle":"Kingston","productType":"1.375 Hollow","qty":1,
     "width":30,"height":80,"stdW":30,"stdH":80,"minW":29.9828,"minH":80.0851,"topReveal":0.094,"floorReq":0.5,"xmlThick":1.375,"fromXml":true,"xmlOpen":"1","leafMaxW":[30.0144],"leafMaxH":[80.1652],"paintColour":"Pearly White","jambW":"4 5/8"},
    {"id":"s2","opening":"2","location":"Bed 1","doorType":"Single Swing","doorStyle":"Kingston","productType":"1.375 Hollow","qty":1,
@@ -16,6 +16,7 @@
    {"id":"s9","opening":"9","location":"Linen","doorType":"Single Pivot","doorStyle":"Kingston","productType":"1.375 Hollow","qty":1,"width":24.5,"height":80,"paintColour":"Pearly White"},
    {"id":"s10","opening":"10","location":"Main Bath","doorType":"Pocket","doorStyle":"Kingston","productType":"1.375 Hollow","qty":1,"width":28,"height":80,"paintColour":"Pearly White"},
    {"id":"s11","opening":"11","location":"Pantry","doorType":"Barn","doorStyle":"Kingston","productType":"1.375 Solid","qty":1,"width":36,"height":84,"stdW":36,"stdH":84,"paintColour":"Pearly White"},
-   {"id":"s12","opening":"12","location":"Laundry","doorType":"Single Pre-Hung","doorStyle":"Kingston","productType":"1.375 Hollow","qty":1,"width":30,"height":80,"paintColour":"Pearly White"}
+   {"id":"s12","opening":"12","location":"Laundry","doorType":"Single Pre-Hung","doorStyle":"Kingston","productType":"1.375 Hollow","qty":1,"width":30,"height":80,"paintColour":"Pearly White"},
+   {"id":"s13","opening":"13","location":"Garage","doorType":"Double Pre-Hung","doorStyle":"Kingston","productType":"1.375 Hollow","qty":2,"width":30,"height":80,"jambW":"4 5/8","paintColour":"Pearly White"}
   ]}}
 ]
