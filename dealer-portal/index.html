@@ -8810,6 +8810,9 @@ function renderOrder(){
           h += '<td class="muted"></td>';          // this style runs either way round
           return;
         }
+        /* 2.23, Andrew 25 Nov: the jamb is only for a pre hung, so on any
+           other line the box is not there at all */
+        if(k === "jambW" && !isPreHung(r)){ h += '<td class="muted"></td>'; return; }
         /* THE TWO THE PORTAL ANSWERS
            Worked out from the cut and the door type, so there is nothing to
            choose. The cell reports it and the tooltip says how it got there. */
