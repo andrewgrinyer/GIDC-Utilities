@@ -2701,7 +2701,13 @@ function parseProliner(text){
     const all = m.getElementsByTagName("*");
     for(let i = 0; i < all.length && bw === null; i++){
       if(!/blankdoor/i.test(all[i].tagName || "")) continue;
-      const hit = /^\s*([\d.]+)\s*[x\u00d7]\s*([\d.]+)\s*$/i.exec(all[i].textContent || "");
+      /* 2.23, Andrew 25 Nov: a double is two leaves. An older file writes one
+         size, which is each leaf (24x80 on a double is two 24x80 doors). A
+         newer one writes a size per leaf, "24x80 24x80". That second form
+         used to be missed, so the line fell back to the 24.25 x 80.25 scribe
+         outline and stepped up to 26 x 80 or 26 x 84. The first size is the
+         leaf either way. */
+      const hit = /^\s*([\d.]+)\s*[x\u00d7]\s*([\d.]+)(?:\s+[\d.]+\s*[x\u00d7]\s*[\d.]+)?\s*$/i.exec(all[i].textContent || "");
       if(!hit) continue;
       const w = parseFloat(hit[1]), h = parseFloat(hit[2]);
       if(isFinite(w) && isFinite(h)){ bw = w; bh = h; }
@@ -2793,7 +2799,7 @@ function parseProliner(text){
          its own right rather than buried in the location text */
       xmlOpen:     (m.getAttribute("Name") || "").trim(),
       opening:     (m.getAttribute("Name") || "").trim(),
-      qty:         1,
+      qty:         dbl ? 2 : 1,               // 2.23: a double is two doors
       productType: productFor(core, thick),
       doorType:    dbl ? "Double Swing AST" : "Single Swing",
       width:       bw == null ? "" : bw,
@@ -11326,7 +11332,9 @@ const SWING_TYPES = ["single swing","double swing dummy","double swing ast"];
 const isSwing = t => SWING_TYPES.indexOf(lc(t)) !== -1 || /swing/i.test(String(t||""));
 const MEASURED_FIELDS = ["stdW","stdH","minW","minH","maxW","maxH","xmlThick","xmlLoc","xmlOpen",
   "topReveal","floorReq",
-  "hQty","hSize","hRadius","hBackset","hSide","astragal","handing","swing"];
+  "hQty","hSize","hRadius","hBackset","hSide","astragal","handing","swing",
+  /* 2.23: each leaf's outline, for the Opening columns */
+  "leafMaxW","leafMaxH"];
 
 /* WHAT THE PROLINER MEASURED BELONGS TO THE DOOR IT MEASURED
  *
