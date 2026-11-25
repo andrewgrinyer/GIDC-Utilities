@@ -2821,12 +2821,11 @@ function parseProliner(text){
       hBackset:    hg ? txt(hg, "Backset") : "",
       hSide:       hg ? txt(hg, "Side") : txt(inner, "Handing"),
       astragal:    astragal,
-      /* 2.23, Andrew 25 Nov: a double's opening is each leaf's maximum
-         required door, read off its outline (the full extent of the Active
-         and Passive contours), never the stock slab. Only on doubles, so a
-         single's saved line is exactly as before. */
-      leafMaxW:    dbl && xw != null && pw != null ? [xw, pw] : undefined,
-      leafMaxH:    dbl && xh != null && ph != null ? [xh, ph] : undefined,
+      /* 2.23, Andrew 25 Nov: the opening is each leaf's maximum required
+         door, read off its outline (the full extent of the Active, and on a
+         double the Passive, contour), never the stock slab. Shown only. */
+      leafMaxW:    dbl ? (xw != null && pw != null ? [xw, pw] : undefined) : (xw != null ? [xw] : undefined),
+      leafMaxH:    dbl ? (xh != null && ph != null ? [xh, ph] : undefined) : (xh != null ? [xh] : undefined),
       fromXml:     true,
       handing:     txt(inner, "Handing"),
       swing:       txt(inner, "SwingDirection")
@@ -8071,31 +8070,31 @@ const sizedAsBefore = r => !isSwing(r.doorType) && !MADE_TO_SIZE.test(r.doorType
 const sizeOut = v => v == null || v === "" || isNaN(Number(v)) ? "\u2014" : String(+Number(v).toFixed(4));
 function openingOf(r){
   if(isSwing(r.doorType)){
-    const ob = openingBand(r);
-    /* Andrew, 25 Nov: a double (astragal or dummy) is measured the same
-       way, a leaf at a time, and its opening is both leaves with a reveal
-       each side, plus the Astragal figure when the file has one. */
+    /* Andrew, 25 Nov: never the stock slab. Each leaf's maximum required
+       door is read off its outline in the Proliner file (the full extent of
+       the Active, and on a double the Passive, contour). The opening is the
+       leaf, or both leaves on a double (astragal or dummy), with a reveal
+       each side, plus the Astragal figure on a double when the file has one.
+       The height is the taller leaf with the top reveal and the floor gap. */
     const dbl = /double/i.test(r.doorType || "");      // always two leaves (QTY_RULES)
+    const n = dbl ? 2 : 1;
     const ast = dbl ? (num(r.astragal) || 0) : 0;
-    const L = Array.isArray(r.leafMaxW) && r.leafMaxW.length === 2 ? r.leafMaxW : null;
-    const w = !ob ? null : !dbl ? ob.wMax
-            : (L && r.topReveal != null) ? r4(num(L[0]) + num(L[1]) + 2 * r.topReveal + ast) : null;
-    /* the height the same way: the taller leaf's outline, the top reveal
-       and the floor gap, never the slab */
-    const LH = Array.isArray(r.leafMaxH) && r.leafMaxH.length === 2 ? r.leafMaxH : null;
-    const hgt = !ob ? null : !dbl ? ob.hMax
-              : (LH && r.topReveal != null && r.floorReq != null)
-                ? r4(Math.max(num(LH[0]), num(LH[1])) + r.topReveal + r.floorReq) : null;
+    const L  = Array.isArray(r.leafMaxW) && r.leafMaxW.length === n ? r.leafMaxW : null;
+    const LH = Array.isArray(r.leafMaxH) && r.leafMaxH.length === n ? r.leafMaxH : null;
+    const w = L && r.topReveal != null
+      ? r4(L.reduce((a, v) => a + num(v), 0) + 2 * r.topReveal + ast) : null;
+    const tall = LH ? Math.max.apply(null, LH.map(num)) : null;
+    const hgt = LH && r.topReveal != null && r.floorReq != null ? r4(tall + r.topReveal + r.floorReq) : null;
     return {w: w, h: hgt, typed: false,
-      why: !ob ? "Comes from the Proliner file, and this line has no measurement yet."
-         : dbl && !L ? "Worked out from each leaf's outline in the Proliner file, which this line " +
-                       "was saved without. Drop the Proliner file on again to show it."
-         : dbl ? "From the Proliner file: the maximum required door for each leaf, " + sizeOut(L[0]) +
-                 " and " + sizeOut(L[1]) + ", a reveal of " + sizeOut(r.topReveal) + " each side" +
-                 (ast ? ", and an astragal of " + sizeOut(ast) : "") +
-                 ". Height: the taller leaf" + (LH ? " (" + sizeOut(Math.max(num(LH[0]), num(LH[1]))) + ")" : "") +
-                 " plus the top reveal and the floor gap. Locked."
-         : "From the Proliner file: the widest opening and the tallest worked out height. Locked."};
+      why: !r.fromXml && !L ? "Comes from the Proliner file, and this line has no measurement yet."
+         : !L ? "Worked out from the door's outline in the Proliner file, which this line " +
+                "was saved without. Drop the Proliner file on again to show it."
+         : "From the Proliner file: the maximum required door " +
+           (dbl ? "for each leaf, " + sizeOut(L[0]) + " and " + sizeOut(L[1]) : sizeOut(L[0])) +
+           ", a reveal of " + sizeOut(r.topReveal) + " each side" +
+           (ast ? ", and an astragal of " + sizeOut(ast) : "") +
+           ". Height: the " + (dbl ? "taller leaf" : "door") + " (" + sizeOut(tall) + ")" +
+           " plus the top reveal and the floor gap. Locked."};
   }
   if(sizedAsBefore(r)) return {w: null, h: null, typed: false,
     why: "Not used for this door type. Type the door size in Door Width and Door Height."};
