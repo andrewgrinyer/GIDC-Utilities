@@ -8056,7 +8056,7 @@ const COLS = [
  * Width and Height cells of the order spreadsheet is, by type:
  *
  *   bifold, pivot, double pivot, bypass   the overall opening
- *   pocket, barn                          the door, made to that size
+ *   pocket, barn, pre hung                the door, made to that size
  *   single and double swing               the blank slab; the opening comes
  *                                         from the Proliner XML
  *
@@ -8067,7 +8067,7 @@ const COLS = [
  * Door columns show the door (typed for a swing as before, worked out and
  * locked for everything else). A typed Opening on a non swing line writes
  * the same r.width and r.height the old Door cells wrote. */
-const MADE_TO_SIZE = /pocket|barn/i;
+const MADE_TO_SIZE = /pocket|barn|pre[\s-]*hung/i;   // pre hung joined 25 Nov (Andrew)
 const BY_OPENING   = /bifold|pivot|bypass/i;
 /* a type Andrew has not named (pre hung, anything custom) stays as it was:
    the Door cells typed, the Opening cells empty */
