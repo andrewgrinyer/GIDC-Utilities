@@ -2821,6 +2821,12 @@ function parseProliner(text){
       hBackset:    hg ? txt(hg, "Backset") : "",
       hSide:       hg ? txt(hg, "Side") : txt(inner, "Handing"),
       astragal:    astragal,
+      /* 2.23, Andrew 25 Nov: a double's opening is each leaf's maximum
+         required door, read off its outline (the full extent of the Active
+         and Passive contours), never the stock slab. Only on doubles, so a
+         single's saved line is exactly as before. */
+      leafMaxW:    dbl && xw != null && pw != null ? [xw, pw] : undefined,
+      leafMaxH:    dbl && xh != null && ph != null ? [xh, ph] : undefined,
       fromXml:     true,
       handing:     txt(inner, "Handing"),
       swing:       txt(inner, "SwingDirection")
@@ -8071,13 +8077,24 @@ function openingOf(r){
        each side, plus the Astragal figure when the file has one. */
     const dbl = /double/i.test(r.doorType || "");      // always two leaves (QTY_RULES)
     const ast = dbl ? (num(r.astragal) || 0) : 0;
-    const leaf = ob && ob.wMax != null && r.topReveal != null ? r4(ob.wMax - 2 * r.topReveal) : null;
-    const w = !ob ? null : !dbl ? ob.wMax : leaf == null ? null : r4(2 * leaf + 2 * r.topReveal + ast);
-    return {w: w, h: ob ? ob.hMax : null, typed: false,
+    const L = Array.isArray(r.leafMaxW) && r.leafMaxW.length === 2 ? r.leafMaxW : null;
+    const w = !ob ? null : !dbl ? ob.wMax
+            : (L && r.topReveal != null) ? r4(num(L[0]) + num(L[1]) + 2 * r.topReveal + ast) : null;
+    /* the height the same way: the taller leaf's outline, the top reveal
+       and the floor gap, never the slab */
+    const LH = Array.isArray(r.leafMaxH) && r.leafMaxH.length === 2 ? r.leafMaxH : null;
+    const hgt = !ob ? null : !dbl ? ob.hMax
+              : (LH && r.topReveal != null && r.floorReq != null)
+                ? r4(Math.max(num(LH[0]), num(LH[1])) + r.topReveal + r.floorReq) : null;
+    return {w: w, h: hgt, typed: false,
       why: !ob ? "Comes from the Proliner file, and this line has no measurement yet."
-         : dbl ? "From the Proliner file: two leaves of " + sizeOut(leaf) + ", a reveal of " +
-                 sizeOut(r.topReveal) + " each side" + (ast ? ", and an astragal of " + sizeOut(ast) : "") +
-                 ". Height is the tallest worked out height. Locked."
+         : dbl && !L ? "Worked out from each leaf's outline in the Proliner file, which this line " +
+                       "was saved without. Drop the Proliner file on again to show it."
+         : dbl ? "From the Proliner file: the maximum required door for each leaf, " + sizeOut(L[0]) +
+                 " and " + sizeOut(L[1]) + ", a reveal of " + sizeOut(r.topReveal) + " each side" +
+                 (ast ? ", and an astragal of " + sizeOut(ast) : "") +
+                 ". Height: the taller leaf" + (LH ? " (" + sizeOut(Math.max(num(LH[0]), num(LH[1]))) + ")" : "") +
+                 " plus the top reveal and the floor gap. Locked."
          : "From the Proliner file: the widest opening and the tallest worked out height. Locked."};
   }
   if(sizedAsBefore(r)) return {w: null, h: null, typed: false,

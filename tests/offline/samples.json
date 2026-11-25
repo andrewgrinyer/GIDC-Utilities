@@ -7,7 +7,7 @@
    {"id":"s2","opening":"2","location":"Bed 1","doorType":"Single Swing","doorStyle":"Kingston","productType":"1.375 Hollow","qty":1,
     "width":32,"height":80,"stdW":32,"stdH":80,"minW":31.4,"minH":79.6,"topReveal":0.125,"floorReq":0.75,"xmlThick":1.375,"fromXml":true,"xmlOpen":"2","paintColour":"Pearly White","jambW":"4 5/8"},
    {"id":"s3","opening":"3","location":"Dining","doorType":"Double Swing AST","doorStyle":"Kingston","productType":"1.375 Hollow","qty":2,
-    "width":24,"height":80,"stdW":24,"stdH":80,"minW":23.85,"minH":79.9,"topReveal":0.094,"floorReq":0.5,"xmlThick":1.375,"fromXml":true,"xmlOpen":"3","paintColour":"Pearly White","jambW":"4 5/8"},
+    "width":24,"height":80,"stdW":24,"stdH":80,"minW":23.85,"minH":79.9,"topReveal":0.094,"floorReq":0.5,"xmlThick":1.375,"fromXml":true,"xmlOpen":"3","leafMaxW":[24.049,24.049],"leafMaxH":[79.9584,79.9896],"astragal":0,"paintColour":"Pearly White","jambW":"4 5/8"},
    {"id":"s4","opening":"4","location":"Hall closet","doorType":"Bifold","doorStyle":"Kingston","productType":"1.375 Hollow","qty":1,"width":30,"height":80,"paintColour":"Pearly White"},
    {"id":"s5","opening":"5","location":"Bed 1 Clst","doorType":"Bifold","doorStyle":"Kingston","productType":"1.375 Hollow","qty":2,"width":60,"height":80,"paintColour":"Pearly White"},
    {"id":"s6","opening":"6","location":"Bed 2 Clst","doorType":"Bypass","doorStyle":"Kingston","productType":"1.375 Hollow","qty":2,"width":58,"height":82,"paintColour":"Pearly White"},
