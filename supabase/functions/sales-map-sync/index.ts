@@ -22,7 +22,7 @@
 //     x-gidc-key:    the secret above
 //   and this body:
 //     { "customers": [ { "estimate_id": 9123, "order_no": "5067",
-//                        "name": "Aris", "address": "1 Main St",
+//                        "name": "Aris", "rep": "Nick", "address": "1 Main St",
 //                        "city": "Cambridge", "postal": "N1R 1A1",
 //                        "created_on": "2026-01-05", "measure_on": "2026-01-10",
 //                        "showroom_on": null, "sold_on": "2026-01-20",
@@ -138,6 +138,7 @@ Deno.serve(async (req) => {
         estimate_id: id,
         order_no: text(c.order_no, 40),
         name: text(c.name, 120),
+        rep: text(c.rep, 80),
         address: text(c.address, 200),
         city: text(c.city, 80),
         postal: text(c.postal, 12),

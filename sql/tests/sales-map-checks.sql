@@ -8,13 +8,13 @@ select name, address from sales_map_showrooms order by sort;
 \echo -- the server loads (as the service key does)
 set role service_role;
 select sales_map_load('[
- {"estimate_id":1,"name":"A","address":"1 Main St","city":"Cambridge","created_on":"2026-01-05","measure_on":"2026-01-10","lat":43.39,"lng":-80.31,"placed_by":"address"},
+ {"estimate_id":1,"name":"A","rep":" Nick ","address":"1 Main St","city":"Cambridge","created_on":"2026-01-05","measure_on":"2026-01-10","lat":43.39,"lng":-80.31,"placed_by":"address"},
  {"estimate_id":2,"name":"B","created_on":"2026-02-05","showroom_on":"2026-02-08","sold_on":"2026-02-20","order_no":"5067"},
  {"estimate_id":2,"name":"B again","created_on":"2026-02-05"}
 ]'::jsonb, '[{"name":"Cambridge","lat":43.4,"lng":-80.3}]'::jsonb, '{"sent":3}'::jsonb);
 reset role;
 \echo -- want 2 customers, Cambridge placed, run counted
-select estimate_id, name, sold_on, lat from sales_map_customers order by 1;
+select estimate_id, name, rep, sold_on, lat from sales_map_customers order by 1;
 select name, lat, lng from sales_map_showrooms order by sort;
 select counts from sales_map_runs;
 

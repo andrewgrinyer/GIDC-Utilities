@@ -23,7 +23,10 @@
        blue    sold in the showroom without an in home visit
      Orange was dropped: it was meant for no shows, which Access does not
      record. So a showroom visit with no in home visit and no sale has no
-     colour and is not drawn. -->
+     colour and is not drawn.
+
+     Andrew, 26 November (1.1): filter by the measurement salesperson,
+     the estimate's SalesAssociateID as named in Access. -->
 <script>window.GIDC_TOOL = {who: 'admin'};</script>
 <script src="/gate.js"></script>
 <script src="/guard.js"></script>
@@ -106,17 +109,18 @@ td.rate{font-weight:700}
       <button type="button" data-q="all">Everything</button>
     </div>
     <label>Nearest showroom <select id="room"><option value="">All three</option></select></label>
+    <label>Measurement salesperson <select id="rep"><option value="">Everybody</option></select></label>
   </div>
 
   <div id="map" role="region" aria-label="Map of customers"></div>
   <p class="small" id="mapnote"></p>
 
   <h2>Close rate by distance from the nearest showroom</h2>
-  <p class="small" style="margin-top:0">Customers in the dates and showroom chosen above, whichever colours are switched on in the legend. Close rate is sold out of all of them. With showroom is green out of green and yellow; in home only is purple out of purple and red.</p>
+  <p class="small" style="margin-top:0">Customers in the dates, showroom and salesperson chosen above, whichever colours are switched on in the legend. Close rate is sold out of all of them. With showroom is green out of green and yellow; in home only is purple out of purple and red.</p>
   <div class="card"><table id="rates"></table></div>
   <p class="small" id="ratenote"></p>
 </div>
-<div class="gidc-build">Sales Map 1.0 &middot; 26 Nov 2026</div>
+<div class="gidc-build">Sales Map 1.1 &middot; 26 Nov 2026</div>
 
 <script>
 (function(){
@@ -186,10 +190,20 @@ function readAll(path){
   return page(0);
 }
 
+var COLS = 'estimate_id,order_no,name,address,city,postal,created_on,measure_on,showroom_on,sold_on,lat,lng,placed_by';
+/* rep came with Sales Map 1.1. Asked for first; a database that has not had
+   the 1.1 SQL yet answers 400, and the map still opens without it. */
+function readCustomers(){
+  return readAll('/rest/v1/sales_map_customers?select=' + COLS + ',rep&order=estimate_id.asc')
+    .catch(function(e){
+      if(!/^400/.test(e.message)) throw e;
+      return readAll('/rest/v1/sales_map_customers?select=' + COLS + '&order=estimate_id.asc');
+    });
+}
 function load(){
   message('wait', 'Reading the customers…');
   return Promise.all([
-    readAll('/rest/v1/sales_map_customers?select=estimate_id,order_no,name,address,city,postal,created_on,measure_on,showroom_on,sold_on,lat,lng,placed_by&order=estimate_id.asc'),
+    readCustomers(),
     readAll('/rest/v1/sales_map_showrooms?select=name,address,lat,lng,sort&order=sort.asc'),
     readAll('/rest/v1/sales_map_runs?select=ran_at,counts')
   ]).then(function(got){
@@ -213,6 +227,11 @@ function load(){
     var sel = $('room');
     sel.innerHTML = '<option value="">All three</option>' + got[1].map(function(s){
       return '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>'; }).join('');
+    var reps = {}, noRep = false;
+    CUSTOMERS.forEach(function(c){ if(c.rep) reps[c.rep] = 1; else noRep = true; });
+    $('rep').innerHTML = '<option value="">Everybody</option>' + Object.keys(reps).sort().map(function(r){
+      return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('') +
+      (noRep && Object.keys(reps).length ? '<option value="(none)">No salesperson</option>' : '');
     drawRooms();
     draw();
   }).catch(function(e){
@@ -268,6 +287,7 @@ function popup(c){
   if(c.measure_on)  rows.push('<span class="k">In home visit</span> ' + nice(c.measure_on));
   if(c.showroom_on) rows.push('<span class="k">Showroom</span> ' + nice(c.showroom_on));
   if(c.sold_on)     rows.push('<span class="k">Sold</span> ' + nice(c.sold_on));
+  if(c.rep)         rows.push('<span class="k">Measurement salesperson</span> ' + esc(c.rep));
   if(c.km != null)  rows.push('<span class="k">Nearest showroom</span> ' + esc(c.room) + ', ' + c.km.toFixed(1) + ' km');
   if(c.placed_by === 'postal') rows.push('<span class="k">Placed by postal code only, so near but not on the house.</span>');
   return '<div class="pop">' + rows.join('<br>') + '</div>';
@@ -275,11 +295,12 @@ function popup(c){
 
 /* ---- what is chosen ------------------------------------------------------ */
 function chosen(){
-  var from = $('from').value, to = $('to').value, room = $('room').value;
+  var from = $('from').value, to = $('to').value, room = $('room').value, rep = $('rep').value;
   return CUSTOMERS.filter(function(c){
     if(from && c.created_on < from) return false;
     if(to && c.created_on > to) return false;
     if(room && c.room !== room) return false;
+    if(rep === '(none)' ? !!c.rep : (rep && c.rep !== rep)) return false;
     return true;
   });
 }
@@ -363,7 +384,7 @@ function quick(q){
 document.querySelectorAll('.quick button').forEach(function(b){
   b.addEventListener('click', function(){ quick(b.dataset.q); });
 });
-['from', 'to', 'room'].forEach(function(id){ $(id).addEventListener('change', function(){ if(map) draw(); }); });
+['from', 'to', 'room', 'rep'].forEach(function(id){ $(id).addEventListener('change', function(){ if(map) draw(); }); });
 
 /* ---- start ----------------------------------------------------------------- */
 quick('12m');

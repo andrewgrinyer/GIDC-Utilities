@@ -39,7 +39,7 @@ for(let i = 1; i <= 1400; i++){
   const plus = n => iso(new Date(created.getTime() + n * 86400000));
   CUST.push({
     estimate_id: 9000 + i, order_no: /green|purple|blue/.test(kind) ? String(5000 + i) : null,
-    name: 'Test ' + i, address: i + ' Sample St', city: room.name, postal: null,
+    name: 'Test ' + i, rep: i % 7 === 0 ? null : ['Nick', 'Michael', 'Peter'][i % 3], address: i + ' Sample St', city: room.name, postal: null,
     created_on: iso(created),
     measure_on: /red|yellow|green|purple/.test(kind) ? plus(5) : null,
     showroom_on: /yellow|green|blue|showonly/.test(kind) ? plus(9) : null,
@@ -50,7 +50,7 @@ for(let i = 1; i <= 1400; i++){
     _kind: kind
   });
 }
-let ROLE = 'admin';
+let ROLE = 'admin', OLD_DB = false;
 async function mock(page){
   await page.route('https://tile.openstreetmap.org/**', r => r.abort());
   await page.route('https://baakegbtuygtldksmant.supabase.co/**', async route => {
@@ -58,6 +58,8 @@ async function mock(page){
     const j = (b, s) => route.fulfill({status:s || 200, contentType:'application/json', body:JSON.stringify(b)});
     if(p === '/rest/v1/profiles') return j([{id:'a1', name:'Andrew', role:ROLE, active:true, email_verified_at:'2026-10-24'}]);
     const off = +(u.searchParams.get('offset') || 0), lim = Math.min(+(u.searchParams.get('limit') || 1000), 1000);
+    if(p === '/rest/v1/sales_map_customers' && OLD_DB && /rep/.test(u.searchParams.get('select')))
+      return j({message:'column sales_map_customers.rep does not exist'}, 400);
     if(p === '/rest/v1/sales_map_customers')
       return j(CUST.map(c => { const o = Object.assign({}, c); delete o._kind; return o; }).slice(off, off + lim));
     if(p === '/rest/v1/sales_map_showrooms') return j(ROOMS.slice(off, off + lim));
@@ -88,7 +90,7 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if(!
   const landing = await page.evaluate(() => fetch('/').then(r => r.text()));
   check(/Sales Map/.test(landing) && /\.\/salesmap\//.test(landing) && /who:\s*'admin'/.test(landing.split('Sales Map')[1] || ''),
         'landing page has a Sales Map tile for admins');
-  check(/Tools 3\.7/.test(landing), 'landing page says Tools 3.7');
+  check(/Tools 3\.8/.test(landing), 'landing page says Tools 3.8');
 
   // what should be there in the last 12 months
   const from = await page.$eval('#from', e => e.value);
@@ -137,6 +139,20 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if(!
   const tb = await page.$eval('#rates tr.total', e => e.innerText.replace(/\s+/g, ' '));
   check(+tb.split(' ')[1] < all * 1.5 && +tb.split(' ')[1] > 0, 'Burlington only is a smaller set (' + tb.split(' ')[1] + ')');
 
+  // measurement salesperson
+  await page.selectOption('#room', '');
+  const reps = await page.$$eval('#rep option', o => o.map(x => x.textContent));
+  check(reps.join(',') === 'Everybody,Michael,Nick,Peter,No salesperson', 'salesperson list: ' + reps.join(', '));
+  await page.selectOption('#rep', 'Nick');
+  const nick = CUST.filter(c => c.rep === 'Nick' && c._kind !== 'showonly').length;
+  const tn = await page.$eval('#rates tr.total', e => e.innerText.replace(/\s+/g, ' '));
+  check(tn.indexOf('All ' + nick + ' ') === 0, 'Nick only counts his customers (' + nick + ')');
+  await page.selectOption('#rep', '(none)');
+  const none = CUST.filter(c => !c.rep && c._kind !== 'showonly').length;
+  const t0 = await page.$eval('#rates tr.total', e => e.innerText.replace(/\s+/g, ' '));
+  check(t0.indexOf('All ' + none + ' ') === 0, 'No salesperson counts those without one (' + none + ')');
+  await page.selectOption('#rep', '');
+
   // zoom
   const z0 = await page.evaluate(() => document.querySelector('.leaflet-control-zoom-in') != null);
   check(z0, 'zoom buttons are there');
@@ -148,6 +164,14 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if(!
   await page.locator('.leaflet-marker-icon.room-icon').first().click();
   check(/showroom/.test(await page.$eval('.leaflet-popup-content', e => e.innerText)), 'clicking a building names the showroom');
   await page.close();
+
+  // a database without the 1.1 SQL still opens the map
+  OLD_DB = true;
+  page = await open('admin');
+  await page.waitForFunction(() => document.querySelectorAll('#rates tr').length > 2);
+  check(/^All \d+/.test(await page.$eval('#rates tr.total', e => e.innerText.replace(/\s+/g, ' '))), 'map opens before the 1.1 SQL is run');
+  await page.close();
+  OLD_DB = false;
 
   // phone
   page = await open('admin', {width:390, height:844});

@@ -92,6 +92,10 @@ alter table public.sales_map_customers add constraint sales_map_customers_ok
          and (lat is null or (lat between -90 and 90 and lng between -180 and 180))
          and (placed_by is null or placed_by in ('address', 'postal')));
 create index if not exists sales_map_customers_created on public.sales_map_customers (created_on);
+-- Andrew, 26 November: filter by the measurement salesperson, the
+-- estimate's SalesAssociateID named from def_Employees.CalendarName.
+alter table public.sales_map_customers add column if not exists rep text;
+
 comment on table public.sales_map_customers is
   'Retail customers for the Sales Map, one per Access estimate (EstimateID). '
   'measure_on is the in home visit, showroom_on the showroom booking, sold_on '
@@ -155,11 +159,11 @@ begin
   delete from sales_map_customers where true;
   get diagnostics removed = row_count;
 
-  insert into sales_map_customers (estimate_id, order_no, name, address, city, postal,
+  insert into sales_map_customers (estimate_id, order_no, name, rep, address, city, postal,
                                    created_on, measure_on, showroom_on, sold_on,
                                    lat, lng, placed_by, loaded_at)
   select distinct on ((r->>'estimate_id')::int)
-         (r->>'estimate_id')::int, r->>'order_no', r->>'name', r->>'address', r->>'city', r->>'postal',
+         (r->>'estimate_id')::int, r->>'order_no', r->>'name', nullif(btrim(r->>'rep'), ''), r->>'address', r->>'city', r->>'postal',
          (r->>'created_on')::date, (r->>'measure_on')::date, (r->>'showroom_on')::date,
          (r->>'sold_on')::date, (r->>'lat')::float8, (r->>'lng')::float8,
          nullif(r->>'placed_by', ''), now()

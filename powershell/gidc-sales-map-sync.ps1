@@ -197,6 +197,19 @@ if (-not $NoAppointments) {
   } else { $apptNote = "Appointments has no EstimateID or AutoApptID" }
 }
 
+# ---- the measurement salespeople (Andrew, 26 November: filter by them)
+# Estimates.SalesAssociateID, named by def_Employees.CalendarName, the
+# same as the measurement sync. Only these two columns: that table also
+# holds passwords.
+$reps = @{}
+if ((ColumnsOf "def_Employees") -contains "CalendarName") {
+  try {
+    $rs = $cn.Execute("select EmployeeID, CalendarName from def_Employees")
+    while (-not $rs.EOF) { $reps[[string](V $rs "EmployeeID")] = T (V $rs "CalendarName"); $rs.MoveNext() }
+    $rs.Close()
+  } catch { }
+}
+
 # ---- the customers --------------------------------------------------
 $sel = @(
   "e.EstimateID as [qEstimateID]",
@@ -205,6 +218,7 @@ $sel = @(
   (Col "e" $ecols $MeasureColumn "Measure"),
   (Col "e" $ecols $ShowroomColumn "Showroom"),
   (Col "e" $ecols "SaleTypeID" "SaleTypeID"),
+  (Col "e" $ecols "SalesAssociateID" "SalesAssociateID"),
   (Col "e" $ecols $AddressColumn "Addr"),
   (Col "e" $ecols $streetNo "AddrNo"),
   (Col "e" $ecols $streetName "AddrStreet"),
@@ -247,8 +261,10 @@ while (-not $rs.EOF) {
 
   $addr = T (V $rs "qAddr")
   if (-not $addr) { $addr = T ((@((T (V $rs "qAddrNo")), (T (V $rs "qAddrStreet"))) | Where-Object { $_ }) -join " ") }
+  $repId = I (V $rs "qSalesAssociateID")
   $rows.Add([pscustomobject]@{
     estimate_id = $id
+    rep         = $(if ($repId -ne $null -and $reps.ContainsKey([string]$repId)) { $reps[[string]$repId] } else { $null })
     order_no    = T (V $rs "qOrderNo")
     name        = T ((@($first, $last) | Where-Object { $_ }) -join " ")
     address     = $addr
@@ -289,6 +305,8 @@ Say ("  postal    Estimates.{0}, on {1}" -f $(if ($PostalColumn) { $PostalColumn
 Say ("  province  Estimates.{0}, on {1}" -f $(if ($ProvinceColumn) { $ProvinceColumn } else { "(none found, Ontario assumed)" }), (CountOf { $_.prov }))
 Say ("  in home   Estimates.{0}; showroom Estimates.{1}" -f $MeasureColumn, $ShowroomColumn)
 Say ("  fallback  {0}" -f $apptNote)
+Say ("  salesperson Estimates.SalesAssociateID, named on {0} (from def_Employees.CalendarName), {1} different" -f `
+     (CountOf { $_.rep }), (@($rows | Where-Object { $_.rep } | ForEach-Object { $_.rep } | Select-Object -Unique)).Count)
 Say ("  sold      Orders.SalesDate{0}" -f $(if ($joinOrders) { "" } else { " (Orders could not be joined, so nothing reads as sold)" }))
 $contact = @($ecols | Where-Object { $_ -match 'addr|street|city|town|postal|zip|prov|unit|suite' })
 Say ("  every address like column on Estimates: " + ($contact -join ", "))
@@ -464,7 +482,7 @@ $counts = [ordered]@{
   no_address = $noAddress; waiting = $waiting; since = $since.ToString("yyyy-MM-dd")
 }
 $send = @($rows | ForEach-Object {
-  [ordered]@{ estimate_id = $_.estimate_id; order_no = $_.order_no; name = $_.name; address = $_.address
+  [ordered]@{ estimate_id = $_.estimate_id; order_no = $_.order_no; name = $_.name; rep = $_.rep; address = $_.address
               city = $_.city; postal = $_.postal; created_on = $_.created_on; measure_on = $_.measure_on
               showroom_on = $_.showroom_on; sold_on = $_.sold_on; lat = $_.lat; lng = $_.lng; placed_by = $_.placed_by } })
 $body = @{ customers = $send; showrooms = @($rooms); counts = $counts } | ConvertTo-Json -Depth 5 -Compress
