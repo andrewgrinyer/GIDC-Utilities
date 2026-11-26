@@ -4,6 +4,8 @@
 # points at Supabase. Runs the file twice, then checks who sees what.
 #
 #   web-leads-tracker.sh          the live shape, with web-leads-sold.sql
+#   web-leads-tracker.sh round1     with the FIRST web-leads-sold.sql (no created_on), as may be live
+#   web-leads-tracker.sh round1b    the same, tracker first
 #   web-leads-tracker.sh alone    without web-leads-sold.sql (no Access copy)
 #   web-leads-tracker.sh after    after the three login files
 P="psql -h /tmp/pg -p 5499 -U postgres -X -q -v ON_ERROR_STOP=1"
@@ -12,6 +14,8 @@ $P -c "drop database if exists t" -c "create database t" postgres
 sed 's/NOTNULL_HERE//' "$D"/mock-live-shape.sql | $P t >/dev/null || exit 1
 $P t -c "do \$\$ begin create role service_role nologin; exception when duplicate_object then null; end \$\$" >/dev/null
 files="web-leads-sold.sql web-leads-tracker.sql web-leads-tracker.sql"
+[ "$1" = round1 ] && files="tests/web-leads-sold-round1.sql web-leads-tracker.sql web-leads-tracker.sql"
+[ "$1" = round1b ] && files="web-leads-tracker.sql tests/web-leads-sold-round1.sql web-leads-tracker.sql"
 [ "$1" = alone ] && files="web-leads-tracker.sql web-leads-tracker.sql"
 [ "$1" = after ] && files="web-leads-tracker.sql security-tighten.sql two-sided-access.sql email-verification.sql web-leads-sold.sql web-leads-tracker.sql"
 for f in $files; do

@@ -125,6 +125,20 @@ comment on function public.can_use_web_leads is
 revoke all on function public.can_use_web_leads() from public, anon;
 grant execute on function public.can_use_web_leads() to authenticated;
 
+-- ---------- 1b. the Access copy, brought up to date -------------------
+-- The first web-leads-sold.sql (26 November, round 1) made web_lead_sales
+-- with no created_on and a required sold_on. If that is the one that ran,
+-- bring it up to what the later one makes, so the suggestions and the
+-- old lead marking can read it. Running web-leads-sold.sql again does
+-- the same; both are safe in either order.
+do $$
+begin
+  if to_regclass('public.web_lead_sales') is not null then
+    alter table public.web_lead_sales add column if not exists created_on date;
+    alter table public.web_lead_sales alter column sold_on drop not null;
+  end if;
+end $$;
+
 -- ---------- 2. the statuses -------------------------------------------
 create table if not exists public.web_lead_statuses (
   name  text primary key,
@@ -208,7 +222,9 @@ create or replace function public.web_lead_age_out(p_days integer default 60)
 returns integer language plpgsql security definer set search_path = public as $$
 declare n integer := 0;
 begin
-  if to_regclass('public.web_lead_sales') is null then return 0; end if;
+  if to_regclass('public.web_lead_sales') is null or to_regclass('public.web_lead_sales_runs') is null then
+    return 0;
+  end if;
   if not exists (select 1 from public.web_lead_sales_runs where id = 1 and sent_at is not null) then
     return 0;
   end if;
@@ -330,7 +346,11 @@ create or replace function public.web_leads_board(p_from date default null)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 declare
   leads jsonb; statuses jsonb; run jsonb; access_at timestamptz;
-  has_access boolean := to_regclass('public.web_lead_sales') is not null;
+  has_access boolean := to_regclass('public.web_lead_sales') is not null
+                        and to_regclass('public.web_lead_sales_runs') is not null
+                        and exists (select 1 from information_schema.columns
+                                     where table_schema = 'public' and table_name = 'web_lead_sales'
+                                       and column_name = 'created_on');
 begin
   if not public.can_use_web_leads() then
     raise exception 'The Web Leads tracker is for administrators and office staff.'
