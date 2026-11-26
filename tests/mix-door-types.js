@@ -27,7 +27,7 @@ const READ = `
 import sys, json, openpyxl
 wb = openpyxl.load_workbook(sys.argv[1], data_only=True)
 out = {}
-for sn, rows, cols in [('Pricing Sheet', list(range(9, 12)) + list(range(46, 55)), range(1, 37)), ('UploadTemplate', range(37, 40), range(1, 34))]:
+for sn, rows, cols in [('Pricing Sheet', list(range(9, 12)) + list(range(46, 55)), range(1, 39)), ('UploadTemplate', range(37, 40), range(1, 34))]:
     ws = wb[sn]
     for r in rows:
         for c in cols:
@@ -182,15 +182,28 @@ print(json.dumps(out, default=str))`;
   const pf = await page.evaluate(() => ({n:document.querySelectorAll('input[data-pull]').length, note:lineNote(state.job.openings[0])}));
   check('finger pull tick on the 3 door bypass only (not GDL), default No middle door finger pulls', pf.n === 1 && pf.note === 'No middle door finger pulls.', pf);
   const fpA = await page.evaluate(() => signFp(state.job));
+  const hw0 = await page.evaluate(() => [cv('O49'), cv('P49'), cv('U54')]);
   await page.locator('input[data-pull]').scrollIntoViewIfNeeded(); await page.tap('input[data-pull]'); await page.waitForTimeout(400);
-  const pf2 = await page.evaluate(() => ({v:state.job.openings[0].options[0].v.midPulls, note:lineNote(state.job.openings[0]), fp:signFp(state.job), R:cv('R9')}));
-  check('ticked: Install double middle door finger pulls, price unchanged, signing changes', pf2.v === true && pf2.note === 'Install double middle door finger pulls.' && pf2.fp !== fpA && pf2.R === one.Columbia, pf2);
+  const pf2 = await page.evaluate(() => ({v:state.job.openings[0].options[0].v.midPulls, note:lineNote(state.job.openings[0]), fp:signFp(state.job), R:cv('R9'), O:cv('O49'), P:cv('P49'), U:cv('U9')}));
+  check('ticked (round pulls): note says 4 more round, signing changes, door price unchanged', pf2.v === true && pf2.note === 'Install double middle door finger pulls (4 more round).' && pf2.fp !== fpA && pf2.R === one.Columbia, pf2);
+  check('review: Finger Pull line 3 > 7, $75 > $175', hw0[0] === 3 && hw0[1] === 75 && pf2.O === 7 && pf2.P === 175 && pf2.U === 75, [hw0, pf2.O, pf2.P]);
   const pb = await page.evaluate(async () => Array.from(await contractPdf(state.job, {blank:true})));
   fs.writeFileSync(path.join(tmp, 'p.pdf'), Buffer.from(pb));
-  check('contract PDF says Install double middle door finger pulls', /Install double middle door finger pulls/.test(execFileSync('pdftotext', [path.join(tmp, 'p.pdf'), '-']).toString()));
+  check('contract PDF says Install double middle door finger pulls', /Install double middle door finger pulls \(4 more round\)/.test(execFileSync('pdftotext', [path.join(tmp, 'p.pdf'), '-']).toString()));
   const pulled = await book('pulled');
-  check('finger pulls leave the workbook as it was', Object.keys(before).every(k => JSON.stringify(before[k]) === JSON.stringify(pulled[k])),
-    Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(pulled[k])));
+  check('workbook: Finger Pull 7, $175, AK9 4', pulled['Pricing Sheet!O49'] === 7 && pulled['Pricing Sheet!P49'] === 175 && pulled['Pricing Sheet!AK9'] === 4, [pulled['Pricing Sheet!O49'], pulled['Pricing Sheet!P49'], pulled['Pricing Sheet!AK9']]);
+  const pd = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(pulled[k]));
+  check('workbook: only the pull cells, the Hardware total and the sums under it move', pd.every(k => /^Pricing Sheet!(AK9|O49|P49|U5[0-4])$/.test(k)) && Math.abs(pulled['Pricing Sheet!U50'] - before['Pricing Sheet!U50'] - 100) < 0.001,
+    pd.map(k => [k, before[k], pulled[k]]));
+  // square pulls: 2 more round and 2 more square at the list prices
+  const sq = await page.evaluate(() => { const o = state.job.openings[0].options[0]; const was = o.v.handleType; o.v.handleType = 'Finger Pull Square'; calcJob(state.job);
+    const r = {base:cv('U9'), O:cv('O49'), P:cv('P49'), note:lineNote(state.job.openings[0])}; return r; });
+  check('square pulls: 3 square + 2 round + 2 square = 7, $120 + $50 + $80', sq.base === 120 && sq.O === 7 && sq.P === 250 && /2 more round, 2 more square/.test(sq.note), sq);
+  const sqb = await book('square');
+  check('workbook square: AK9 2, AL9 2, Finger Pull $250', sqb['Pricing Sheet!AK9'] === 2 && sqb['Pricing Sheet!AL9'] === 2 && sqb['Pricing Sheet!P49'] === 250 && sqb['Pricing Sheet!O49'] === 7,
+    [sqb['Pricing Sheet!AK9'], sqb['Pricing Sheet!AL9'], sqb['Pricing Sheet!O49'], sqb['Pricing Sheet!P49']]);
+  await page.evaluate(() => { const o = state.job.openings[0].options[0]; o.v.handleType = 'Finger Pull Round'; delete o.v.midPulls; calcJob(state.job); });
+  check('unticked: Finger Pull back to 3, $75', await page.evaluate(() => [cv('O49'), cv('P49')]).then(v => v[0] === 3 && v[1] === 75));
   const p2 = await page.evaluate(() => { const op = state.job.openings[0]; op.qty = 2; const a = canMidPull(op, op.options[0]); op.qty = 3; return a; });
   check('no finger pull tick on a 2 door bypass', p2 === false);
 

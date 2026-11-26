@@ -3294,18 +3294,42 @@ function mixText(op, o){
    printed order in red under the door; the workbook has no place for it and
    is unchanged, and it does not change the price. */
 const canMidPull = (op, o) => !!(op && o) && o.v.doorType === 'Bypass' && !isGdl(o) && Number(op.qty) === 3;
-const midPullText = (op, o) => canMidPull(op, o) ? (o.v.midPulls ? 'Install double middle door finger pulls.' : 'No middle door finger pulls.') : '';
+/* 2.76.1, Andrew 26 Nov: ticked, the middle door's pulls are added to the
+   Finger Pull line of the Hardware box at the price list's own prices
+   (Pricing Data B48 round, B49 square): with round pulls 4 more round, with
+   square pulls 2 more round and 2 more square. Each line's extra round and
+   square count sits in AK and AL beside it (empty columns), and the Finger
+   Pull quantity (O49) and total (P49) add them up, in the calculator and in
+   the file. Nothing else in the workbook moves. */
+function midPullCounts(op, o){
+  if(!o.v.midPulls || !canMidPull(op, o) || o.skipped.hardware) return [0, 0];
+  return o.v.handleType === 'Finger Pull Round' ? [4, 0] : o.v.handleType === 'Finger Pull Square' ? [2, 2] : [0, 0];
+}
+const midPullText = (op, o) => { if(!canMidPull(op, o)) return '';
+  if(!o.v.midPulls) return 'No middle door finger pulls.';
+  const [r, q] = midPullCounts(op, o);
+  return 'Install double middle door finger pulls' + (r ? ' (' + r + ' more round' + (q ? ', ' + q + ' more square' : '') + ')' : '') + '.'; };
+// the AK and AL cells, every door line (empty where there are none)
+function pullCells(job){
+  const lines = reviewLines(job), out = [];
+  PAGE_ROWS.forEach((row, i) => { const l = lines[i], c = l ? midPullCounts(l.op, l.o) : [0, 0];
+    out.push(['AK' + row, c[0] || null], ['AL' + row, c[1] || null]); });
+  return out;
+}
+const PULL_ADD = {O49:'+SUM(AK9:AL27)+SUM(AK37:AL43)',
+  P49:"+(SUM(AK9:AK27)+SUM(AK37:AK43))*'Pricing Data'!$B$48+(SUM(AL9:AL27)+SUM(AL37:AL43))*'Pricing Data'!$B$49"};
+const pullFormula = (f, ref) => /SUM\(AK9/.test(f) ? f : f + PULL_ADD[ref];
 const opPullText = op => op.options.filter(o => o.include).map(o => midPullText(op, o)).filter(Boolean).join('  ');
 function pullFields(op, o){
   if(!canMidPull(op, o)) return '';
   return '<div class="mix-f pull-f"><label class="mix-tick"><input type="checkbox" data-pull="1" data-op="' + op.id + '" data-o="' + o.id + '"' +
     (o.v.midPulls ? ' checked' : '') + '> Install double middle door finger pulls</label>' +
-    (o.v.midPulls ? '' : '<p class="hint">No middle door finger pulls.</p>') + '</div>';
+    '<p class="hint">' + esc(midPullText(op, o)) + (o.v.midPulls ? ' Added to the Finger Pull line of the Hardware box.' : '') + '</p></div>';
 }
 const opMixText = op => op.options.filter(o => o.include).map(o => mixText(op, o)).filter(Boolean).join('  ');
 const mixFp = job => job.openings.map(op => op.options.filter(o => o.include && isMix(op, o)).map(o => [op.number, o.v.mix.map(m => [m.style, m.insert || ''])]));
 const hasMidPulls = job => ((job && job.openings) || []).some(op => op.options.some(o => o.include && o.v.midPulls && canMidPull(op, o)));
-const pullFp = job => job.openings.map(op => op.options.filter(o => o.include && o.v.midPulls && canMidPull(op, o)).map(() => op.number));
+const pullFp = job => job.openings.map(op => op.options.filter(o => o.include && o.v.midPulls && canMidPull(op, o)).map(o => [op.number, midPullCounts(op, o)]));
 /* the price of each location, from the line's own Door MSRP formula with
    that location's style in place of the style cell. Needs the calculator,
    after calcJob has put the job in. A style the price list or the supplier
@@ -4360,6 +4384,14 @@ function fillSheet(xml, job){
   });
   // 2.76: a mixed door's Door MSRP, the average worked out in the calculator
   mixCells(job).forEach(([ref, v]) => { xml = setCell(xml, ref, v, typeof v === 'number'); });
+  // 2.76.1: the middle door finger pulls, counted beside each line and added on the Finger Pull line
+  const pc = pullCells(job).filter(([, v]) => v);
+  if(pc.length){
+    pc.forEach(([ref, v]) => { xml = setCell(xml, ref, v, true); });
+    Object.keys(PULL_ADD).forEach(ref => { const m = xml.match(new RegExp('<c r="' + ref + '"[^>]*><f>([^<]*)</f>'));
+      if(m){ const raw = m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+        xml = setFormula(xml, ref, pullFormula(raw, ref)); } });
+  }
   if(xml.indexOf('COUNTIF(H9:H27, &quot;4 5/8&quot;)') >= 0 || xml.indexOf('COUNTIF(H9:H27, "4 5/8")') >= 0)
     Object.keys(JAMB_FORMULAS).forEach(ref => { xml = setFormula(xml, ref, JAMB_FORMULAS[ref]); });
   // 2.61: a third track adds to a GDL door's price (S = R + AJ)
@@ -4975,6 +5007,9 @@ async function getCalc(){
   // 2.61: the third track, as in the file
   PAGE_ROWS.forEach(r => { const c = {sheet: sid, row: r - 1, col: colNum('S') - 1}, f = String(hf.getCellFormula(c) || '');
     const nf = trackFormula(f.replace(/^=/, ''), r); if(f && nf !== f.replace(/^=/, '')) hf.setCellContents(c, [['=' + nf]]); });
+  // 2.76.1: the Finger Pull line counts the middle door pulls, as in the file
+  Object.keys(PULL_ADD).forEach(ref => { const c = {sheet: sid, row: +ref.slice(1) - 1, col: colNum(ref.replace(/\d+$/, '')) - 1},
+    f = String(hf.getCellFormula(c) || ''); if(f) hf.setCellContents(c, [['=' + pullFormula(f.replace(/^=/, ''), ref)]]); });
   calc = {hf, sid, orig:{}};
   INPUT_REFS.forEach(ref => { calc.orig[ref] = hf.getCellSerialized(cellAt(ref)); });
   return calc;
@@ -4992,6 +5027,7 @@ function calcJob(job){
               : "'" + v;                          // text stays text, as in the file
       hf.setCellContents(cellAt(ref), [[c]]);
     });
+    pullCells(job).forEach(([ref, v]) => hf.setCellContents(cellAt(ref), [[v]]));   // 2.76.1
   });
   // 2.76: each location of a mixed door priced, the average in its Door MSRP, its finishing in G
   calc.gOrig = calc.gOrig || {}; calc.gSet = calc.gSet || {};
@@ -7924,6 +7960,7 @@ document.addEventListener('change', async e => {
   if(d.pull){ const op = job.openings.find(x => x.id === d.op), o = op && op.options.find(x => x.id === d.o);
     if(!op || !o) return;
     if(t.checked) o.v.midPulls = true; else delete o.v.midPulls;
+    if(calc && state.view === 'review') calcJob(job);
     render(); return persistBg(); }
   // 2.76: Mix Door Types, on the Edit screen and the review
   if(d.mix){ const op = job.openings.find(x => x.id === d.op), o = op && op.options.find(x => x.id === d.o);
@@ -8114,6 +8151,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.76 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.76.1 · 26 Nov 2026</div>
 </body>
 </html>
