@@ -229,6 +229,14 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
   border-radius:6px;padding:4px 5px;min-height:30px;background:#fff}
 .rv-box input.rv-boxtext{width:100%;min-width:80px;text-align:left}
 .rv-box input.rv-boxin:not(.rv-boxtext){width:58px!important;max-width:58px}
+/* 2.75: minus button beside a discount box */
+.neg-wrap{display:inline-flex;align-items:stretch;gap:4px;max-width:100%}
+.field .neg-wrap{display:flex}
+.field .neg-wrap input{flex:1;min-width:0}
+.neg-btn{flex:none;min-width:34px;padding:0 8px;border:1px solid var(--rule);border-radius:6px;background:transparent;
+  color:inherit;font:inherit;font-size:18px;font-weight:700;line-height:1;cursor:pointer}
+.rv-box .neg-btn{min-width:24px;padding:0 4px;font-size:14px}
+@media print{.neg-btn{display:none!important}}
 /* the materials box holds typed items now, so it gets the extra width */
 @media (min-width:1100px){ body .rv-boxes{grid-template-columns:1fr 1.5fr 1fr 1fr} }
 .rv-box td:has(> input.rv-boxin){padding-left:2px;padding-right:2px}
@@ -4799,7 +4807,7 @@ const cv = ref => { const v = calc.hf.getCellValue(cellAt(ref));
   return (v && typeof v === 'object') ? (v.value || '#ERROR!') : v; };
 const isErr = v => typeof v === 'string' && v[0] === '#';
 function money(v){
-  if(typeof v === 'number') return '$' + v.toLocaleString('en-CA',
+  if(typeof v === 'number') return (v < 0 ? '-$' : '$') + Math.abs(v).toLocaleString('en-CA',
     {minimumFractionDigits:2, maximumFractionDigits:2});
   return v == null ? '' : String(v);
 }
@@ -4871,8 +4879,28 @@ function boxEditor(ed, job, v){
   const m = (job.materials || [])[ed.mat] || {};
   if(ed.f === 'desc') return '<input type="text" class="rv-boxin rv-boxtext" data-rvmat="' + ed.mat + ':desc" value="' +
     esc(m.desc || '') + '" placeholder="Item ' + (ed.mat + 1) + '">';
+  /* 2.75, Andrew 26 Nov: a special materials price can be a discount. The
+     phone's number keypad has no minus key, so the price box takes text and
+     a minus button sits beside it (negBox). */
+  if(ed.f === 'price') return negBox('class="rv-boxin" data-rvmat="' + ed.mat + ':price"', m.price);
   return '<input type="number" inputmode="decimal" step="any" min="0" class="rv-boxin" data-rvmat="' + ed.mat + ':' + ed.f +
     '" value="' + esc(m[ed.f] || '') + '">';
+}
+/* 2.75: a money box that can go below zero, for a discount: the phone's
+   decimal keypad plus a minus button that flips the sign */
+function negBox(attrs, v){
+  return '<span class="neg-wrap"><input type="text" inputmode="decimal" autocomplete="off" ' + attrs +
+    ' value="' + esc(v == null ? '' : v) + '"><button type="button" class="neg-btn" data-neg="1" ' +
+    'title="Minus: makes this a discount" aria-label="Minus, for a discount">\u2212</button></span>';
+}
+/* only digits, one point and a leading minus survive; a lone minus is blank */
+function cleanMoney(v){
+  v = String(v == null ? '' : v).trim().replace(/\u2212/g, '-');
+  const neg = v[0] === '-';
+  let n = v.replace(/[^0-9.]/g, '');
+  const dot = n.indexOf('.');
+  if(dot >= 0) n = n.slice(0, dot + 1) + n.slice(dot + 1).replace(/\./g, '');
+  return n === '' || n === '.' ? '' : (neg ? '-' : '') + n;
 }
 /* 2.23: the boxes, rows and cell text the review shows, so the signed PDF
    carries exactly the same summary */
@@ -5222,7 +5250,7 @@ async function reviewChange(t, d){
     const [i, f] = d.rvmat.split(':');
     job.materials = job.materials || [];
     while(job.materials.length < 3) job.materials.push({desc:'', price:'', qty:''});
-    job.materials[+i][f] = t.value;
+    job.materials[+i][f] = f === 'price' ? (t.value = cleanMoney(t.value)) : t.value;
   }
   else {
     const op = job.openings.find(x => x.id === d.op);
@@ -7103,8 +7131,7 @@ function renderJob(){
            '<div class="field"><label>Description</label>' +
            '<input type="text" data-m="desc" data-mi="' + i + '" value="' + esc(m.desc || '') + '"></div>' +
            '<div class="two">' +
-           '<div class="field"><label>Price</label><input type="number" step="0.01" data-m="price" data-mi="' + i +
-           '" value="' + esc(m.price || '') + '"></div>' +
+           '<div class="field"><label>Price</label>' + negBox('data-m="price" data-mi="' + i + '"', m.price) + '</div>' +
            '<div class="field"><label>Quantity</label><input type="number" data-m="qty" data-mi="' + i +
            '" value="' + esc(m.qty || '') + '"></div></div></div></div>';
     });
@@ -7647,6 +7674,25 @@ document.addEventListener('click', async e => {
   }
 });
 
+/* 2.75: the minus button beside a discount box. It acts on touch or mouse
+   down, before the box loses focus (losing focus saves and redraws, which
+   would take the button away before a click landed). With a number already
+   in the box it flips the sign and saves; with the box empty it puts in a
+   minus and leaves the keypad up for the number. */
+function negTap(e){
+  const btn = e.target.closest && e.target.closest('[data-neg]');
+  if(!btn) return;
+  e.preventDefault(); e.stopPropagation();
+  const box = btn.previousElementSibling;
+  if(!box) return;
+  const v = cleanMoney(box.value);
+  if(v === ''){ box.value = box.value.trim() === '-' ? '' : '-'; box.focus(); return; }
+  box.value = v[0] === '-' ? v.slice(1) : '-' + v;
+  box.dispatchEvent(new Event('change', {bubbles:true}));
+}
+document.addEventListener('touchstart', negTap, {passive:false, capture:true});
+document.addEventListener('mousedown', negTap, true);
+document.addEventListener('click', e => { if(e.target.closest && e.target.closest('[data-neg]')){ e.preventDefault(); e.stopPropagation(); } }, true);
 document.addEventListener('change', async e => {
   const t = e.target, d = t.dataset, job = state.job;
   if(t.id === 'imp' && t.files[0]) return importJob(t.files[0]);
@@ -7697,7 +7743,7 @@ document.addEventListener('change', async e => {
     }
     job.defaults[d.def] = t.value;
     render(); return persistBg(); }
-  if(d.m){ job.materials[+d.mi][d.m] = t.value; render(); return persistBg(); }
+  if(d.m){ job.materials[+d.mi][d.m] = d.m === 'price' ? cleanMoney(t.value) : t.value; render(); return persistBg(); }
   if(d.jcondo !== undefined){ job.condo = !!t.checked; render(); return persistBg(); }
   if(d.j){ job[d.j] = t.value; persistBg();
            return (d.j === 'customer') ? renderJob() : renderJob(); }
@@ -7850,6 +7896,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.74 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.75 · 26 Nov 2026</div>
 </body>
 </html>
