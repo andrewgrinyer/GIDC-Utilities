@@ -102,7 +102,7 @@ dl.det dd{margin:0;white-space:pre-wrap;word-break:break-word}
 <body>
 <div class="wrap">
   <h1>Web Leads</h1>
-  <p class="lede">Every lead from the website form, newest first. A new one arrives within about five minutes and shows as NEW LEAD. Set the status, write a note after each call, and once the lead is booked link it to its estimate in Access. A lead that sold in Access is marked Sold and linked by itself. One more than two months old that nobody has touched and that did not sell is marked Lead No Response, Dead.</p>
+  <p class="lede">Every lead from the website form, newest first. A new one arrives within about five minutes and shows as NEW LEAD. Set the status, write a note after each call, and once the lead is booked link it to its estimate in Access. A lead that sold in Access is marked Sold and linked by itself. One more than 30 days old that nobody has touched and that did not sell is marked Lead No Response, Dead. Untouched leads from before the tracker started show as NEW-ISH.</p>
 
   <div id="msg"></div>
 
@@ -298,7 +298,7 @@ function accessHtml(l){
 
 function leadHtml(l){
   var k = esc(l.lead_key), isNew = l.status === 'NEW LEAD';
-  var cls = isNew ? 's-new' : DONE[l.status] ? 's-done' : '';
+  var cls = isNew || l.status === 'NEW-ISH' ? 's-new' : DONE[l.status] ? 's-done' : '';
   var opts = STATUSES.map(function(s){
     return '<option' + (s === l.status ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('');
   var phone = l.phone ? String(l.phone).split(/;\s*/).map(function(p){

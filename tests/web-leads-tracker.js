@@ -56,6 +56,7 @@ function fakeEdge(url, opt){
   const body = JSON.parse(opt.payload);
   const did = JSON.parse(psql(`set role service_role; select web_lead_tracker_load(${lit(JSON.stringify(body.leads))}::jsonb)::text;`).split('\n').pop());
   if(body.statuses) did.statuses = JSON.parse(psql(`set role service_role; select web_lead_sheet_statuses()::text;`).split('\n').pop());
+  if(body.statuses) did.notes = JSON.parse(psql(`set role service_role; select web_lead_sheet_notes()::text;`).split('\n').pop());
   return { getResponseCode: () => 200, getContentText: () => JSON.stringify(did) };
 }
 const sandbox = {
@@ -96,6 +97,7 @@ console.log('     log: ' + sandbox._log.join(' / '));
 
 // ---- 2. into the database, through the script's own send -------------
 psql(`delete from web_lead_events; delete from web_lead_tracker;
+      update web_lead_settings set new_from = now() - interval '3 days';
       update profiles set name = 'Reception' where id = md5('user')::uuid;`);
 psql(`select web_lead_sales_load(${lit(JSON.stringify([
   {estimate_id: 7001, first_name: 'Bob', last_name: 'Lee', phones: '905 555 0000', created_on: isoDay(new Date(NOW))},
@@ -105,17 +107,19 @@ psql(`select web_lead_sales_load(${lit(JSON.stringify([
 sandbox._log.length = 0;
 vm.runInContext('sendLeadsToTracker()', sandbox);
 check(psql('select count(*) from web_lead_tracker') === '3', 'the five minute send loads the 3 recent leads');
+check(psql(`select string_agg(first_name || ' ' || status, ', ' order by received_at desc) from web_lead_tracker`) === 'Ann NEW LEAD, Bob NEW LEAD, Cara NEW-ISH',
+      'a lead from before the tracker started (Cara, 5 days) is NEW-ISH, newer ones NEW LEAD');
 vm.runInContext('sendAllLeadsToTracker()', sandbox);
 console.log('     log: ' + sandbox._log.join(' / '));
 check(psql('select count(*) from web_lead_tracker') === '5', 'sending everything imports the old ones too');
 check(psql(`select status || ' ' || coalesce(estimate_id::text, '') from web_lead_tracker where first_name = 'Sal'`) === 'Sold 7003',
       'a 100 day old lead that sold in Access is Sold and linked to 7003');
 check(psql(`select status || ' ' || status_by from web_lead_tracker where first_name = 'Old'`) === 'Lead No Response - Dead Automatic',
-      'a 75 day old lead that did not sell is Lead No Response - Dead, set automatically');
+      'a 75 day old lead that did not sell is Lead No Response - Dead, set automatically (over 30 days)');
 const lsCol = SHEET[0].indexOf('Lead Status');
 check(lsCol === 11 && NOTES['1,12'], 'Lead Status column added at the end, marked as the script\'s');
 const ls = SHEET.slice(1).map(r => r[lsCol]);
-check(ls.join('|') === 'NEW LEAD|NEW LEAD|NEW LEAD|||Lead No Response - Dead|Sold', 'Lead Status filled for every lead row: ' + ls.join('|'));
+check(ls.join('|') === 'NEW LEAD|NEW LEAD|NEW-ISH|||Lead No Response - Dead|Sold', 'Lead Status filled for every lead row: ' + ls.join('|'));
 check(SHEET[1][9] === 'Not Booked', 'the Sold/Booked Status column is left alone');
 // a second send does not see Lead Status as a detail
 const again2 = vm.runInContext('leadsForTracker_()', sandbox).leads.find(l => l.first === 'Ann');
@@ -176,17 +180,19 @@ async function mock(page){
   check(/Tools 3\.9/.test(landing), 'landing page says Tools 3.9');
   const names = await page.$$eval('.lead .who b', e => e.map(x => x.textContent));
   check(names.join(',') === 'Ann Ray,Bob Lee,Cara Diaz,Old Lead', 'newest first: ' + names.join(', '));
-  check(await page.$$eval('.lead.new', e => e.length) === 3, 'all three show as NEW LEAD');
-  check(/^\(3\)/.test(await page.title()), 'the tab title counts the new leads (' + await page.title() + ')');
+  check(await page.$$eval('.lead.new', e => e.length) === 2, 'the two new ones show as NEW LEAD');
+  check(/^\(2\)/.test(await page.title()), 'the tab title counts the new leads (' + await page.title() + ')');
   const stOpts = await page.$$eval('#fstatus option', e => e.map(x => x.textContent));
-  check(stOpts.length === 12 && stOpts.indexOf('NEW LEAD (3)') > 0 && stOpts.indexOf('Lead No Response - Dead (1)') > 0 && stOpts.indexOf('Sold (0)') > 0 && stOpts[1] === 'Still to follow up (3)',
+  check(stOpts.length === 15 && stOpts.indexOf('NEW LEAD (2)') === 2 && stOpts.indexOf('NEW-ISH (1)') === 3 &&
+        stOpts.indexOf('Contacted - Not booked (wrong type of work) (0)') > 0 && stOpts.indexOf('Contacted - Not booked (0)') > 0 &&
+        stOpts.indexOf('Lead No Response - Dead (1)') > 0 && stOpts.indexOf('Sold (0)') > 0 && stOpts[1] === 'Still to follow up (3)',
         'status filter: every status, still to follow up, then the ten statuses with counts (' + stOpts.join(' | ') + ')');
   const hearOpts = await page.$$eval('#fhear option', e => e.map(x => x.textContent));
   check(hearOpts.join('|') === 'Any|Facebook (1)|Google (2)|Home show (1)', 'How did you hear about us filter: ' + hearOpts.join(' | '));
   const formOpts = await page.$$eval('#fform option', e => e.map(x => x.textContent));
   check(formOpts.join('|') === 'Any|Contact (3)|Quote (1)', 'Form filter: ' + formOpts.join(' | '));
-  const opts = await page.$$eval('.lead select option', e => e.slice(0, 9).map(x => x.textContent));
-  check(opts.join('|') === 'NEW LEAD|Initial Measure booked|In home estimate booked|Bringing Measurements booked|First Call No Answer|Second Call No Answer|Contact Email Sent|Contact Text Message Sent|Lead No Response - Dead',
+  const opts = await page.$$eval('.lead select option', e => e.slice(0, 13).map(x => x.textContent));
+  check(opts.join('|') === 'NEW LEAD|NEW-ISH|Initial Measure booked|In home estimate booked|Bringing Measurements booked|First Call No Answer|Second Call No Answer|Contact Email Sent|Contact Text Message Sent|Contacted - Not booked (wrong type of work)|Contacted - Not booked|Lead No Response - Dead|Sold',
         'status list in the order Andrew gave');
   check(/Six bifolds/.test(await page.$eval('.lead', e => e.innerText)), 'the customer message shows on the card');
   check(await page.$eval('.lead a[href^="tel:"]', e => e.getAttribute('href')) === 'tel:5195551234', 'phone is a tap to call link');
@@ -201,7 +207,7 @@ async function mock(page){
   await page.waitForFunction(() => /Set by Reception/.test(document.querySelector('.lead').innerText));
   check(psql(`select status || ' ' || status_by from web_lead_tracker where first_name = 'Ann'`) === 'First Call No Answer Reception',
         'a status change is saved with who set it');
-  check(/^\(2\)/.test(await page.title()), 'two new leads left');
+  check(/^\(1\)/.test(await page.title()), 'one new lead left');
   vm.runInContext('sendLeadsToTracker()', sandbox);
   check(SHEET[1][SHEET[0].indexOf('Lead Status')] === 'First Call No Answer', 'the next send puts the new status in the sheet');
 
@@ -215,6 +221,10 @@ async function mock(page){
   check(hist.length === 2 && /Left a voicemail/.test(hist[0]) && /Status set to First Call No Answer/.test(hist[1]),
         'history shows the note and the status change, newest first');
   check(/Cambridge/.test(await annCard().locator('dl.det').innerText()), 'everything the sheet had shows when opened');
+  vm.runInContext('sendLeadsToTracker()', sandbox);
+  const nCol = SHEET[0].indexOf('Lead Notes');
+  check(nCol === SHEET[0].indexOf('Lead Status') + 1 && /^\d+ \w{3} \d{4}, Reception: Left a voicemail, try again Friday$/.test(SHEET[1][nCol]),
+        'the note goes into a Lead Notes column in the sheet (' + SHEET[1][nCol] + ')');
   if(SHOTS) await page.screenshot({path: SHOTS + '/web-leads-open.png', fullPage: true});
 
   // link a suggestion, then a typed number
@@ -233,7 +243,7 @@ async function mock(page){
 
   // filters and search
   await page.selectOption('#fstatus', 'NEW LEAD');
-  check((await page.$$eval('.lead .who b', e => e.map(x => x.textContent))).join(',') === 'Bob Lee,Cara Diaz', 'Status filter NEW LEAD shows only new ones');
+  check((await page.$$eval('.lead .who b', e => e.map(x => x.textContent))).join(',') === 'Bob Lee', 'Status filter NEW LEAD shows only new ones');
   await page.selectOption('#fstatus', '');
   await page.selectOption('#fhear', 'Google');
   check((await page.$$eval('.lead .who b', e => e.map(x => x.textContent))).join(',') === 'Ann Ray,Cara Diaz', 'How did you hear filter: Google');
@@ -261,7 +271,7 @@ async function mock(page){
   await page.waitForFunction(() => /Eve New/.test(document.querySelector('.lead .who b').textContent));
   check(true, 'a new lead appears at the top without reloading');
   check(/The sheet last sent/.test(await page.$eval('#foot', e => e.innerText)), 'the foot says when the sheet last sent');
-  const words = await page.$eval('.wrap', e => e.innerText.replace(/Lead No Response - Dead/g, ''));
+  const words = await page.$eval('.wrap', e => e.innerText.replace(/Lead No Response - Dead|Contacted - Not booked/g, ''));
   check(!/[‐-―]| - /.test(words), 'no dashes in the words on the page, apart from the status Andrew named');
   await page.close();
 

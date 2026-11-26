@@ -22,7 +22,10 @@
 --    Second Call No Answer         (Andrew typed "Anser")
 --    Contact Email Sent
 --    Contact Text Message Sent
+--    Contacted - Not booked (wrong type of work)   (round 3)
+--    Contacted - Not booked                        (round 3)
 --    Lead No Response - Dead
+--    NEW-ISH                       (set by the tracker, see OLD LEADS)
 --    Sold                          (set by the tracker, see OLD LEADS)
 --  They live in web_lead_statuses, so one can be added or renamed with
 --  an edit there rather than a change of code. "done" marks the ones the
@@ -51,22 +54,26 @@
 --                         (Andrew, 26 November: sold leads were left as
 --                         NEW LEAD). Also when the estimate it was linked
 --                         to sells.
---      more than two months old, nobody has touched it (still NEW LEAD,
---      set by nobody), not sold   Lead No Response - Dead
+--      more than 30 days old, nobody has touched it (still NEW LEAD or
+--      NEW-ISH, set by nobody), not sold   Lead No Response - Dead
+--      (Andrew, 26 November, round 3: was two months)
+--      under 30 days old, came in before the tracker started
+--      (web_lead_settings.new_from), untouched   NEW-ISH (round 3), so
+--      the backlog is told apart from leads that arrive from now on
 --    "Sold in Access" is the same rule as the sheet's Sold column
 --    (web_leads_match): a sale on or after the day the lead came in, the
 --    same email, else phone, else whole name within a year.
---    It runs on every load, so a lead nobody follows up becomes Dead two
---    months after it came in, and an automatic Dead that later sells
+--    It runs on every load, so a lead nobody follows up becomes Dead 30
+--    days after it came in, and an automatic Dead that later sells
 --    turns Sold. Apart from Sold, a status a person set is never
 --    changed. Nothing is
 --    marked until the office server has sent its Access copy (the web
 --    leads sync), so a sold lead is never marked Dead for want of it.
 --
---  THE STATUS IN THE SHEET
---    web_lead_sheet_statuses() gives the sheet script every lead's
---    status, which it writes into a Lead Status column it adds at the
---    end of the sheet.
+--  THE STATUS AND NOTES IN THE SHEET
+--    web_lead_sheet_statuses() and web_lead_sheet_notes() give the sheet
+--    script every lead's status and notes, which it writes into Lead
+--    Status and Lead Notes columns it adds at the end of the sheet.
 --
 --  THE ACCESS LINK
 --    web_lead_link() stores the estimate number (Estimates.EstimateID,
@@ -154,6 +161,7 @@ create table if not exists public.web_lead_statuses (
 -- name and gets the order and done flag below.
 insert into public.web_lead_statuses (name, sort, done) values
   ('NEW LEAD',                     10, false),
+  ('NEW-ISH',                      15, false),
   ('Initial Measure booked',       20, true),
   ('In home estimate booked',      30, true),
   ('Bringing Measurements booked', 40, true),
@@ -161,6 +169,8 @@ insert into public.web_lead_statuses (name, sort, done) values
   ('Second Call No Answer',        60, false),
   ('Contact Email Sent',           70, false),
   ('Contact Text Message Sent',    80, false),
+  ('Contacted - Not booked (wrong type of work)', 84, true),
+  ('Contacted - Not booked',       86, true),
   ('Lead No Response - Dead',      90, true),
   ('Sold',                        100, true)
 on conflict (name) do update set sort = excluded.sort, done = excluded.done;
@@ -221,17 +231,50 @@ create table if not exists public.web_lead_tracker_runs (
 alter table public.web_lead_tracker_runs enable row level security;
 revoke all on public.web_lead_tracker_runs from anon, authenticated;
 
--- ---------- 4. old leads: Sold or Dead --------------------------------
+-- when the tracker started: a lead that came in before this, and is
+-- under 30 days old and untouched, is NEW-ISH rather than NEW LEAD.
+-- Set the first time this file runs and never moved by running it again.
+create table if not exists public.web_lead_settings (
+  id        integer primary key default 1 check (id = 1),
+  new_from  timestamptz not null default now()
+);
+insert into public.web_lead_settings (id) values (1) on conflict (id) do nothing;
+alter table public.web_lead_settings enable row level security;
+revoke all on public.web_lead_settings from anon, authenticated;
+
+-- ---------- 4. the tracker's own marking ------------------------------
 -- Run by every load. Answers how many it changed.
-create or replace function public.web_lead_age_out(p_days integer default 60)
+--   NEW-ISH   untouched, came in before the tracker started, under 30 days
+--   Sold      sold in Access, any age, any status
+--   Dead      untouched, over 30 days old, not sold (needs the Access copy)
+-- Untouched: NEW LEAD or NEW-ISH that no person has set.
+create or replace function public.web_lead_age_out(p_days integer default 30)
 returns integer language plpgsql security definer set search_path = public as $$
-declare n integer := 0;
+declare n integer := 0; m integer := 0; since timestamptz;
 begin
+  select new_from into since from public.web_lead_settings where id = 1;
+
+  -- NEW-ISH: needs nothing from Access
+  with changed as (
+    update public.web_lead_tracker t
+       set status = 'NEW-ISH', status_by = 'Automatic', status_at = now()
+     where t.status = 'NEW LEAD' and t.status_by is null
+       and coalesce(t.received_at, t.lead_day::timestamptz) < since
+       and t.lead_day >= current_date - p_days
+    returning t.lead_key
+  ),
+  ev as (
+    insert into public.web_lead_events (lead_key, by_name, kind, body)
+    select lead_key, 'Automatic', 'status', 'NEW-ISH (came in before the tracker started)' from changed
+    returning 1
+  )
+  select count(*) into m from changed;
+
   if to_regclass('public.web_lead_sales') is null or to_regclass('public.web_lead_sales_runs') is null then
-    return 0;
+    return m;
   end if;
   if not exists (select 1 from public.web_lead_sales_runs where id = 1 and sent_at is not null) then
-    return 0;
+    return m;
   end if;
 
   -- every lead not marked Sold yet, of any age
@@ -269,8 +312,8 @@ begin
     select c.lead_key, c.status as was, c.estimate_id as was_est,
            case when sold.lead_key is not null then 'Sold'
                 when c.lead_day < current_date - p_days
-                 and (c.status = 'NEW LEAD' and c.status_by is null
-                      or c.status = 'Lead No Response - Dead' and c.status_by = 'Automatic')
+                 and (c.status in ('NEW LEAD', 'NEW-ISH', 'Lead No Response - Dead')
+                      and (c.status_by is null or c.status_by = 'Automatic'))
                 then 'Lead No Response - Dead'
                 else c.status end as status,
            sold.estimate_id
@@ -289,7 +332,7 @@ begin
   ev as (
     insert into public.web_lead_events (lead_key, by_name, kind, body)
     select lead_key, 'Automatic', 'status',
-           status || case when status = 'Sold' then ' in Access' else ' (more than two months old, not sold in Access)' end
+           status || case when status = 'Sold' then ' in Access' else ' (more than ' || p_days || ' days old, not sold in Access)' end
       from changed
     union all
     select lead_key, 'Automatic', 'link', 'Linked to Access estimate ' || estimate_id
@@ -297,8 +340,20 @@ begin
     returning 1
   )
   select count(*) into n from changed;
-  return n;
+  return n + m;
 end $$;
+
+-- every lead's notes, newest first, for the sheet's Lead Notes column
+create or replace function public.web_lead_sheet_notes()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_object_agg(lead_key, notes), '{}') from (
+    select e.lead_key,
+           string_agg(to_char(e.at at time zone 'America/Toronto', 'FMDD Mon YYYY') ||
+                      coalesce(', ' || e.by_name, '') || ': ' || e.body, E'\n' order by e.at desc) as notes
+      from public.web_lead_events e
+     where e.kind = 'note'
+     group by e.lead_key) x
+$$;
 
 -- every lead's status, for the sheet's Lead Status column
 create or replace function public.web_lead_sheet_statuses()
@@ -517,6 +572,7 @@ end $$;
 revoke all on function public.web_lead_tracker_load(jsonb) from public, anon, authenticated;
 revoke all on function public.web_lead_age_out(integer) from public, anon, authenticated;
 revoke all on function public.web_lead_sheet_statuses() from public, anon, authenticated;
+revoke all on function public.web_lead_sheet_notes() from public, anon, authenticated;
 revoke all on function public.web_lead_who_() from public, anon, authenticated;
 revoke all on function public.web_leads_board(date) from public, anon;
 revoke all on function public.web_lead_set_status(text, text) from public, anon;
@@ -532,9 +588,13 @@ begin
     execute 'grant execute on function public.web_lead_tracker_load(jsonb) to service_role';
     execute 'grant execute on function public.web_lead_age_out(integer) to service_role';
     execute 'grant execute on function public.web_lead_sheet_statuses() to service_role';
+    execute 'grant execute on function public.web_lead_sheet_notes() to service_role';
     execute 'grant select, insert, update on public.web_lead_tracker, public.web_lead_tracker_runs, '
             'public.web_lead_events, public.web_lead_statuses to service_role';
   end if;
 end $$;
+
+-- mark what is already loaded now, rather than at the next load
+select public.web_lead_age_out();
 
 notify pgrst, 'reload schema';

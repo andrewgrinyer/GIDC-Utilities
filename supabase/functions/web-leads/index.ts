@@ -36,7 +36,9 @@
 //     -> { "sent": 41, "added": 2 }
 //   With "statuses": true it also answers every lead's status in the
 //   tracker, { "statuses": { "9f2c...": "NEW LEAD", ... } }, which the
-//   sheet writes into its Lead Status column. Leads more than two months
+//   sheet writes into its Lead Status column, and every lead's notes,
+//   { "notes": { "9f2c...": "26 Nov 2026, Reception: left a voicemail" } },
+//   for its Lead Notes column. Leads more than two months
 //   old that nobody has touched are marked Sold or Lead No Response - Dead
 //   by the load itself (web_lead_age_out).
 //   A lead already there keeps its status, notes and Access link; only
@@ -236,13 +238,16 @@ Deno.serve(async (req) => {
         { method: "POST", headers: asAdmin, body: JSON.stringify({ p_leads: leads }) });
       if (!ran.ok) return json({ error: "The leads would not load into the tracker", detail: await ran.text() }, 500);
       const did = await ran.json();
-      let statuses: unknown = undefined;
+      let statuses: unknown = undefined, notes: unknown = undefined;
       if ((body as { statuses?: boolean }).statuses === true) {
         const st = await call("statuses", `${url}/rest/v1/rpc/web_lead_sheet_statuses`,
           { method: "POST", headers: asAdmin, body: "{}" });
         if (st.ok) statuses = await st.json();
+        const nt = await call("notes", `${url}/rest/v1/rpc/web_lead_sheet_notes`,
+          { method: "POST", headers: asAdmin, body: "{}" });
+        if (nt.ok) notes = await nt.json();
       }
-      return json({ ...did, dropped: dropped || undefined, statuses });
+      return json({ ...did, dropped: dropped || undefined, statuses, notes });
     }
 
     return json({ error: "Say which: action load, match or track" }, 400);

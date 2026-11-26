@@ -32,9 +32,10 @@
  * kept in GIDC's own Supabase (web_lead_tracker); a lead already there
  * keeps its status and notes. When it is turned on it sends every lead
  * in the sheet once, old ones too.
- * It then writes each lead's tracker status into a Lead Status column it
- * adds at the end of the sheet, every five minutes. Typing in that
- * column is replaced; change the status on the Web Leads page instead.
+ * It then writes each lead's tracker status and notes into Lead Status
+ * and Lead Notes columns it adds at the end of the sheet, every five
+ * minutes. Typing in those columns is replaced; change the status and
+ * add notes on the Web Leads page instead.
  * See THE TRACKER, PUTTING IT IN, below.
  *
  * ---------------------------------------------------------------------
@@ -160,7 +161,9 @@ var SETTINGS = {
   // time. A lead older than this that is already there stays there.
   trackDaysBack: 30,
   // the column it adds at the end with each lead's tracker status
-  leadStatusHeader: 'Lead Status'
+  leadStatusHeader: 'Lead Status',
+  // and the one with each lead's notes from the page, newest first
+  leadNotesHeader: 'Lead Notes'
 };
 
 // =====================================================================
@@ -537,6 +540,8 @@ function findDateColumn_(headers, values) {
 
 var OUR_TRACK_NOTE_ = 'The status on the Web Leads page (tools site), copied here every five ' +
                       'minutes by the GIDC script. Typing here is replaced; change it on the page.';
+var OUR_NOTES_NOTE_ = 'The notes on the Web Leads page (tools site), newest first, copied here every ' +
+                      'five minutes by the GIDC script. Typing here is replaced; add notes on the page.';
 
 /** Shows what it would send to the tracker, and sends nothing. */
 function checkLeadTracker() {
@@ -589,7 +594,7 @@ function sendToTracker_(all) {
     var send = got.leads.filter(function (l) { return all || l.recent; });
     // batches, so the whole sheet never goes in one enormous call; the
     // last one asks for every lead's status back
-    var size = 500, statuses = null, added = 0;
+    var size = 500, statuses = null, notes = null, added = 0;
     for (var i = 0; i === 0 || i < send.length; i += size) {
       var batch = send.slice(i, i + size).map(function (l) {
         return { key: l.key, received_at: l.received_at, day: l.day, row: l.row, email: l.email,
@@ -609,44 +614,52 @@ function sendToTracker_(all) {
       }
       var said = JSON.parse(res.getContentText());
       added += said.added || 0;
-      if (lastOne) statuses = said.statuses || null;
+      if (lastOne) { statuses = said.statuses || null; notes = said.notes || null; }
     }
     Logger.log('Sent %s lead(s) to the tracker, %s new.', send.length, added);
-    if (statuses) writeLeadStatus_(got, statuses);
+    if (statuses) writeLeadStatus_(got, statuses, notes);
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Fills the Lead Status column, adding it at the end the first time. */
-function writeLeadStatus_(got, statuses) {
+/** Fills the Lead Status and Lead Notes columns, adding them at the end the first time. */
+function writeLeadStatus_(got, statuses, notes) {
+  writeOurColumn_(got, SETTINGS.leadStatusHeader, OUR_TRACK_NOTE_, statuses);
+  if (notes) {
+    var got2 = leadsForTracker_();   // the sheet again, as Lead Status may have just been added
+    if (got2.ok) writeOurColumn_(got2, SETTINGS.leadNotesHeader, OUR_NOTES_NOTE_, notes);
+  }
+}
+
+function writeOurColumn_(got, header, marker, byKey) {
   var sheet = got.sheet, headers = got.headers;
   var col = -1;
   for (var c = 0; c < headers.length; c++) {
-    if (headers[c].toLowerCase() === SETTINGS.leadStatusHeader.toLowerCase()) { col = c; break; }
+    if (headers[c].toLowerCase() === header.toLowerCase()) { col = c; break; }
   }
-  if (col >= 0 && sheet.getRange(1, col + 1).getNote() !== OUR_TRACK_NOTE_) {
-    Logger.log('There is already a column called "%s" that this script did not make, so Lead Status was not written. ' +
-               'Change leadStatusHeader in SETTINGS to another name.', SETTINGS.leadStatusHeader);
+  if (col >= 0 && sheet.getRange(1, col + 1).getNote() !== marker) {
+    Logger.log('There is already a column called "%s" that this script did not make, so it was not written. ' +
+               'Change its name in SETTINGS to another one.', header);
     return;
   }
   if (col < 0) {
     col = sheet.getLastColumn();
-    sheet.getRange(1, col + 1).setValue(SETTINGS.leadStatusHeader).setNote(OUR_TRACK_NOTE_);
+    sheet.getRange(1, col + 1).setValue(header).setNote(marker);
   }
   var n = got.rowCount;
   if (n < 1) return;
   var range = sheet.getRange(2, col + 1, n, 1);
   var now = range.getValues(), next = [], changed = 0;
   var byRow = {};
-  got.leads.forEach(function (l) { byRow[l.row] = statuses[l.key] || ''; });
+  got.leads.forEach(function (l) { byRow[l.row] = byKey[l.key] || ''; });
   for (var i = 0; i < n; i++) {
     var v = byRow.hasOwnProperty(i + 2) ? byRow[i + 2] : now[i][0];
     if (String(v) !== String(now[i][0])) changed++;
     next.push([v]);
   }
   if (changed) range.setValues(next);
-  Logger.log('Lead Status: %s row(s) changed.', changed);
+  Logger.log('%s: %s row(s) changed.', header, changed);
 }
 
 /** A lead's key: the moment it came in and its email, else its phone,
@@ -673,7 +686,7 @@ function leadsForTracker_() {
 
   // the columns this script adds itself are left out
   var skip = {};
-  [SETTINGS.statusHeader, SETTINGS.priceHeader, SETTINGS.leadStatusHeader].forEach(function (t) {
+  [SETTINGS.statusHeader, SETTINGS.priceHeader, SETTINGS.leadStatusHeader, SETTINGS.leadNotesHeader].forEach(function (t) {
     headers.forEach(function (h, c) { if (h.toLowerCase() === t.toLowerCase()) skip[c] = true; });
   });
   var cols = { email: [], phone: [], first: [], last: [], name: [] };
