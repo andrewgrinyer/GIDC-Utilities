@@ -437,6 +437,26 @@ function soldStatus_(write) {
   }
   Logger.log('%s leads: Sold %s, Booked %s, Not Booked %s.', leads.length,
              how(tally.Sold), how(tally.Booked), tally['Not Booked']);
+
+  // how near the rest came, so a rule that misses sales shows up here
+  var noEmail = 0, noContact = 0, noDay = 0, sb = [0, 0, 0, 0], mb = [0, 0, 0, 0], sbRows = [];
+  leads.forEach(function (l) {
+    if (!l.email) noEmail++;
+    if (!l.email && !l.phone) noContact++;
+  });
+  function band(d) { return d <= 14 ? 0 : d <= 90 ? 1 : d <= 365 ? 2 : 3; }
+  (said.results || []).forEach(function (x) {
+    if (x.no_day) noDay++;
+    if (x.sold_before != null) { sb[band(x.sold_before)]++; if (sbRows.length < 15) sbRows.push(x.row); }
+    if (x.made_before != null) mb[band(x.made_before)]++;
+  });
+  Logger.log('Leads with no email: %s. With no email and no phone: %s. With no date the script could read: %s.',
+             noEmail, noContact, noDay);
+  Logger.log('Not Sold, but the same email or phone SOLD BEFORE the lead date: within 2 weeks %s, ' +
+             '2 weeks to 3 months %s, 3 to 12 months %s, over a year %s. First rows: %s',
+             sb[0], sb[1], sb[2], sb[3], sbRows.join(', ') || 'none');
+  Logger.log('Not Booked, but the same email or phone had an estimate BEFORE that: 2 weeks to 3 months %s, ' +
+             '3 to 12 months %s, over a year %s.', mb[1], mb[2], mb[3]);
   if (!write) return { ok: true };
 
   // add our two columns at the end if they are not there yet

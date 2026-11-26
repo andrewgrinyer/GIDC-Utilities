@@ -187,15 +187,30 @@ returns jsonb language sql stable security definer set search_path = public as $
     select distinct on (row_no) row_no, stage, sold_on, price, how
       from hit
      order by row_no, stage, how, sold_on nulls last, estimate_id
+  ),
+  -- for the check only: how near a lead that is not Sold came. The same
+  -- person (by email or phone) sold, or was made an estimate, BEFORE the
+  -- lead, this many days before it.
+  near as (
+    select row_no,
+           min(day - sold_on)    filter (where sold_on < day)    as sold_before,
+           min(day - created_on) filter (where created_on < day - 14) as made_before
+      from same
+     where how < 3 and day is not null
+     group by row_no
   )
-  select coalesce(jsonb_agg(jsonb_build_object(
+  select coalesce(jsonb_agg(jsonb_strip_nulls(jsonb_build_object(
            'row', lead.row_no,
            'status', case best.stage when 1 then 'Sold' when 2 then 'Booked' else 'Not Booked' end,
            'price', case when best.stage = 1 then best.price end,
            'sold_on', case when best.stage = 1 then best.sold_on end,
-           'by', case best.how when 1 then 'email' when 2 then 'phone' when 3 then 'name' end)
+           'by', case best.how when 1 then 'email' when 2 then 'phone' when 3 then 'name' end,
+           'no_day', case when lead.day is null then true end,
+           'sold_before', case when best.stage is distinct from 1 then near.sold_before end,
+           'made_before', case when best.stage is null then near.made_before end))
            order by lead.row_no), '[]')
     from lead left join best on best.row_no = lead.row_no
+              left join near on near.row_no = lead.row_no
 $$;
 
 revoke all on function public.web_lead_sales_load(jsonb, jsonb) from public, anon, authenticated;
