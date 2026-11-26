@@ -120,7 +120,9 @@ const pdfText = bytes => {
   await page.click('[data-sp="start"]');
   let seenCloset = null;
   for(let k = 0; k < fields.length; k++){
-    const c = await page.$('.signpad canvas'); if(!c) break;
+    const c = await page.$('.signpad canvas');
+    if(!c && await page.$('.signpad .sp-read')){ await page.click('[data-sp="next"]'); await page.waitForTimeout(40); continue; }   // 2.72: a term to read
+    if(!c) break;
     if(fields[k] === 'closets' || fields[k] === 'form-closetpatch'){
       await page.waitForSelector('.sp-spot.on', {timeout:20000}).catch(() => {});
       const v = await page.evaluate(() => document.querySelectorAll('.sp-page img').length);
@@ -135,7 +137,7 @@ const pdfText = bytes => {
   check('the closet page and the closet form show while signing', seenCloset === 2, seenCloset);
   await page.waitForTimeout(2500);
   const s = await page.evaluate(() => ({ok:signedOk(state.job), n:Object.keys(state.job.signed.marks).length}));
-  check('every field signed', s.ok && s.n === fields.length, s);
+  check('every field signed', s.ok && s.n === fields.filter(f => !/^read-/.test(f)).length, s);
 
   // 4. the signed PDF
   const info = await page.evaluate(async () => { const b = await contractPdf(state.job); const d = await PDFLib.PDFDocument.load(b);
@@ -157,11 +159,18 @@ const pdfText = bytes => {
   await page.evaluate(() => { state.job.closets[0].dims.A = '50'; });
   check('changing a closet size unsigns the order', await page.evaluate(() => !signedOk(state.job)));
 
-  // 6. doors and closets, paint choice, condo
+  // 6. doors and closets, paint choice, condo; 2.72: the design dropped on the screen
   await setup(true); await addCloset();
   await page.evaluate(() => { state.job.closetPrice = '1000'; state.job.closetTearOut = 'paint'; state.job.condo = true; render(); });
-  await page.setInputFiles('[data-clfile]', {name:'d.pdf', mimeType:'application/pdf', buffer:design});
-  await page.waitForFunction(() => state.job.closetFile, null, {timeout:10000});
+  await page.evaluate(bytes => { const dt = new DataTransfer();
+    dt.items.add(new File([new Uint8Array(bytes)], 'dropped design.pdf', {type:'application/pdf'}));
+    const at = document.querySelector('.cl-card');
+    at.dispatchEvent(new DragEvent('dragover', {dataTransfer:dt, bubbles:true, cancelable:true}));
+    window.__lit = document.querySelector('.cl-order').classList.contains('cl-dropping');
+    at.dispatchEvent(new DragEvent('drop', {dataTransfer:dt, bubbles:true, cancelable:true})); }, Array.from(design));
+  await page.waitForFunction(() => state.job.closetFile, null, {timeout:10000}).catch(() => {});
+  const drop = await page.evaluate(() => ({lit:window.__lit, f:state.job.closetFile && state.job.closetFile.name}));
+  check('a PDF dragged onto the Closets screen is the closet design', drop.lit && drop.f === 'dropped design.pdf', drop);
   await page.click('#dock [data-review]');
   await page.waitForFunction(() => state.reviewReady, null, {timeout:30000}); await page.waitForTimeout(300);
   const mix = await page.evaluate(() => ({f:signFields(state.job).map(f => f.id), u46:cv('U46'), door:cv('T' + PAGE_ROWS[0]), sub:cv('U51'),

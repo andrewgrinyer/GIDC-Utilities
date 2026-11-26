@@ -636,6 +636,7 @@ body.signing{overflow:hidden}
 .sp-text{font-family:Georgia,"Times New Roman",serif;font-size:13px;line-height:1.4;max-height:34vh;overflow:auto;background:#F7F7F7;border-radius:8px;padding:10px 12px;margin:0 0 12px}
 .sp-pad{position:relative;border:1.5px solid #C8C8C8;border-radius:10px;background:#fff;touch-action:none;aspect-ratio:3/1}
 .sp-ini .sp-pad{aspect-ratio:2/1;max-width:360px;margin:0 auto}
+.sp-read{font-size:17px;line-height:1.5}
 .sp-pad canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:none;cursor:crosshair;z-index:1}
 .sp-line{position:absolute;left:6%;right:6%;bottom:24%;border-bottom:1.5px solid #2A2A2A}
 .sp-line span{position:absolute;left:-4%;bottom:2px;font-weight:700;font-size:20px}
@@ -922,6 +923,7 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 .cl-file{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
 .cl-file span{color:var(--muted);font-size:13px}
 .cl-up{width:100%;justify-content:center}
+.cl-order.cl-dropping{outline:3px dashed #C80000;outline-offset:-3px;background:#FCECEC}
 .cl-det{margin:12px 0 4px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px 14px}
 .cl-det .cl-mh, .cl-det .cl-dl{grid-column:span 2}
 .cl-det .cl-dl.half{grid-column:span 1}
@@ -1572,10 +1574,13 @@ function signFields(job){
   const so = specialOrders(job);
   if(so.length) f.push({id:'ini-so', kind:'initial', title:'Initial the special order items',
     html:'<b>' + SO_TERM + '</b><br>' + so.map(x => esc(x.text)).join('<br>')});
-  termsItems().forEach((t, i) => { if(t.indexOf(INI_TAG) >= 0)
-    f.push({id:'ini-' + (i + 1), kind:'initial', title:'Initial term ' + (i + 1), html:t.replace(INI_TAG, '')}); });
+  /* 2.72, Andrew 26 Nov: each term is shown one at a time to read, with no
+     initials; the customer signs once at the bottom of the terms page. */
+  const ti = termsItems();
+  ti.forEach((t, i) => f.push({id:'read-' + (i + 1), kind:'read', title:'Term ' + (i + 1) + ' of ' + ti.length,
+    html:t.replace(INI_TAG, '')}));
   f.push({id:'terms', kind:'sign', title:'Sign the Install Instructions and Contract Amendment',
-    note:'You have read and agree to all nine terms.'});
+    note:'You have read and agree to all ' + ti.length + ' terms.'});
   if(doorPicks(job).length) f.push({id:'doors', kind:'sign',
     title:handlePicks(job).length ? 'Sign your door and handle selections' : 'Sign your door selections',
     note:doorPicks(job).map(p => styleName(p.style)).concat(handlePicks(job).map(h => h.title + ' in ' + h.colour)).join(', ')});
@@ -1646,8 +1651,8 @@ function openSignPad(job, done){
   function intro(){
     box.innerHTML = '<div class="sp-card">' +
       '<h2>Sign the contract</h2>' +
-      '<p>There are ' + fields.length + ' places to sign or initial, one at a time: the order, ' +
-      fields.filter(f => f.kind === 'initial').length + ' terms to initial, the terms, ' +
+      '<p>One step at a time: the order, then the ' + fields.filter(f => f.kind === 'read').length +
+      ' terms to read one by one and sign once at the bottom, ' +
       (fields.some(f => f.id === 'doors') ? 'your door selections, ' : '') +
       (fields.some(f => f.id.indexOf('form-') === 0) ? 'and the guides that go with your order. ' : '') +
       'Use your finger, a pen, or the trackpad. Each page shows on the screen as you sign it.</p>' +
@@ -1656,6 +1661,7 @@ function openSignPad(job, done){
       '<button class="btn btn-primary" data-sp="start">Start</button></div></div>';
   }
   function draw(){
+    if(!ctx || !cvs || !box.contains(cvs)) return;
     ctx.clearRect(0, 0, cvs.width, cvs.height);
     ctx.lineWidth = 3 * scale; ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.strokeStyle = '#14213D';
     strokes.forEach(s => { ctx.beginPath(); s.forEach((p, i) => i ? ctx.lineTo(p[0] * scale, p[1] * scale)
@@ -1679,9 +1685,10 @@ function openSignPad(job, done){
       '<img src="' + pg.src + '" alt="Page ' + (pg.n + 1) + ' of the contract">' +
       fields.filter(g => pv.spots[g.id] && pv.spots[g.id].p === pg.n).map(g => {
         const on = g === f, m = marks[g.id];
+        if(g.kind === 'read' && !on) return '';
         if(!on && !m) return '';
         return '<div class="sp-spot' + (on ? ' on' : ' done') + '" style="' + spotBox(pv.spots[g.id]) + '">' +
-          (on ? markIn({w:ini ? 300 : 600, h:ini ? 150 : 200, sw:3}, true) : markIn(m)) + '</div>'; }).join('') +
+          (on && f.kind === 'read' ? '' : on ? markIn({w:ini ? 300 : 600, h:ini ? 150 : 200, sw:3}, true) : markIn(m)) + '</div>'; }).join('') +
       '</div>').join('') + '</div>';
     el.classList.toggle('big', big);
     draw();
@@ -1700,13 +1707,15 @@ function openSignPad(job, done){
       '<h2>' + esc(f.title) + '</h2>' +
       (pv ? '<div class="sp-docwrap"><div class="sp-doc"><div class="sp-wait">Getting the page ready…</div></div>' +
         '<button class="btn btn-sm sp-zoom" data-sp="zoom">' + (big ? 'Smaller' : 'Larger') + '</button></div>' : '') +
-      (f.html ? '<div class="sp-text">' + f.html + '</div>' : f.note ? '<p>' + esc(f.note) + '</p>' : '') +
+      (f.html ? '<div class="sp-text' + (f.kind === 'read' ? ' sp-read' : '') + '">' + f.html + '</div>' : f.note ? '<p>' + esc(f.note) + '</p>' : '') +
+      (f.kind === 'read' ? '' :
       '<div class="sp-pad"><canvas width="' + W + '" height="' + H + '"></canvas>' +
       '<div class="sp-line"><span>X</span></div><div class="sp-hint">' + (ini ? 'Initials here' : 'Sign here') + '</div></div>' +
-      '<div class="sp-date">Date: ' + esc(signDay(new Date().toISOString())) + '</div>' +
+      '<div class="sp-date">Date: ' + esc(signDay(new Date().toISOString())) + '</div>') +
       '<div class="sp-btns"><button class="btn" data-sp="back">' + (at ? 'Back' : 'Cancel') + '</button>' +
-      '<button class="btn" data-sp="clear">Clear</button>' +
+      (f.kind === 'read' ? '' : '<button class="btn" data-sp="clear">Clear</button>') +
       '<button class="btn btn-primary" data-sp="next">' + (at === fields.length - 1 ? 'Finish' : 'Next') + '</button></div></div>';
+    if(f.kind === 'read'){ cvs = null; showDoc(); return; }       // 2.72: a term to read, nothing to sign
     cvs = box.querySelector('canvas'); ctx = cvs.getContext('2d');
     // sharp on a high density screen: draw in device pixels, keep points in field units
     const fit = () => { const r = cvs.getBoundingClientRect(); const dpr = window.devicePixelRatio || 1;
@@ -1741,6 +1750,7 @@ function openSignPad(job, done){
       return field(); }
     if(k === 'clear'){ strokes = []; return draw(); }
     if(k === 'back'){ if(at <= 0){ at = -1; return intro(); } at--; return field(); }
+    if(k === 'next' && fields[at].kind === 'read'){ at++; return field(); }   // 2.72: read, then on
     if(k === 'next'){
       if(!inked()) return toast(fields[at].kind === 'initial' ? 'Initial in the box first' : 'Sign in the box first');
       const f = fields[at], ini = f.kind === 'initial';
@@ -2035,7 +2045,9 @@ async function contractPdf(job, opts){
     const layout = (sz, drawIt) => {
       let y = top; const lh = sz * 1.17;
       items.forEach((it, i) => {
-        const ini = it.indexOf(INI_TAG) >= 0, ws = words(it.replace(INI_TAG, ''));
+        // 2.72: no initials any more; a contract initialled before 2.72 still shows its initials
+        const ini = it.indexOf(INI_TAG) >= 0 && !!signed('ini-' + (i + 1)), ws = words(it.replace(INI_TAG, ''));
+        const yTop = y;
         if(drawIt) text(pg, (i + 1) + '.', X0, y - sz, {size:sz, font:TFB});
         let x = X0 + 14;
         if(ini){ if(drawIt){ pg.drawLine({start:{x, y:y - sz - 1}, end:{x:x + 26, y:y - sz - 1}, thickness:0.6, color:INK});
@@ -2052,6 +2064,7 @@ async function contractPdf(job, opts){
             if(t.u) pg.drawLine({start:{x, y:y - sz - 1}, end:{x:x + ww, y:y - sz - 1}, thickness:0.4, color:INK}); }
           x += ww; sp = false;
         });
+        if(drawIt) spot(pg, 'read-' + (i + 1), X0 - 4, y - sz - 3, X1 - X0 + 8, yTop - y + sz + 4);   // 2.72: the term being read
         y -= lh + sz * 0.35;
       });
       return y;
@@ -2656,8 +2669,8 @@ function termsPage(job){
   return '<div class="print-terms"><h2>Install Instructions &amp; Contract Amendment</h2>' +
     '<p class="pt-sub">Grinyer Interior Doors &amp; Closets \u2013 Special Order Materials Status</p>' +
     '<p class="pt-who">' + esc([job.customer, docAddress(job), job.date].filter(Boolean).join('  \u00b7  ')) + '</p>' +
-    '<ol>' + termsItems().map((t, i) => '<li>' + t.replace(INI_TAG,
-      '<span class="ini">' + markSvg(markOf(job, 'ini-' + (i + 1)), 'ini-mark') + '</span>') + '</li>').join('') +
+    '<ol>' + termsItems().map((t, i) => { const m = markOf(job, 'ini-' + (i + 1));   // 2.72: initials only on an older contract
+      return '<li>' + t.replace(INI_TAG, m ? '<span class="ini">' + markSvg(m, 'ini-mark') + '</span>' : '') + '</li>'; }).join('') +
     '</ol>' + sigBlock(job, 'terms') + '</div>';
 }
 function jobDocs(job){
@@ -6062,10 +6075,34 @@ function closetOrderCard(job){
            '<label class="btn btn-sm">Replace<input type="file" accept="application/pdf,.pdf" data-clfile="1" hidden></label>' +
            '<button type="button" class="btn btn-sm btn-ghost" data-cl="frm">Remove</button></div>'
          : '<label class="btn cl-up">Upload closet design PDF<input type="file" accept="application/pdf,.pdf" data-clfile="1" hidden></label>') +
-      '<small class="hint">It goes with the contract, after the closet measurements.</small></div>' +
+      '<small class="hint">Or drag the PDF onto this box. It goes with the contract, after the closet details.</small></div>' +
     (forms.length ? '<p class="hint">Signed with the order: ' + forms.map(d => esc(d.title)).join(' and ') + '.</p>' : '') +
     '</div></div>';
 }
+/* 2.72, Andrew 26 Nov: drag the closet design PDF onto the Closets screen
+   instead of picking it. Anywhere on the screen takes it (the Closet order
+   box lights up); a file dropped anywhere else in the app is ignored rather
+   than opened by the browser in place of the app. */
+const dragHasFile = e => e.dataTransfer && Array.from(e.dataTransfer.types || []).indexOf('Files') >= 0;
+const clDropOn = on => { const b = document.querySelector('.cl-order'); if(b) b.classList.toggle('cl-dropping', on); };
+document.addEventListener('dragover', e => {
+  if(!dragHasFile(e)) return;
+  e.preventDefault();
+  const ok = state.view === 'closets' && state.job && document.querySelector('.cl-order');
+  e.dataTransfer.dropEffect = ok ? 'copy' : 'none';
+  clDropOn(!!ok);
+});
+document.addEventListener('dragleave', e => { if(!e.relatedTarget) clDropOn(false); });
+document.addEventListener('drop', e => {
+  if(!dragHasFile(e)) return;
+  e.preventDefault(); clDropOn(false);
+  if(state.view !== 'closets' || !state.job || !document.querySelector('.cl-order')) return;
+  const files = Array.from(e.dataTransfer.files || []);
+  const pdf = files.find(f => /\.pdf$/i.test(f.name) || f.type === 'application/pdf');
+  if(!pdf) return toast('Drop the closet design as a PDF');
+  if(files.length > 1) toast('One closet design PDF per job: using ' + pdf.name);
+  closetUpload(state.job, pdf);
+});
 /* 2.70: the paper closet contract's details, on each closet */
 function closetDetails(c){
   const d = clDet(c);
@@ -7785,6 +7822,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.71 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.72 · 26 Nov 2026</div>
 </body>
 </html>
