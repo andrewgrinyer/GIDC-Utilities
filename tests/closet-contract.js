@@ -1,4 +1,4 @@
-// Measurement app 2.70: the closet order on the contract.
+// Measurement app 2.70: the closet order on the contract (2.71: without the app's drawings).
 //
 //   node tests/closet-contract.js
 //   (or PLAYWRIGHT=/path/to/playwright node tests/closet-contract.js)
@@ -144,8 +144,11 @@ const pdfText = bytes => {
   const txt = pdfText(info.bytes);
   if(txt === null) console.log('SKIP PDF text (no pdftotext here)');
   else {
-    check('PDF has the closet page with sizes, details, marks and notes', ['Closet Organizers', 'Master Bedroom', 'No Charge Tear Out and Rough Patch',
-      'Accessories: Belt, Tie', 'Window on wall C', 'Bulkhead over the door', '4,250.50'].every(w => txt.includes(w)), txt.slice(0, 1500));
+    check('PDF has the closet page with the order and details', ['Closet Organizers', 'Master Bedroom', 'No Charge Tear Out and Rough Patch',
+      'Accessories: Belt, Tie', 'Drawer style: Shaker', '4,250.50'].every(w => txt.includes(w)), txt.slice(0, 1500));
+    // 2.71, Andrew: the app's drawings, sizes, marks and notes are sales reference only
+    check('PDF leaves out the measurement drawing, sizes, marks and notes', !['Ceiling height', 'Sizes:', 'Window on wall C', 'Bulkhead over the door']
+      .some(w => txt.includes(w)), txt.slice(0, 1500));
     check('PDF has both design pages', txt.includes('Test closet design page 1') && txt.includes('Test closet design page 2') && txt.includes('Closet design, page 2 of 2'));
     check('PDF order page says closets only', txt.includes('CLOSET ORGANIZERS ONLY'));
   }
@@ -175,7 +178,9 @@ const pdfText = bytes => {
   await page.waitForFunction(() => document.querySelector('.print-designs') && document.querySelector('.print-designs').dataset.done, null, {timeout:15000}).catch(() => {});
   await page.emulateMedia({media:'print'});
   const pr = await page.evaluate(() => ({cl:getComputedStyle(document.querySelector('.cl-order-print')).display,
-    imgs:document.querySelectorAll('.print-design img').length, sig:!!document.querySelector('.cl-order-print .print-sig')}));
+    imgs:document.querySelectorAll('.print-design img').length, sig:!!document.querySelector('.cl-order-print .print-sig'),
+    svg:document.querySelectorAll('.cl-order-print svg.cl-svg').length}));
+  check('the printed order has no measurement drawings', pr.svg === 0, pr);
   check('print has the closet page with a signature line and both design pages', pr.cl === 'block' && pr.imgs === 2 && pr.sig, pr);
   await page.emulateMedia({media:'screen'});
 

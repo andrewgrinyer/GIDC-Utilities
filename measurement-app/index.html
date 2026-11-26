@@ -1585,7 +1585,7 @@ function signFields(job){
     note:'Opening' + (jr.length > 1 ? 's ' : ' ') + jr.map(r => r.n).join(', ') + ': jamb widths, swing directions and door sizes.'});
   // 2.70: the closet measurements, details and design
   if(nc) f.push({id:'closets', kind:'sign', title:'Sign the closet organizer order',
-    note:nc + ' closet' + (nc === 1 ? '' : 's') + ', ' + (CL_TEAR[job.closetTearOut] || 'tear out not chosen') +
+    note:nc + ' closet' + (nc === 1 ? '' : 's') + ' and their details, ' + (CL_TEAR[job.closetTearOut] || 'tear out not chosen') +
       (job.closetFile ? ', and the closet design (' + clPages(job.closetFile) + ')' : '') + '.'});
   jobDocs(job).forEach(d => f.push({id:'form-' + d.id, kind:'sign', title:'Sign the ' + d.title, note:docFor(d) + '.'}));
   return f;
@@ -2181,30 +2181,19 @@ async function contractPdf(job, opts){
     sigLines(pg, 'jambs', 90, 64); foot(pg, W);
   }
 
-  /* 3c. 2.70, Andrew 26 Nov: the closets. The order (price, tear out),
-     each closet's drawing, sizes, details, obstructions and notes, two
-     across, signed once at the end; then every page of the closet design
-     PDF the sales associate uploaded. */
+  /* 3c. 2.70, Andrew 26 Nov: the closets. The order (price, tear out) and
+     each closet's details from the paper contract, two across, signed once
+     at the end; then every page of the closet design PDF the sales associate
+     uploaded. 2.71, Andrew 26 Nov: the app's own drawings, sizes, marks and
+     notes are for sales reference only and stay off the contract. */
   const cls = closetsOf(job);
   if(cls.length){
     const W = 612, H = 792, colW = (W - 56 - 16) / 2;
-    const pics = await Promise.all(cls.map(c => clPts(c).length > 1 ? closetPng(c).catch(() => null) : null));
-    const cards = [];
-    for(let i = 0; i < cls.length; i++){
-      const c = cls[i], img = pics[i] ? await pdf.embedPng(pics[i]) : null;
-      const segs = clSegs(c).filter(g => clVal(c, g.k));
-      const rows = [];
-      if(segs.length || c.ceiling) rows.push({t:'Sizes: ' + segs.map(g => (g.door ? 'door opening' : g.k) + ' ' + sizeText(clVal(c, g.k)) + '"')
-        .concat(c.ceiling ? ['ceiling ' + sizeText(c.ceiling) + '"'] : []).join(', ')});
-      const det = clDetRows(c);
-      if(det.length) rows.push({t:det.map(([l, v]) => l + ': ' + v).join(', ')});
-      clMarks(c).forEach((m, k) => rows.push({t:(k + 1) + '. ' + m.type + ' on wall ' + m.wall +
-        CL_MARK_F.filter(([f]) => clMarkVal(m, f)).map(([f, l]) => ', ' + l.toLowerCase() + ' ' + sizeText(clMarkVal(m, f)) + '"').join('')}));
-      if(noteOf(c)) rows.push({t:'Notes: ' + noteOf(c), red:true});
-      const ls = rows.flatMap(r => wrap(r.t, F, 7.4, colW - 8).map(l => ({l, red:r.red})));
-      const ih = img ? Math.min(170, (colW - 8) * img.height / img.width) : 0;
-      cards.push({c, img, ih, ls, h:18 + ih + 6 + ls.length * 9 + 8});
-    }
+    const cards = cls.map(c => {
+      const ls = clDetRows(c).map(([l, v]) => ({l:fitText(l + ': ' + v, F, 8, colW - 8)}));
+      if(!ls.length) ls.push({l:'No details set', red:true});
+      return {c, ls, h:18 + ls.length * 10.5 + 8};
+    });
     const tear = CL_TEAR[job.closetTearOut] || 'Not chosen';
     const sumRows = [['Tear out', tear], ['Closets', String(cls.length)]]
       .concat(prices && clPriceNum(job) != null ? [['Selling price before tax', money(clPriceNum(job)) + ' (Organizer on the order)']] : [])
@@ -2231,15 +2220,13 @@ async function contractPdf(job, opts){
         const x0 = 28 + j * (colW + 16);
         pg.drawLine({start:{x:x0, y}, end:{x:x0 + colW, y}, thickness:0.8, color:RULE});
         text(pg, fitText(clName(cd.c).replace(/ · /, ', '), FB, 10.5, colW), x0, y - 13, {size:10.5, font:FB});
-        let yy = y - 18;
-        if(cd.img){ const iw = cd.ih * cd.img.width / cd.img.height;
-          pg.drawImage(cd.img, {x:x0 + (colW - iw) / 2, y:yy - cd.ih, width:iw, height:cd.ih}); yy -= cd.ih + 6; }
-        cd.ls.forEach(l => { text(pg, l.l, x0 + 2, yy - 7, {size:7.4, color:l.red ? RED : INK}); yy -= 9; });
+        let yy = y - 20;
+        cd.ls.forEach(l => { text(pg, l.l, x0 + 2, yy - 7, {size:8, color:l.red ? RED : INK}); yy -= 10.5; });
       });
       y -= rh + 4; k += 2;
     }
     if(y < 100){ foot(pg, W); newPage(false); }
-    wrap('Your signature confirms the closet measurements, details and tear out choice above' +
+    wrap('Your signature confirms the closet details and tear out choice above' +
       (job.closetFile ? ' and the closet design pages that follow' : '') + '. All closet materials are special order and cannot be returned.',
       F, 7.5, W - 56).forEach((l, j) => text(pg, l, 28, 96 - j * 9, {size:7.5, color:GREY}));
     sigLines(pg, 'closets', 90, 64); foot(pg, W);
@@ -5785,21 +5772,6 @@ async function closetUpload(job, file){
   render(); persistBg();
   toast('Closet design added: ' + clPages(rec));
 }
-/* a closet's drawing as a PNG for the contract PDF */
-function closetPng(c){
-  const svg = closetSvg(c, 'print').replace('<svg ', '<svg font-family="Helvetica, Arial, sans-serif" ');
-  const vb = (/viewBox="([^"]+)"/.exec(svg) || [])[1].split(' ').map(Number);
-  const sc = Math.min(1400 / vb[2], 1000 / vb[3]), w = Math.round(vb[2] * sc), h = Math.round(vb[3] * sc);
-  const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace('<svg ', '<svg width="' + w + '" height="' + h + '" '));
-  return new Promise((ok, no) => {
-    const im = new Image();
-    im.onload = () => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
-      const x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.drawImage(im, 0, 0, w, h);
-      cv.toBlob(b => b ? b.arrayBuffer().then(a => ok(new Uint8Array(a)), no) : no(new Error('no picture')), 'image/png'); };
-    im.onerror = () => no(new Error('the closet drawing did not draw'));
-    im.src = src;
-  });
-}
 function newCloset(job){
   const list = closetsOf(job);
   const n = list.reduce((x, c) => Math.max(x, +c.number || 0), 0) + 1;
@@ -6049,12 +6021,12 @@ function closetPrint(job, order){
   return '<div class="cl-print' + (order ? ' cl-order-print' : '') + '">' + letterhead() +
     '<div class="clp-title"><h1>' + (order ? 'Closet Organizers' : 'Closet Measurements') + '</h1></div>' +
     '<div class="clp-who">' + who.concat(ord).map(([l, v]) => '<div><span>' + l + '</span><b>' + esc(v || '') + '</b></div>').join('') + '</div>' +
-    '<div class="clp-grid">' + list.map(c => '<div class="clp-one"><h2>' + esc(clName(c)) + '</h2>' + closetSvg(c, 'print') +
-      (clMarks(c).length ? '<ol class="clp-marks">' + clMarks(c).map(m => '<li>' + esc(m.type) + ' on wall ' + esc(m.wall) +
+    '<div class="clp-grid">' + list.map(c => '<div class="clp-one"><h2>' + esc(clName(c)) + '</h2>' + (order ? '' : closetSvg(c, 'print')) +
+      (clMarks(c).length && !order ? '<ol class="clp-marks">' + clMarks(c).map(m => '<li>' + esc(m.type) + ' on wall ' + esc(m.wall) +
         CL_MARK_F.filter(([f]) => clMarkVal(m, f)).map(([f, l]) => ', ' + l.toLowerCase() + ' ' + esc(sizeText(clMarkVal(m, f))) + '"').join('') +
         '</li>').join('') + '</ol>' : '') +
       (clDetRows(c).length ? '<p class="clp-det">' + clDetRows(c).map(([l, v]) => esc(l) + ': <b>' + esc(v) + '</b>').join(', ') + '</p>' : '') +
-      (noteOf(c) ? '<p class="clp-note">Notes: ' + esc(noteOf(c)) + '</p>' : '') + '</div>').join('') + '</div>' +
+      (noteOf(c) && !order ? '<p class="clp-note">Notes: ' + esc(noteOf(c)) + '</p>' : '') + '</div>').join('') + '</div>' +
     (order ? sigBlock(job, 'closets') : '') + '</div>';
 }
 /* 2.70: the closets on the review, with what the order still needs */
@@ -7813,6 +7785,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.70 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.71 · 26 Nov 2026</div>
 </body>
 </html>
