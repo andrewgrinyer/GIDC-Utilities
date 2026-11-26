@@ -27,7 +27,7 @@ const READ = `
 import sys, json, openpyxl
 wb = openpyxl.load_workbook(sys.argv[1], data_only=True)
 out = {}
-for sn, rows, cols in [('Pricing Sheet', list(range(9, 12)) + list(range(46, 55)), range(1, 39)), ('UploadTemplate', range(37, 40), range(1, 34))]:
+for sn, rows, cols in [('Pricing Sheet', list(range(9, 12)) + list(range(46, 55)), range(1, 41)), ('UploadTemplate', range(37, 40), range(1, 34))]:
     ws = wb[sn]
     for r in rows:
         for c in cols:
@@ -128,6 +128,20 @@ print(json.dumps(out, default=str))`;
     mixSet(j, op, o, 'product:2', '1.375 Glass'); calcJob(j); return {a, pt, b, c}; });
   check('A on 1.75 Thick puts every location on 1.75; back to hollow, they come back; the opening\'s product moves A', thick.a.join() === '1.75 Thick,1.75 Thick,1.75 Thick' && thick.pt === '1.75 Thick' &&
     thick.b.join() === '1.375 Hollow,1.375 Hollow,1.375 Hollow' && thick.c === '1.375 Solid', thick);
+  // 2.76.3, Andrew: a 4 door bypass, two panel and two glass, is two Standard and two Glass finishing
+  const fin = await page.evaluate(() => { const j = state.job, op = j.openings[0], o = op.options[0];
+    op.qty = 4; syncMix(j); mixSet(j, op, o, 'style:3', '1 Lite Mirror Double Sided'); mixSet(j, op, o, 'product:3', '1.375 Glass');
+    mixSet(j, op, o, 'style:1', 'Columbia'); calcJob(j); render();
+    return {mix:o.v.mix.map(m => m.style + '/' + m.product), C51:cv('C51'), C52:cv('C52'), E51:cv('E51'), E52:cv('E52'), U49:cv('U49'), C:cv('C9')}; });
+  check('4 doors, 2 Columbia hollow and 2 mirror glass: finishing 2 Standard + 2 Glass (plus the swing door Standard)',
+    fin.C === 4 && fin.C51 === 3 && fin.C52 === 2 && fin.U49 === fin.E51 + fin.E52 && fin.E52 === 2 * 179, fin);
+  const fb = await book('finish');
+  check('workbook: 3 Standard, 2 Glass, AM9 2, AN9 2, G9 Mixed', fb['Pricing Sheet!C51'] === 3 && fb['Pricing Sheet!C52'] === 2 && fb['Pricing Sheet!AM9'] === 2 &&
+    fb['Pricing Sheet!AN9'] === 2 && fb['Pricing Sheet!G9'] === 'Mixed' && Math.abs(fb['Pricing Sheet!U49'] - fin.U49) < 0.001,
+    ['C51','C52','AM9','AN9','G9','U49'].map(k => fb['Pricing Sheet!' + k]));
+  await page.evaluate(() => { const j = state.job, op = j.openings[0], o = op.options[0]; op.qty = 3; syncMix(j);
+    mixSet(j, op, o, 'style:1', 'Livingston'); calcJob(j); render(); });
+  await page.waitForTimeout(300);
   // back to the three panel doors for the checks below
   await page.selectOption(sel(ids[0], 'product:2'), '1.375 Hollow'); await page.waitForTimeout(300);
   await page.selectOption(sel(ids[0], 'style:2'), 'Columbia'); await page.waitForTimeout(400);
@@ -162,8 +176,9 @@ print(json.dumps(out, default=str))`;
   check('UploadTemplate: door style 111 (Custom - See Notes) for Access', after['UploadTemplate!Q37'] === 111 && after['UploadTemplate!Q38'] === 111, [after['UploadTemplate!Q37'], after['UploadTemplate!Q38']]);
   const diff = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(after[k]));
   // allowed: style and price cells of the two lines, their sums, and what Access reads off the style (style id, product type, model, paint id)
-  const allowed = /^Pricing Sheet!(F9|F10|R9|S9|T9|[A-Z]+4[6-9]|[A-Z]+5[0-4])$|^UploadTemplate!(Q|R|S|AF)3[78]$|^UploadTemplate![HN]38$/;
-  check('workbook: Factory Finishing as before (Standard on the bypass, none on the GDL set)', after['Pricing Sheet!G9'] === 'Standard' && after['Pricing Sheet!G10'] === 'NO' &&
+  const allowed = /^Pricing Sheet!(F9|F10|G9|G10|AM9|R9|S9|T9|[A-Z]+4[6-9]|[A-Z]+5[0-4])$|^UploadTemplate!(Q|R|S|AF)3[78]$|^UploadTemplate![HN]38$/;
+  check('workbook: Factory Finishing as before (3 Standard on the bypass, none on the GDL set)', after['Pricing Sheet!G9'] === 'Mixed' && after['Pricing Sheet!G10'] === 'Mixed' &&
+    after['Pricing Sheet!AM9'] === 3 && after['Pricing Sheet!AN9'] == null && after['Pricing Sheet!C51'] === before['Pricing Sheet!C51'] &&
     after['Pricing Sheet!U49'] === before['Pricing Sheet!U49'], [after['Pricing Sheet!G9'], after['Pricing Sheet!G10'], before['Pricing Sheet!U49'], after['Pricing Sheet!U49']]);
   check('every other cell of the workbook is as it was', diff.every(k => allowed.test(k)), diff.filter(k => !allowed.test(k)).map(k => [k, before[k], after[k]]));
   console.log('  changed cells: ' + diff.map(k => k + ' ' + JSON.stringify(before[k]) + '>' + JSON.stringify(after[k])).join(', '));

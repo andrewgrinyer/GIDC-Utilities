@@ -3373,18 +3373,33 @@ function mixPrices(op, o, row){
     return typeof r === 'number' && r > 0 ? r : 'S/O';
   });
 }
-/* Factory Finishing (column G) comes off the style too, and Custom - See
-   Notes would read Standard, which put a finishing charge on a GDL set. So a
-   mixed line gets the finishing of its own styles: GDL none, Glass for glass
-   doors, Standard for the rest. One line holds one finishing, so a mix of
-   glass and panel doors takes the one most of its doors have (a tie, Glass). */
+/* Factory Finishing comes off each door: Custom - See Notes alone would read
+   Standard (2.76 put a finishing charge on a GDL set that way). 2.76.3,
+   Andrew 26 Nov: counted door by door, so two panel and two glass doors are
+   two Standard and two Glass, not four of one. A location is Glass when its
+   style finishes as glass or its product is 1.375 Glass, nothing on GDL, and
+   Standard otherwise. A mixed line's own Factory Finishing cell (G) says
+   Mixed, so the sheet's Standard and Glass counts skip it, and its counts sit
+   in the empty AM (Standard) and AN (Glass) columns, which those two lines
+   (C51, C52) add, in the calculator and in the file. */
 function mixFinish(o){
-  const n = {};
+  const n = {std:0, glass:0, none:0};
   o.v.mix.forEach(m => { let r;
     try{ r = calc.hf.calculateFormula('=VLOOKUP("' + String(m.style || '').replace(/"/g, '""') + '",\'Door Styles\'!$B$6:$D$120,3,0)', calc.sid); }catch(e){ r = null; }
-    if(typeof r === 'string' && r) n[r] = (n[r] || 0) + 1; });
-  const k = Object.keys(n).sort((a, b) => n[b] - n[a] || (b === 'Glass') - (a === 'Glass'));
-  return k[0] || null;
+    if(isGdl(o) || r === 'NO') n.none++;
+    else if(r === 'Glass' || m.product === '1.375 Glass') n.glass++;
+    else n.std++; });
+  return n;
+}
+const FIN_ADD = {C51:'+SUM(AM9:AM27)+SUM(AM37:AM43)', C52:'+SUM(AN9:AN27)+SUM(AN37:AN43)'};
+const finFormula = (f, ref) => /SUM\(AM9|SUM\(AN9/.test(f) ? f : f + FIN_ADD[ref];
+// G, AM and AN for every door line: Mixed and the counts on a mixed line, empty (or left alone) elsewhere
+function finCells(job){
+  const lines = reviewLines(job), out = [];
+  PAGE_ROWS.forEach((row, i) => { const l = lines[i], c = l && isMix(l.op, l.o) && mixCache[l.o.id] ? mixCache[l.o.id].finish : null;
+    if(c) out.push(['G' + row, 'Mixed']);
+    out.push(['AM' + row, c && c.std || null], ['AN' + row, c && c.glass || null]); });
+  return out;
 }
 function mixPrice(op, o, row){
   const p = mixPrices(op, o, row);
@@ -3399,7 +3414,6 @@ function mixCells(job){
   reviewLines(job).slice(0, PAGE_ROWS.length).forEach(({op, o}, i) => {
     if(!isMix(op, o)) return;
     const c = mixCache[o.id];
-    if(c && c.finish) out.push(['G' + PAGE_ROWS[i], c.finish]);
     if(msrpTypedOf(o) == null) out.push(['R' + PAGE_ROWS[i], c && typeof c.avg === 'number' ? c.avg : 'S/O']);
   });
   return out;
@@ -4413,6 +4427,13 @@ function fillSheet(xml, job){
   });
   // 2.76: a mixed door's Door MSRP, the average worked out in the calculator
   mixCells(job).forEach(([ref, v]) => { xml = setCell(xml, ref, v, typeof v === 'number'); });
+  // 2.76.3: a mixed line's finishing, door by door
+  if(hasMix(job)){
+    finCells(job).forEach(([ref, v]) => { if(v != null) xml = setCell(xml, ref, v, typeof v === 'number'); });
+    Object.keys(FIN_ADD).forEach(ref => { const m = xml.match(new RegExp('<c r="' + ref + '"[^>]*><f>([^<]*)</f>'));
+      if(m){ const raw = m[1].replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&amp;/g, '&');
+        xml = setFormula(xml, ref, finFormula(raw, ref)); } });
+  }
   // 2.76.1: the middle door finger pulls, counted beside each line and added on the Finger Pull line
   const pc = pullCells(job).filter(([, v]) => v);
   if(pc.length){
@@ -5036,6 +5057,9 @@ async function getCalc(){
   // 2.61: the third track, as in the file
   PAGE_ROWS.forEach(r => { const c = {sheet: sid, row: r - 1, col: colNum('S') - 1}, f = String(hf.getCellFormula(c) || '');
     const nf = trackFormula(f.replace(/^=/, ''), r); if(f && nf !== f.replace(/^=/, '')) hf.setCellContents(c, [['=' + nf]]); });
+  // 2.76.3: the Standard and Glass finishing lines count a mixed line's doors, as in the file
+  Object.keys(FIN_ADD).forEach(ref => { const c = {sheet: sid, row: +ref.slice(1) - 1, col: colNum(ref.replace(/\d+$/, '')) - 1},
+    f = String(hf.getCellFormula(c) || ''); if(f) hf.setCellContents(c, [['=' + finFormula(f.replace(/^=/, ''), ref)]]); });
   // 2.76.1: the Finger Pull line counts the middle door pulls, as in the file
   Object.keys(PULL_ADD).forEach(ref => { const c = {sheet: sid, row: +ref.slice(1) - 1, col: colNum(ref.replace(/\d+$/, '')) - 1},
     f = String(hf.getCellFormula(c) || ''); if(f) hf.setCellContents(c, [['=' + pullFormula(f.replace(/^=/, ''), ref)]]); });
@@ -5064,10 +5088,13 @@ function calcJob(job){
   reviewLines(job).slice(0, PAGE_ROWS.length).forEach(({op, o}, i) => {
     if(!isMix(op, o)) return;
     const row = PAGE_ROWS[i], m = mixPrice(op, o, row);
-    if(m.finish){ const g = 'G' + row; if(calc.gOrig[g] === undefined) calc.gOrig[g] = hf.getCellSerialized(cellAt(g));
-      hf.setCellContents(cellAt(g), [["'" + m.finish]]); calc.gSet[g] = 1; }
     if(msrpTypedOf(o) == null) hf.setCellContents(cellAt('R' + row), [[typeof m.avg === 'number' ? m.avg : "'S/O"]]);
   });
+  // 2.76.3: finishing counted door by door (Mixed in G, the counts in AM and AN)
+  finCells(job).forEach(([ref, v]) => {
+    if(ref[0] === 'G'){ if(calc.gOrig[ref] === undefined) calc.gOrig[ref] = hf.getCellSerialized(cellAt(ref));
+      hf.setCellContents(cellAt(ref), [["'" + v]]); calc.gSet[ref] = 1; }
+    else hf.setCellContents(cellAt(ref), [[v]]); });
 }
 const cv = ref => { const v = calc.hf.getCellValue(cellAt(ref));
   return (v && typeof v === 'object') ? (v.value || '#ERROR!') : v; };
@@ -8180,6 +8207,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.76.2 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.76.3 · 26 Nov 2026</div>
 </body>
 </html>
