@@ -115,13 +115,15 @@ do $$ begin
     perform web_lead_sales_load(jsonb_build_array(
       jsonb_build_object('estimate_id',801,'first_name','Sal','last_name','Old','emails','sal@old.ca','created_on',(current_date - 95)::text,'sold_on',(current_date - 90)::text,'price','5000'),
       jsonb_build_object('estimate_id',802,'first_name','Pat','last_name','Old','phones','5190001111','created_on',(current_date - 400)::text,'sold_on',(current_date - 390)::text,'price','100'),
-      jsonb_build_object('estimate_id',803,'first_name','Ned','last_name','Old','emails','ned@old.ca','created_on',(current_date - 95)::text)), null);
+      jsonb_build_object('estimate_id',803,'first_name','Ned','last_name','Old','emails','ned@old.ca','created_on',(current_date - 95)::text,'sold_on',null),
+      jsonb_build_object('estimate_id',804,'first_name','Rec','last_name','Ent','emails','rec@x.ca','created_on',(current_date - 8)::text,'sold_on',(current_date - 2)::text),
+      jsonb_build_object('estimate_id',805,'first_name','Tom','last_name','Old','emails','tom@old.ca','created_on',(current_date - 95)::text,'sold_on',(current_date - 50)::text)), null);
   end if;
 end $$;
 set role service_role;
 select web_lead_tracker_load('[]'::jsonb);
 reset role;
-\echo -- want Sal Sold linked 801, Ned Dead (estimate only), Tom untouched, Pat Dead (sold BEFORE the lead), Rec NEW LEAD
+\echo -- want Sal Sold 801, Ned Dead (estimate only), Tom Sold 805 though a person set him, Pat Dead (sold BEFORE the lead), Rec (10 days old) Sold 804
 \echo -- (with no Access copy: all four old stay NEW LEAD apart from Tom)
 select first_name, status, status_by, estimate_id, linked_by from web_lead_tracker
  where lead_key ~ '^[1-5]{16}$' order by lead_key;

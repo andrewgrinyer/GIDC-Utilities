@@ -44,17 +44,22 @@
 --    fixing a name does not make it a new lead.
 --
 --  OLD LEADS (Andrew, 26 November, round 2)
---    Every old lead in the sheet is imported. A lead more than two
---    months old that nobody has touched (status still NEW LEAD, set by
---    nobody) is marked by the tracker itself, as "Automatic":
---      sold in Access     Sold, and linked to the estimate it sold on
---      anything else      Lead No Response - Dead
+--    Every old lead in the sheet is imported. The tracker marks leads
+--    itself, as "Automatic":
+--      sold in Access     Sold, and linked to the estimate it sold on,
+--                         whatever its age and whatever status it had
+--                         (Andrew, 26 November: sold leads were left as
+--                         NEW LEAD). Also when the estimate it was linked
+--                         to sells.
+--      more than two months old, nobody has touched it (still NEW LEAD,
+--      set by nobody), not sold   Lead No Response - Dead
 --    "Sold in Access" is the same rule as the sheet's Sold column
 --    (web_leads_match): a sale on or after the day the lead came in, the
 --    same email, else phone, else whole name within a year.
 --    It runs on every load, so a lead nobody follows up becomes Dead two
 --    months after it came in, and an automatic Dead that later sells
---    turns Sold. A status a person set is never changed. Nothing is
+--    turns Sold. Apart from Sold, a status a person set is never
+--    changed. Nothing is
 --    marked until the office server has sent its Access copy (the web
 --    leads sync), so a sold lead is never marked Dead for want of it.
 --
@@ -229,32 +234,45 @@ begin
     return 0;
   end if;
 
+  -- every lead not marked Sold yet, of any age
   with cand as (
-    select t.lead_key, t.lead_day, t.status, t.estimate_id,
+    select t.lead_key, t.lead_day, t.status, t.status_by, t.estimate_id,
            public.gidc_lead_emails(t.email) as emails,
            public.gidc_lead_phones(t.phone) as phones,
            coalesce(public.gidc_lead_name(concat_ws(' ', t.first_name, t.last_name)),
                     public.gidc_lead_name(t.name)) as nm
       from public.web_lead_tracker t
-     where t.lead_day < current_date - p_days
-       and (   (t.status = 'NEW LEAD' and t.status_by is null)
-            or (t.status in ('Lead No Response - Dead', 'Sold') and t.status_by = 'Automatic'))
+     where t.status <> 'Sold'
   ),
   sold as (
-    select distinct on (c.lead_key) c.lead_key, s.estimate_id
-      from cand c
-      join public.web_lead_sales s on s.sold_on is not null and s.sold_on >= c.lead_day and (
+    select distinct on (lead_key) lead_key, estimate_id from (
+      -- the estimate somebody linked it to has sold
+      select c.lead_key, s.estimate_id, 0 as how, s.sold_on
+        from cand c join public.web_lead_sales s on s.estimate_id = c.estimate_id
+       where s.sold_on is not null
+      union all
+      -- or a sale on or after the lead day, as the sheet's Sold column
+      select c.lead_key, s.estimate_id,
+             case when cardinality(c.emails) > 0 and s.emails && c.emails then 1
+                  when cardinality(c.phones) > 0 and s.phones && c.phones then 2 else 3 end,
+             s.sold_on
+        from cand c
+        join public.web_lead_sales s on s.sold_on is not null and c.lead_day is not null
+                                     and s.sold_on >= c.lead_day and (
               (cardinality(c.emails) > 0 and s.emails && c.emails)
            or (cardinality(c.phones) > 0 and s.phones && c.phones)
            or (c.nm like '% %' and c.nm = any (s.names) and s.sold_on <= c.lead_day + 365))
-     order by c.lead_key,
-              case when cardinality(c.emails) > 0 and s.emails && c.emails then 1
-                   when cardinality(c.phones) > 0 and s.phones && c.phones then 2 else 3 end,
-              s.sold_on, s.estimate_id
+    ) x
+     order by lead_key, how, sold_on, estimate_id
   ),
   want as (
     select c.lead_key, c.status as was, c.estimate_id as was_est,
-           case when sold.lead_key is not null then 'Sold' else 'Lead No Response - Dead' end as status,
+           case when sold.lead_key is not null then 'Sold'
+                when c.lead_day < current_date - p_days
+                 and (c.status = 'NEW LEAD' and c.status_by is null
+                      or c.status = 'Lead No Response - Dead' and c.status_by = 'Automatic')
+                then 'Lead No Response - Dead'
+                else c.status end as status,
            sold.estimate_id
       from cand c left join sold on sold.lead_key = c.lead_key
   ),
