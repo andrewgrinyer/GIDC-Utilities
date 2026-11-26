@@ -409,6 +409,10 @@ if (-not $rooms.Count) { Say "  OpenStreetMap could not be reached or found none
 # ---- the customers: placed from the list, then looked up ---------------
 $toLook = 0; $placed = 0; $postalOnly = 0; $notFound = 0; $noAddress = 0; $waiting = 0
 $stopped = ""
+if (-not $WhatIfPreference) {
+  Say ""
+  Say "Looking up the addresses not looked up before, one a second. A line every 100." "Cyan"
+}
 foreach ($r in $rows) {
   $street = Street $r.address
   $postal = PostalOf $r.postal
@@ -421,6 +425,10 @@ foreach ($r in $rows) {
     try { Keep $k (Place $street $r.city $postal $r.prov) }
     catch { $stopped = $_.Exception.Message; $waiting++; continue }
     if ($script:asked % 50 -eq 0) { SavePlaces }
+    # Andrew, 26 November: a long silent run looked hung, so say how far it is
+    if ($toLook % 100 -eq 0) {
+      Say ("  looked up {0} address(es) so far, {1:N0} minute(s) in" -f $toLook, ((Get-Date) - $started).TotalMinutes)
+    }
   }
   $p = $places[$k]
   if ($p.lat) {
