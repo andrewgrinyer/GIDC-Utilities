@@ -30,7 +30,11 @@
  * each one's status and writes notes. Each lead goes with every column
  * of its row, so the page shows what the customer wrote. These are
  * kept in GIDC's own Supabase (web_lead_tracker); a lead already there
- * keeps its status and notes. Nothing is written to the sheet by this.
+ * keeps its status and notes. When it is turned on it sends every lead
+ * in the sheet once, old ones too.
+ * It then writes each lead's tracker status into a Lead Status column it
+ * adds at the end of the sheet, every five minutes. Typing in that
+ * column is replaced; change the status on the Web Leads page instead.
  * See THE TRACKER, PUTTING IT IN, below.
  *
  * ---------------------------------------------------------------------
@@ -94,9 +98,11 @@
  *     sends nothing. The log says which columns it read and how many
  *     leads from the last 30 days it would send.
  *
- *  3. Choose "turnOnLeadTracker" and press Run. It sends them now, and
- *     then every five minutes. Running it twice is harmless.
- *     "turnOffLeadTracker" stops it; the tracker keeps what it has.
+ *  3. Choose "turnOnLeadTracker" and press Run. It sends every lead in
+ *     the sheet now, old ones too, adds the Lead Status column, and then
+ *     sends the last 30 days every five minutes. Running it twice is
+ *     harmless. "turnOffLeadTracker" stops it; the tracker keeps what it
+ *     has. "sendAllLeadsToTracker" sends the whole sheet again by hand.
  *
  * ---------------------------------------------------------------------
  * IF THE SHEET CHANGES
@@ -152,7 +158,9 @@ var SETTINGS = {
 
   // THE TRACKER. How many days of leads go to the Web Leads page each
   // time. A lead older than this that is already there stays there.
-  trackDaysBack: 30
+  trackDaysBack: 30,
+  // the column it adds at the end with each lead's tracker status
+  leadStatusHeader: 'Lead Status'
 };
 
 // =====================================================================
@@ -527,22 +535,50 @@ function findDateColumn_(headers, values) {
 //  THE WEB LEADS TRACKER (Andrew, 26 November 2026)
 // =====================================================================
 
+var OUR_TRACK_NOTE_ = 'The status on the Web Leads page (tools site), copied here every five ' +
+                      'minutes by the GIDC script. Typing here is replaced; change it on the page.';
+
 /** Shows what it would send to the tracker, and sends nothing. */
 function checkLeadTracker() {
   var got = leadsForTracker_();
   if (!got.ok) { Logger.log(got.why); return; }
-  Logger.log('%s leads from the last %s days would go to the Web Leads page (%s rows with no date left out).',
-             got.leads.length, SETTINGS.trackDaysBack, got.noDate);
+  var recent = got.leads.filter(function (l) { return l.recent; }).length;
+  Logger.log('%s leads in the sheet (%s from the last %s days). %s rows with no date are left out.',
+             got.leads.length, recent, SETTINGS.trackDaysBack, got.noDate);
   if (got.leads.length) {
     var l = got.leads[got.leads.length - 1];
-    Logger.log('The newest came in %s and has these columns filled: %s.',
+    Logger.log('The newest came in %s with these columns filled: %s.',
                l.received_at, l.details.map(function (d) { return d[0]; }).join(', ') || 'none');
   }
   Logger.log('Nothing was sent. Run turnOnLeadTracker when this looks right.');
 }
 
-/** Sends the leads now. The five minute timer runs this. */
-function sendLeadsToTracker() {
+/** Sends the last 30 days and fills Lead Status. The five minute timer runs this. */
+function sendLeadsToTracker() { sendToTracker_(false); }
+
+/** Sends every lead in the sheet, old ones too, in batches. */
+function sendAllLeadsToTracker() { sendToTracker_(true); }
+
+/** Sends every lead once, then sets the five minute timer. Run once. */
+function turnOnLeadTracker() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendLeadsToTracker') ScriptApp.deleteTrigger(t);
+  });
+  sendAllLeadsToTracker();
+  ScriptApp.newTrigger('sendLeadsToTracker').timeBased().everyMinutes(5).create();
+  Logger.log('On. New leads go to the Web Leads page every five minutes.');
+}
+
+/** Stops it. The tracker keeps what it has, and Lead Status keeps its last values. */
+function turnOffLeadTracker() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendLeadsToTracker') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  Logger.log(n ? 'Off.' : 'It was not on.');
+}
+
+function sendToTracker_(all) {
   var lock = LockService.getScriptLock();
   if (!lock.tryLock(5000)) { Logger.log('Already running.'); return; }
   try {
@@ -550,38 +586,67 @@ function sendLeadsToTracker() {
     if (!key) { Logger.log('No KPI_KEY in Script Properties, so nothing was sent.'); return; }
     var got = leadsForTracker_();
     if (!got.ok) { Logger.log(got.why); return; }
-    if (!got.leads.length) { Logger.log('No leads in the last %s days.', SETTINGS.trackDaysBack); return; }
-    var res = UrlFetchApp.fetch(SETTINGS.url + '/functions/v1/' + SETTINGS.matchFunction, {
-      method: 'post', contentType: 'application/json',
-      headers: { apikey: SETTINGS.anon, Authorization: 'Bearer ' + SETTINGS.anon, 'x-gidc-key': key },
-      payload: JSON.stringify({ action: 'track', leads: got.leads }),
-      muteHttpExceptions: true
-    });
-    var code = res.getResponseCode();
-    if (code >= 200 && code < 300) Logger.log('Sent %s lead(s) to the tracker. %s', got.leads.length, res.getContentText());
-    else Logger.log('The tracker would not take them. It answered %s: %s', code, res.getContentText());
+    var send = got.leads.filter(function (l) { return all || l.recent; });
+    // batches, so the whole sheet never goes in one enormous call; the
+    // last one asks for every lead's status back
+    var size = 500, statuses = null, added = 0;
+    for (var i = 0; i === 0 || i < send.length; i += size) {
+      var batch = send.slice(i, i + size).map(function (l) {
+        return { key: l.key, received_at: l.received_at, day: l.day, row: l.row, email: l.email,
+                 phone: l.phone, name: l.name, first: l.first, last: l.last, details: l.details };
+      });
+      var lastOne = i + size >= send.length;
+      var res = UrlFetchApp.fetch(SETTINGS.url + '/functions/v1/' + SETTINGS.matchFunction, {
+        method: 'post', contentType: 'application/json',
+        headers: { apikey: SETTINGS.anon, Authorization: 'Bearer ' + SETTINGS.anon, 'x-gidc-key': key },
+        payload: JSON.stringify({ action: 'track', leads: batch, statuses: lastOne }),
+        muteHttpExceptions: true
+      });
+      var code = res.getResponseCode();
+      if (code < 200 || code >= 300) {
+        Logger.log('The tracker would not take them. It answered %s: %s', code, res.getContentText());
+        return;
+      }
+      var said = JSON.parse(res.getContentText());
+      added += said.added || 0;
+      if (lastOne) statuses = said.statuses || null;
+    }
+    Logger.log('Sent %s lead(s) to the tracker, %s new.', send.length, added);
+    if (statuses) writeLeadStatus_(got, statuses);
   } finally {
     lock.releaseLock();
   }
 }
 
-/** Sets the five minute timer and sends once now. Run once. */
-function turnOnLeadTracker() {
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'sendLeadsToTracker') ScriptApp.deleteTrigger(t);
-  });
-  ScriptApp.newTrigger('sendLeadsToTracker').timeBased().everyMinutes(5).create();
-  Logger.log('On. New leads go to the Web Leads page every five minutes.');
-  sendLeadsToTracker();
-}
-
-/** Stops it. The tracker keeps what it has. */
-function turnOffLeadTracker() {
-  var n = 0;
-  ScriptApp.getProjectTriggers().forEach(function (t) {
-    if (t.getHandlerFunction() === 'sendLeadsToTracker') { ScriptApp.deleteTrigger(t); n++; }
-  });
-  Logger.log(n ? 'Off.' : 'It was not on.');
+/** Fills the Lead Status column, adding it at the end the first time. */
+function writeLeadStatus_(got, statuses) {
+  var sheet = got.sheet, headers = got.headers;
+  var col = -1;
+  for (var c = 0; c < headers.length; c++) {
+    if (headers[c].toLowerCase() === SETTINGS.leadStatusHeader.toLowerCase()) { col = c; break; }
+  }
+  if (col >= 0 && sheet.getRange(1, col + 1).getNote() !== OUR_TRACK_NOTE_) {
+    Logger.log('There is already a column called "%s" that this script did not make, so Lead Status was not written. ' +
+               'Change leadStatusHeader in SETTINGS to another name.', SETTINGS.leadStatusHeader);
+    return;
+  }
+  if (col < 0) {
+    col = sheet.getLastColumn();
+    sheet.getRange(1, col + 1).setValue(SETTINGS.leadStatusHeader).setNote(OUR_TRACK_NOTE_);
+  }
+  var n = got.rowCount;
+  if (n < 1) return;
+  var range = sheet.getRange(2, col + 1, n, 1);
+  var now = range.getValues(), next = [], changed = 0;
+  var byRow = {};
+  got.leads.forEach(function (l) { byRow[l.row] = statuses[l.key] || ''; });
+  for (var i = 0; i < n; i++) {
+    var v = byRow.hasOwnProperty(i + 2) ? byRow[i + 2] : now[i][0];
+    if (String(v) !== String(now[i][0])) changed++;
+    next.push([v]);
+  }
+  if (changed) range.setValues(next);
+  Logger.log('Lead Status: %s row(s) changed.', changed);
 }
 
 /** A lead's key: the moment it came in and its email, else its phone,
@@ -595,6 +660,7 @@ function leadKey_(when, email, phone) {
   return bytes.map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('').slice(0, 32);
 }
 
+/** Every lead in the sheet with a date, oldest first; recent marks the last 30 days. */
 function leadsForTracker_() {
   var book = SpreadsheetApp.getActiveSpreadsheet();
   var sheet = SETTINGS.tabName ? book.getSheetByName(SETTINGS.tabName) : book.getSheets()[0];
@@ -605,9 +671,9 @@ function leadsForTracker_() {
   var dateCol = findDateColumn_(headers, values);
   if (dateCol < 0) return { ok: false, why: 'No column in that tab holds dates, so no lead can be told apart. Nothing was sent.' };
 
-  // the Status and Sold Price columns this script adds are left out
+  // the columns this script adds itself are left out
   var skip = {};
-  [SETTINGS.statusHeader, SETTINGS.priceHeader].forEach(function (t) {
+  [SETTINGS.statusHeader, SETTINGS.priceHeader, SETTINGS.leadStatusHeader].forEach(function (t) {
     headers.forEach(function (h, c) { if (h.toLowerCase() === t.toLowerCase()) skip[c] = true; });
   });
   var cols = { email: [], phone: [], first: [], last: [], name: [] };
@@ -638,7 +704,6 @@ function leadsForTracker_() {
       if (row.some(function (v, c) { return !skip[c] && v !== '' && v !== null; })) noDate++;
       continue;
     }
-    if (when < since) continue;
     var email = joined(row, cols.email), phone = joined(row, cols.phone);
     // in the sheet's own column order, as [header, value] pairs
     var details = [];
@@ -648,10 +713,10 @@ function leadsForTracker_() {
       if (v) details.push([h || ('Column ' + (c + 1)), v]);
     });
     leads.push({ key: leadKey_(when, email, phone), received_at: when.toISOString(),
-                 day: dayOf_(when), row: r + 1, email: email, phone: phone,
+                 day: dayOf_(when), row: r + 1, recent: when >= since, email: email, phone: phone,
                  name: joined(row, cols.name), first: joined(row, cols.first), last: joined(row, cols.last),
                  details: details });
   }
   leads.sort(function (a, b) { return a.received_at < b.received_at ? -1 : 1; });
-  return { ok: true, leads: leads, noDate: noDate };
+  return { ok: true, leads: leads, noDate: noDate, sheet: sheet, headers: headers, rowCount: values.length - 1 };
 }

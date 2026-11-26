@@ -23,6 +23,7 @@
 --    Contact Email Sent
 --    Contact Text Message Sent
 --    Lead No Response - Dead
+--    Sold                          (set by the tracker, see OLD LEADS)
 --  They live in web_lead_statuses, so one can be added or renamed with
 --  an edit there rather than a change of code. "done" marks the ones the
 --  page can hide: the three booked ones and Dead.
@@ -30,7 +31,8 @@
 --  THE PATH
 --    The script in the Google Sheet (apps-script/gidc-web-leads.gs,
 --    sendLeadsToTracker, every five minutes) sends every lead from the
---    last 30 days to the web-leads edge function (action track), which
+--    last 30 days (sendAllLeadsToTracker sends the whole sheet, once, when
+--    it is turned on) to the web-leads edge function (action track), which
 --    calls web_lead_tracker_load(). A lead it has not seen is added as
 --    NEW LEAD. A lead it has seen gets its sheet details refreshed and
 --    nothing else: the status, notes and link are the receptionist's.
@@ -40,6 +42,26 @@
 --    A lead is known by its key, made by the sheet script from the time
 --    it came in and its email (or phone), so sorting the sheet or
 --    fixing a name does not make it a new lead.
+--
+--  OLD LEADS (Andrew, 26 November, round 2)
+--    Every old lead in the sheet is imported. A lead more than two
+--    months old that nobody has touched (status still NEW LEAD, set by
+--    nobody) is marked by the tracker itself, as "Automatic":
+--      sold in Access     Sold, and linked to the estimate it sold on
+--      anything else      Lead No Response - Dead
+--    "Sold in Access" is the same rule as the sheet's Sold column
+--    (web_leads_match): a sale on or after the day the lead came in, the
+--    same email, else phone, else whole name within a year.
+--    It runs on every load, so a lead nobody follows up becomes Dead two
+--    months after it came in, and an automatic Dead that later sells
+--    turns Sold. A status a person set is never changed. Nothing is
+--    marked until the office server has sent its Access copy (the web
+--    leads sync), so a sold lead is never marked Dead for want of it.
+--
+--  THE STATUS IN THE SHEET
+--    web_lead_sheet_statuses() gives the sheet script every lead's
+--    status, which it writes into a Lead Status column it adds at the
+--    end of the sheet.
 --
 --  THE ACCESS LINK
 --    web_lead_link() stores the estimate number (Estimates.EstimateID,
@@ -120,7 +142,8 @@ insert into public.web_lead_statuses (name, sort, done) values
   ('Second Call No Answer',        60, false),
   ('Contact Email Sent',           70, false),
   ('Contact Text Message Sent',    80, false),
-  ('Lead No Response - Dead',      90, true)
+  ('Lead No Response - Dead',      90, true),
+  ('Sold',                        100, true)
 on conflict (name) do update set sort = excluded.sort, done = excluded.done;
 alter table public.web_lead_statuses enable row level security;
 revoke all on public.web_lead_statuses from anon, authenticated;
@@ -179,7 +202,77 @@ create table if not exists public.web_lead_tracker_runs (
 alter table public.web_lead_tracker_runs enable row level security;
 revoke all on public.web_lead_tracker_runs from anon, authenticated;
 
--- ---------- 4. the sheet's load ---------------------------------------
+-- ---------- 4. old leads: Sold or Dead --------------------------------
+-- Run by every load. Answers how many it changed.
+create or replace function public.web_lead_age_out(p_days integer default 60)
+returns integer language plpgsql security definer set search_path = public as $$
+declare n integer := 0;
+begin
+  if to_regclass('public.web_lead_sales') is null then return 0; end if;
+  if not exists (select 1 from public.web_lead_sales_runs where id = 1 and sent_at is not null) then
+    return 0;
+  end if;
+
+  with cand as (
+    select t.lead_key, t.lead_day, t.status, t.estimate_id,
+           public.gidc_lead_emails(t.email) as emails,
+           public.gidc_lead_phones(t.phone) as phones,
+           coalesce(public.gidc_lead_name(concat_ws(' ', t.first_name, t.last_name)),
+                    public.gidc_lead_name(t.name)) as nm
+      from public.web_lead_tracker t
+     where t.lead_day < current_date - p_days
+       and (   (t.status = 'NEW LEAD' and t.status_by is null)
+            or (t.status in ('Lead No Response - Dead', 'Sold') and t.status_by = 'Automatic'))
+  ),
+  sold as (
+    select distinct on (c.lead_key) c.lead_key, s.estimate_id
+      from cand c
+      join public.web_lead_sales s on s.sold_on is not null and s.sold_on >= c.lead_day and (
+              (cardinality(c.emails) > 0 and s.emails && c.emails)
+           or (cardinality(c.phones) > 0 and s.phones && c.phones)
+           or (c.nm like '% %' and c.nm = any (s.names) and s.sold_on <= c.lead_day + 365))
+     order by c.lead_key,
+              case when cardinality(c.emails) > 0 and s.emails && c.emails then 1
+                   when cardinality(c.phones) > 0 and s.phones && c.phones then 2 else 3 end,
+              s.sold_on, s.estimate_id
+  ),
+  want as (
+    select c.lead_key, c.status as was, c.estimate_id as was_est,
+           case when sold.lead_key is not null then 'Sold' else 'Lead No Response - Dead' end as status,
+           sold.estimate_id
+      from cand c left join sold on sold.lead_key = c.lead_key
+  ),
+  changed as (
+    update public.web_lead_tracker t
+       set status = w.status, status_by = 'Automatic', status_at = now(),
+           estimate_id = coalesce(t.estimate_id, w.estimate_id),
+           linked_by = case when t.estimate_id is null and w.estimate_id is not null then 'Automatic' else t.linked_by end,
+           linked_at = case when t.estimate_id is null and w.estimate_id is not null then now() else t.linked_at end
+      from want w
+     where t.lead_key = w.lead_key and w.status is distinct from w.was
+    returning t.lead_key, w.status, w.was_est, t.estimate_id
+  ),
+  ev as (
+    insert into public.web_lead_events (lead_key, by_name, kind, body)
+    select lead_key, 'Automatic', 'status',
+           status || case when status = 'Sold' then ' in Access' else ' (more than two months old, not sold in Access)' end
+      from changed
+    union all
+    select lead_key, 'Automatic', 'link', 'Linked to Access estimate ' || estimate_id
+      from changed where was_est is null and estimate_id is not null
+    returning 1
+  )
+  select count(*) into n from changed;
+  return n;
+end $$;
+
+-- every lead's status, for the sheet's Lead Status column
+create or replace function public.web_lead_sheet_statuses()
+returns jsonb language sql stable security definer set search_path = public as $$
+  select coalesce(jsonb_object_agg(lead_key, status), '{}') from public.web_lead_tracker
+$$;
+
+-- ---------- 5. the sheet's load ---------------------------------------
 -- p_leads: [{ "key": "...", "received_at": "2026-11-26T14:03:00Z", "day": "2026-11-26",
 --             "row": 3512, "first": "Ann", "last": "Ray", "name": "", "email": "...",
 --             "phone": "...", "details": [["City", "..."], ["Message", "..."]] }]
@@ -220,6 +313,8 @@ begin
   )
   select count(*), count(*) filter (where is_new) into n_sent, n_new from up;
 
+  perform public.web_lead_age_out();
+
   insert into public.web_lead_tracker_runs (id, sent_at, sent, added)
   values (1, now(), n_sent, n_new)
   on conflict (id) do update set sent_at = excluded.sent_at, sent = excluded.sent,
@@ -227,7 +322,7 @@ begin
   return jsonb_build_object('sent', n_sent, 'added', n_new);
 end $$;
 
--- ---------- 5. what the page reads ------------------------------------
+-- ---------- 6. what the page reads ------------------------------------
 -- Every lead that came in on or after p_from (all of them when empty),
 -- newest first, with its notes and history, its Access link, and for a
 -- lead not linked yet the likeliest estimate in Access.
@@ -308,7 +403,7 @@ begin
                             'access_sent_at', access_at, 'access_copy', has_access);
 end $$;
 
--- ---------- 6. what the page writes -----------------------------------
+-- ---------- 7. what the page writes -----------------------------------
 create or replace function public.web_lead_who_()
 returns text language sql stable security definer set search_path = public as $$
   select coalesce((select coalesce(nullif(p.name, ''), p.email) from public.profiles p
@@ -380,8 +475,10 @@ begin
   return jsonb_build_object('estimate_id', p_estimate, 'by', who);
 end $$;
 
--- ---------- 7. grants -------------------------------------------------
+-- ---------- 8. grants -------------------------------------------------
 revoke all on function public.web_lead_tracker_load(jsonb) from public, anon, authenticated;
+revoke all on function public.web_lead_age_out(integer) from public, anon, authenticated;
+revoke all on function public.web_lead_sheet_statuses() from public, anon, authenticated;
 revoke all on function public.web_lead_who_() from public, anon, authenticated;
 revoke all on function public.web_leads_board(date) from public, anon;
 revoke all on function public.web_lead_set_status(text, text) from public, anon;
@@ -395,6 +492,8 @@ do $$
 begin
   if exists (select 1 from pg_roles where rolname = 'service_role') then
     execute 'grant execute on function public.web_lead_tracker_load(jsonb) to service_role';
+    execute 'grant execute on function public.web_lead_age_out(integer) to service_role';
+    execute 'grant execute on function public.web_lead_sheet_statuses() to service_role';
     execute 'grant select, insert, update on public.web_lead_tracker, public.web_lead_tracker_runs, '
             'public.web_lead_events, public.web_lead_statuses to service_role';
   end if;

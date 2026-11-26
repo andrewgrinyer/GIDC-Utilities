@@ -28,17 +28,39 @@ const lit = s => "'" + String(s).replace(/'/g, "''") + "'";
 // ---- 1. the sheet script against a made up sheet --------------------
 const NOW = Date.now();
 const ago = (days, h) => new Date(NOW - days * 86400000 - (h || 0) * 3600000);
+const isoDay = d => d.toISOString().slice(0, 10);
 const SHEET = [
-  ['Date', 'First Name', 'Last Name', 'Email', 'Phone', 'City', 'Message', 'Status', 'Sold Price'],
-  [ago(0, 1), 'Ann', 'Ray', 'Ann@X.ca', '519 555 1234', 'Cambridge', 'Six bifolds and a barn door, please call after 4', 'Not Booked', ''],
-  [ago(2), 'Bob', 'Lee', '', '(905) 555-0000', 'Burlington', 'Quote for closet doors', 'Booked', ''],
-  [ago(5), 'Cara', 'Diaz', 'cara@y.com', '', '', 'Interested in shaker doors', 'Not Booked', ''],
-  ['', '', '', '', '', '', '', '', ''],
-  ['not a date', 'Dan', 'Oops', 'dan@z.ca', '', '', 'x', '', ''],
-  [ago(45), 'Old', 'Lead', 'old@z.ca', '', '', 'too old to send', 'Not Booked', '']
+  ['Date', 'First Name', 'Last Name', 'Email', 'Phone', 'City', 'How did you hear about us?', 'Form', 'Message', 'Status', 'Sold Price'],
+  [ago(0, 1), 'Ann', 'Ray', 'Ann@X.ca', '519 555 1234', 'Cambridge', 'Google', 'Contact', 'Six bifolds and a barn door, please call after 4', 'Not Booked', ''],
+  [ago(2), 'Bob', 'Lee', '', '(905) 555-0000', 'Burlington', 'Facebook', 'Quote', 'Quote for closet doors', 'Booked', ''],
+  [ago(5), 'Cara', 'Diaz', 'cara@y.com', '', '', 'Google', 'Contact', 'Interested in shaker doors', 'Not Booked', ''],
+  ['', '', '', '', '', '', '', '', '', '', ''],
+  ['not a date', 'Dan', 'Oops', 'dan@z.ca', '', '', '', '', 'x', '', ''],
+  [ago(75), 'Old', 'Lead', 'old@z.ca', '', '', 'Home show', 'Contact', 'not followed up', 'Not Booked', ''],
+  [ago(100), 'Sal', 'Sold', 'sal@s.ca', '', '', '', 'Quote', 'bought doors later', 'Sold', '5000']
 ];
+const NOTES = {};
+function cell(r, c){ while(SHEET[0].length < c) SHEET.forEach(row => row.push('')); return SHEET[r - 1][c - 1]; }
+const SHEET_OBJ = { getName: () => 'Sheet1',
+  getDataRange: () => ({ getValues: () => SHEET.map(r => r.slice()) }),
+  getLastColumn: () => SHEET[0].length,
+  getRange: (r, c, nr, nc) => ({
+    getNote: () => NOTES[r + ',' + c] || '',
+    setNote: v => { NOTES[r + ',' + c] = v; return SHEET_OBJ.getRange(r, c, nr, nc); },
+    setValue: v => { cell(r, c); SHEET[r - 1][c - 1] = v; return SHEET_OBJ.getRange(r, c, nr, nc); },
+    getValues: () => { cell(1, c); const o = []; for(let i = 0; i < (nr || 1); i++) o.push([SHEET[r - 1 + i][c - 1]]); return o; },
+    setValues: v => { v.forEach((x, i) => { SHEET[r - 1 + i][c - 1] = x[0]; }); }
+  }) };
+// the web-leads edge function, done here by the same SQL it calls
+function fakeEdge(url, opt){
+  const body = JSON.parse(opt.payload);
+  const did = JSON.parse(psql(`set role service_role; select web_lead_tracker_load(${lit(JSON.stringify(body.leads))}::jsonb)::text;`).split('\n').pop());
+  if(body.statuses) did.statuses = JSON.parse(psql(`set role service_role; select web_lead_sheet_statuses()::text;`).split('\n').pop());
+  return { getResponseCode: () => 200, getContentText: () => JSON.stringify(did) };
+}
 const sandbox = {
-  Logger: { log: function(){ sandbox._log.push(Array.from(arguments).join(' ')); } }, _log: [],
+  Logger: { log: function(){ const a = Array.from(arguments); let i = 1;
+    sandbox._log.push(String(a[0]).replace(/%s/g, () => a[i++])); } }, _log: [],
   Utilities: {
     formatDate: (d, z, f) => {
       const p = {}; new Intl.DateTimeFormat('en-CA', {timeZone: z, year:'numeric', month:'2-digit', day:'2-digit',
@@ -48,21 +70,23 @@ const sandbox = {
     computeDigest: (alg, s) => Array.from(crypto.createHash('sha256').update(s, 'utf8').digest()).map(b => b > 127 ? b - 256 : b),
     DigestAlgorithm: { SHA_256: 'sha256' }, Charset: { UTF_8: 'utf8' }
   },
-  SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheets: () => [{ getName: () => 'Sheet1',
-    getDataRange: () => ({ getValues: () => SHEET }) }] }) },
+  SpreadsheetApp: { getActiveSpreadsheet: () => ({ getSheets: () => [SHEET_OBJ] }) },
+  PropertiesService: { getScriptProperties: () => ({ getProperty: () => 'test-key' }) },
+  LockService: { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) },
+  UrlFetchApp: { fetch: fakeEdge },
   Date: Date, JSON: JSON, String: String, Object: Object, Math: Math, isNaN: isNaN
 };
 vm.createContext(sandbox);
 vm.runInContext(fs.readFileSync(ROOT + '/apps-script/gidc-web-leads.gs', 'utf8'), sandbox);
 const got = vm.runInContext('leadsForTracker_()', sandbox);
-check(got.ok && got.leads.length === 3, 'sheet script picks the 3 leads from the last 30 days (' + (got.leads || []).length + ')');
+check(got.ok && got.leads.length === 5, 'sheet script reads all 5 leads with a date (' + (got.leads || []).length + ')');
+check(got.leads.filter(l => l.recent).length === 3, '3 of them from the last 30 days');
 check(got.noDate === 1, 'and counts the 1 row with no readable date (' + got.noDate + ')');
 const ann = got.leads.find(l => l.first === 'Ann') || {};
 const heads = (ann.details || []).map(d => d[0]).join(',');
-check(heads === 'First Name,Last Name,Email,Phone,City,Message',
+check(heads === 'First Name,Last Name,Email,Phone,City,How did you hear about us?,Form,Message',
       'details are the other columns in sheet order, without Date, Status or Sold Price (' + heads + ')');
 check(/^[0-9a-f]{32}$/.test(ann.key || ''), 'a lead key is 32 hex characters');
-// the same lead after the sheet is sorted and a name fixed keeps its key
 SHEET[1][1] = 'Anne';
 const again = vm.runInContext('leadsForTracker_()', sandbox).leads.find(l => l.first === 'Anne');
 check(again && again.key === ann.key, 'fixing the name keeps the same key');
@@ -70,16 +94,32 @@ SHEET[1][1] = 'Ann';
 vm.runInContext('checkLeadTracker()', sandbox);
 console.log('     log: ' + sandbox._log.join(' / '));
 
-// ---- 2. into the database, as the edge function would ----------------
+// ---- 2. into the database, through the script's own send -------------
 psql(`delete from web_lead_events; delete from web_lead_tracker;
       update profiles set name = 'Reception' where id = md5('user')::uuid;`);
-psql(`set role service_role; select web_lead_tracker_load(${lit(JSON.stringify(got.leads))}::jsonb);`);
 psql(`select web_lead_sales_load(${lit(JSON.stringify([
-  {estimate_id: 7001, first_name: 'Bob', last_name: 'Lee', phones: '905 555 0000', created_on: new Date(NOW).toISOString().slice(0, 10)},
-  {estimate_id: 7002, first_name: 'Zed', last_name: 'Other', emails: 'zed@q.ca', created_on: '2026-11-01', sold_on: '2026-11-20', price: '4321'}
+  {estimate_id: 7001, first_name: 'Bob', last_name: 'Lee', phones: '905 555 0000', created_on: isoDay(new Date(NOW))},
+  {estimate_id: 7002, first_name: 'Zed', last_name: 'Other', emails: 'zed@q.ca', created_on: '2026-11-01', sold_on: '2026-11-20', price: '4321'},
+  {estimate_id: 7003, first_name: 'Sal', last_name: 'Sold', emails: 'SAL@s.ca', created_on: isoDay(ago(95)), sold_on: isoDay(ago(90)), price: '5000'}
 ]))}::jsonb, null);`);
-const n = psql('select count(*) from web_lead_tracker');
-console.log('     leads in the database: ' + n);
+sandbox._log.length = 0;
+vm.runInContext('sendLeadsToTracker()', sandbox);
+check(psql('select count(*) from web_lead_tracker') === '3', 'the five minute send loads the 3 recent leads');
+vm.runInContext('sendAllLeadsToTracker()', sandbox);
+console.log('     log: ' + sandbox._log.join(' / '));
+check(psql('select count(*) from web_lead_tracker') === '5', 'sending everything imports the old ones too');
+check(psql(`select status || ' ' || coalesce(estimate_id::text, '') from web_lead_tracker where first_name = 'Sal'`) === 'Sold 7003',
+      'a 100 day old lead that sold in Access is Sold and linked to 7003');
+check(psql(`select status || ' ' || status_by from web_lead_tracker where first_name = 'Old'`) === 'Lead No Response - Dead Automatic',
+      'a 75 day old lead that did not sell is Lead No Response - Dead, set automatically');
+const lsCol = SHEET[0].indexOf('Lead Status');
+check(lsCol === 11 && NOTES['1,12'], 'Lead Status column added at the end, marked as the script\'s');
+const ls = SHEET.slice(1).map(r => r[lsCol]);
+check(ls.join('|') === 'NEW LEAD|NEW LEAD|NEW LEAD|||Lead No Response - Dead|Sold', 'Lead Status filled for every lead row: ' + ls.join('|'));
+check(SHEET[1][9] === 'Not Booked', 'the Sold/Booked Status column is left alone');
+// a second send does not see Lead Status as a detail
+const again2 = vm.runInContext('leadsForTracker_()', sandbox).leads.find(l => l.first === 'Ann');
+check(!again2.details.some(d => d[0] === 'Lead Status'), 'Lead Status is not sent back as a detail');
 
 // ---- 3. the page ------------------------------------------------------
 function serve(dir, port){ return new Promise(ok => http.createServer((q, r) => {
@@ -135,12 +175,16 @@ async function mock(page){
   check(/name: 'Web Leads'/.test(landing) && /\.\/webleads\//.test(landing), 'landing page has a Web Leads tile');
   check(/Tools 3\.9/.test(landing), 'landing page says Tools 3.9');
   const names = await page.$$eval('.lead .who b', e => e.map(x => x.textContent));
-  check(names.join(',') === 'Ann Ray,Bob Lee,Cara Diaz', 'newest first: ' + names.join(', '));
+  check(names.join(',') === 'Ann Ray,Bob Lee,Cara Diaz,Old Lead', 'newest first: ' + names.join(', '));
   check(await page.$$eval('.lead.new', e => e.length) === 3, 'all three show as NEW LEAD');
   check(/^\(3\)/.test(await page.title()), 'the tab title counts the new leads (' + await page.title() + ')');
-  const chips = await page.$$eval('#chips button', e => e.map(x => x.innerText.replace(/\s+/g, ' ')));
-  check(chips.length === 11 && /NEW LEAD ?3/.test(chips.join('|')) && /Lead No Response - Dead ?0/.test(chips.join('|')),
-        'chips: Everything, Still to follow up, then the nine statuses');
+  const stOpts = await page.$$eval('#fstatus option', e => e.map(x => x.textContent));
+  check(stOpts.length === 12 && stOpts.indexOf('NEW LEAD (3)') > 0 && stOpts.indexOf('Lead No Response - Dead (1)') > 0 && stOpts.indexOf('Sold (0)') > 0 && stOpts[1] === 'Still to follow up (3)',
+        'status filter: every status, still to follow up, then the ten statuses with counts (' + stOpts.join(' | ') + ')');
+  const hearOpts = await page.$$eval('#fhear option', e => e.map(x => x.textContent));
+  check(hearOpts.join('|') === 'Any|Facebook (1)|Google (2)|Home show (1)', 'How did you hear about us filter: ' + hearOpts.join(' | '));
+  const formOpts = await page.$$eval('#fform option', e => e.map(x => x.textContent));
+  check(formOpts.join('|') === 'Any|Contact (3)|Quote (1)', 'Form filter: ' + formOpts.join(' | '));
   const opts = await page.$$eval('.lead select option', e => e.slice(0, 9).map(x => x.textContent));
   check(opts.join('|') === 'NEW LEAD|Initial Measure booked|In home estimate booked|Bringing Measurements booked|First Call No Answer|Second Call No Answer|Contact Email Sent|Contact Text Message Sent|Lead No Response - Dead',
         'status list in the order Andrew gave');
@@ -158,6 +202,8 @@ async function mock(page){
   check(psql(`select status || ' ' || status_by from web_lead_tracker where first_name = 'Ann'`) === 'First Call No Answer Reception',
         'a status change is saved with who set it');
   check(/^\(2\)/.test(await page.title()), 'two new leads left');
+  vm.runInContext('sendLeadsToTracker()', sandbox);
+  check(SHEET[1][SHEET[0].indexOf('Lead Status')] === 'First Call No Answer', 'the next send puts the new status in the sheet');
 
   // note
   const annCard = () => page.locator('.lead', {hasText: 'Ann Ray'});
@@ -186,9 +232,21 @@ async function mock(page){
   check(psql(`select coalesce(estimate_id::text, 'none') from web_lead_tracker where first_name = 'Cara'`) === 'none', 'Take the link off clears it');
 
   // filters and search
-  await page.locator('#chips button', {hasText: 'NEW LEAD'}).click();
-  check((await page.$$eval('.lead .who b', e => e.map(x => x.textContent))).join(',') === 'Bob Lee,Cara Diaz', 'NEW LEAD chip shows only new ones');
-  await page.locator('#chips button', {hasText: 'Everything'}).click();
+  await page.selectOption('#fstatus', 'NEW LEAD');
+  check((await page.$$eval('.lead .who b', e => e.map(x => x.textContent))).join(',') === 'Bob Lee,Cara Diaz', 'Status filter NEW LEAD shows only new ones');
+  await page.selectOption('#fstatus', '');
+  await page.selectOption('#fhear', 'Google');
+  check((await page.$$eval('.lead .who b', e => e.map(x => x.textContent))).join(',') === 'Ann Ray,Cara Diaz', 'How did you hear filter: Google');
+  await page.selectOption('#fhear', '');
+  await page.selectOption('#fform', 'Quote');
+  check((await page.$$eval('.lead .who b', e => e.map(x => x.textContent))).join(',') === 'Bob Lee', 'Form filter: Quote');
+  await page.selectOption('#fform', '');
+  await page.selectOption('#since', '');
+  await page.waitForFunction(() => /Sal Sold/.test(document.getElementById('list').innerText));
+  const sal = (await page.locator('.lead', {hasText: 'Sal Sold'}).innerText()).replace(/\s+/g, ' ');
+  check(/Set automatically/.test(sal) && /Linked to Access estimate 7003/.test(sal), 'Everything shows old Sal as Sold, set automatically, linked');
+  await page.selectOption('#since', '90');
+  await page.waitForFunction(() => !/Sal Sold/.test(document.getElementById('list').innerText));
   await page.fill('#q', 'voicemail');
   check((await page.$$eval('.lead .who b', e => e.map(x => x.textContent))).join(',') === 'Ann Ray', 'search finds a lead by its note');
   await page.fill('#q', '555-0000');

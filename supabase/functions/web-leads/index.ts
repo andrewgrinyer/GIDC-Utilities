@@ -34,6 +34,11 @@
 //                    "details": [ ["City", "..."], ["Message", "..."] ] } ] }
 //   details are every other column of the row, in the sheet's order.
 //     -> { "sent": 41, "added": 2 }
+//   With "statuses": true it also answers every lead's status in the
+//   tracker, { "statuses": { "9f2c...": "NEW LEAD", ... } }, which the
+//   sheet writes into its Lead Status column. Leads more than two months
+//   old that nobody has touched are marked Sold or Lead No Response - Dead
+//   by the load itself (web_lead_age_out).
 //   A lead already there keeps its status, notes and Access link; only
 //   the sheet's own details are refreshed. Rules in
 //   web_lead_tracker_load(), sql/web-leads-tracker.sql.
@@ -231,7 +236,13 @@ Deno.serve(async (req) => {
         { method: "POST", headers: asAdmin, body: JSON.stringify({ p_leads: leads }) });
       if (!ran.ok) return json({ error: "The leads would not load into the tracker", detail: await ran.text() }, 500);
       const did = await ran.json();
-      return json({ ...did, dropped: dropped || undefined });
+      let statuses: unknown = undefined;
+      if ((body as { statuses?: boolean }).statuses === true) {
+        const st = await call("statuses", `${url}/rest/v1/rpc/web_lead_sheet_statuses`,
+          { method: "POST", headers: asAdmin, body: "{}" });
+        if (st.ok) statuses = await st.json();
+      }
+      return json({ ...did, dropped: dropped || undefined, statuses });
     }
 
     return json({ error: "Say which: action load, match or track" }, 400);
