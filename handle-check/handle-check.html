@@ -66,7 +66,7 @@ td.r-bad{color:var(--bad);font-weight:600}td.r-ok{color:var(--ok)}
 <div id="out"></div>
 </main>
 <script>
-const HANDLE={latitude:1,lattitude:1,broadway:2,bowery:3,hobson:4,accent:5,bell:6,georgian:7,orbit:8,plymouth:9,siena:10,manhattan:11,whitney:12,alexandria:13,northbrook:15,andover:16,dempsey:17,eller:18,merano:null};
+const HANDLE={latitude:1,lattitude:1,broadway:2,bowery:3,hobson:4,accent:5,bell:6,georgian:7,orbit:8,plymouth:9,siena:10,manhattan:11,whitney:12,alexandria:13,northbrook:15,andover:16,dempsey:17,eller:18,merano:19,seville:21};
 const TRIM={standard:1,collins:2,upland:3,camelot:4,alden:5,kinsler:7,rosewood:8,century:9};
 const HN={},TN={};Object.entries(HANDLE).forEach(([k,v])=>{if(k!=='lattitude')HN[v]=k[0].toUpperCase()+k.slice(1)});Object.entries(TRIM).forEach(([k,v])=>TN[v]=k[0].toUpperCase()+k.slice(1));
 const expected=n=>{const m=String(n??'').match(/^\s*([RC])\s*-\s*(\S+)\s+(\S+)\s*$/i);if(!m)return null;const h=m[2].toLowerCase(),t=m[3].toLowerCase();if(!(h in HANDLE)||!(t in TRIM)||HANDLE[h]===null)return null;return[HANDLE[h],TRIM[t],m[1].toUpperCase()==='R'?1:2]};
@@ -97,8 +97,7 @@ function check(wb){
     let sent=[num(cell(U,'AB'+(37+n))),num(cell(U,'AC'+(37+n))),num(cell(U,'AD'+(37+n)))];
     if(sent.every(v=>v===null)){const k=look[String(name).trim().toLowerCase()];sent=k?[num(k[1]),num(k[2]),num(k[3])]:[0,0,0]}
     const e=expected(name);let res;
-    if(/merano/i.test(name))res='CHECK BY HAND: Access has no Merano handle number';
-    else if(!e)res=sent.every(v=>v===0)?'OK (no handle numbers)':'CANNOT CHECK';
+    if(!e)res=sent.every(v=>v===0)?'OK (no handle numbers)':'CANNOT CHECK';
     else if(same(sent,e))res='OK';
     else if(sent.every(v=>v===0))res='WRONG: no numbers, Access got 0';
     else res='WRONG';

@@ -30,7 +30,7 @@ print(json.dumps([[u['AB%d' % r].value, u['AC%d' % r].value, u['AD%d' % r].value
 // the numbers each handle and trim name must get (from the Data sheet's own
 // columns, where every handle and every trim keeps one number)
 const HANDLE = {Latitude:1, Lattitude:1, Broadway:2, Bowery:3, Hobson:4, Accent:5, Bell:6, Georgian:7, Orbit:8, Plymouth:9,
-  Siena:10, Manhattan:11, Whitney:12, Alexandria:13, Northbrook:15, Andover:16, Dempsey:17, Eller:18, Merano:0};
+  Siena:10, Manhattan:11, Whitney:12, Alexandria:13, Northbrook:15, Andover:16, Dempsey:17, Eller:18, Merano:19};
 const TRIM = {Standard:1, Collins:2, Upland:3, Camelot:4, Alden:5, Kinsler:7, Rosewood:8, Century:9};
 const expect = n => { const m = n.match(/^([RC])\s*-\s*(\S+)\s+(\S+)$/); return m && [HANDLE[m[2]], TRIM[m[3]], m[1] === 'R' ? 1 : 2]; };
 

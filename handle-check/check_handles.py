@@ -35,7 +35,7 @@ except ImportError:
 HANDLE = {"latitude": 1, "lattitude": 1, "broadway": 2, "bowery": 3, "hobson": 4, "accent": 5,
           "bell": 6, "georgian": 7, "orbit": 8, "plymouth": 9, "siena": 10, "manhattan": 11,
           "whitney": 12, "alexandria": 13, "northbrook": 15, "andover": 16, "dempsey": 17,
-          "eller": 18, "merano": None}   # Merano: no Access number known (workbooks send 0)
+          "eller": 18, "merano": 19, "seville": 21}   # Merano and Seville: Andrew, 26 Nov
 TRIM = {"standard": 1, "collins": 2, "upland": 3, "camelot": 4, "alden": 5, "kinsler": 7,
         "rosewood": 8, "century": 9}
 NAME = re.compile(r"^\s*([RC])\s*-\s*(\S+)\s+(\S+)\s*$", re.I)
@@ -115,9 +115,7 @@ def check_workbook(path):
             r = lookup.get(str(name).strip().lower())
             sent = (num(r[2]), num(r[4]), num(r[6])) if r else (0, 0, 0)
         exp = expected(name)
-        if re.search(r"merano", str(name), re.I):
-            result = "CHECK BY HAND: Access has no Merano handle number, it got %s" % (sent,)
-        elif exp is None:
+        if exp is None:
             result = "CANNOT CHECK (name not a Schlage handle)" if sent != (0, 0, 0) else "OK (no handle numbers)"
         elif sent == exp:
             result = "OK"
