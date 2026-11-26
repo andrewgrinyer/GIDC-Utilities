@@ -1,0 +1,401 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Grinyer · Sales Map</title>
+
+<!-- gidc-guard
+     who: admin. Andrew, 26 November: only administrators. The database
+     says the same thing underneath: can_see_sales_map() in
+     sql/sales-map.sql.
+
+     Andrew, 26 November: every retail customer on a map, filtered by the
+     estimate date, coloured by how far they got, to see the close rate
+     by distance from the showroom. Dealer orders are left out (the
+     server sync never sends them).
+
+     The colours (Andrew, 26 November):
+       red     in home visit booked, no showroom visit, not sold
+       yellow  in home visit, then a showroom visit, not sold
+       green   in home visit, then a showroom visit, sold
+       purple  sold without a showroom visit
+       blue    sold in the showroom without an in home visit
+     Orange was dropped: it was meant for no shows, which Access does not
+     record. So a showroom visit with no in home visit and no sale has no
+     colour and is not drawn.
+
+     Andrew, 26 November (1.1): filter by the measurement salesperson,
+     the estimate's SalesAssociateID as named in Access. -->
+<script>window.GIDC_TOOL = {who: 'admin'};</script>
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+<link rel="stylesheet" href="./leaflet.css">
+<script src="./leaflet.js"></script>
+
+<style>
+:root{
+  --paper:#F6F6F7; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --rule-soft:#EFEFF2;
+  --brass:#C80000; --brass-soft:#FCECEC;
+  --red:#D7262B; --yellow:#F4C20D; --green:#2E9E44; --purple:#7D3CB5; --blue:#1F6FE0;
+  --pad:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:1200px;margin:0 auto;padding:24px var(--pad) 72px}
+h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:18px;margin:28px 0 4px}
+.lede{margin:0 0 18px;color:var(--muted);max-width:70ch}
+.bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;background:var(--card);
+  border:1px solid var(--rule);border-radius:14px;padding:14px;margin-bottom:12px}
+.bar label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:3px}
+.bar input,.bar select{font:inherit;padding:7px 9px;border:1px solid var(--rule);border-radius:8px;background:#fff;color:var(--ink)}
+.quick{display:flex;flex-wrap:wrap;gap:6px}
+.quick button{font:inherit;font-size:13px;padding:7px 11px;border-radius:999px;border:1px solid var(--rule);
+  background:#fff;color:var(--ink);cursor:pointer}
+.quick button:hover{border-color:var(--brass);color:var(--brass)}
+#map{height:68vh;min-height:420px;border-radius:14px;border:1px solid var(--rule);background:#e8e8ea}
+.legend{background:rgba(255,255,255,.96);padding:10px 12px;border-radius:10px;
+  box-shadow:0 2px 10px rgba(0,0,0,.15);font-size:13px;line-height:1.35;min-width:230px}
+.legend b{display:block;margin-bottom:6px;font-size:13px}
+.legend label{display:flex;align-items:center;gap:8px;padding:3px 0;cursor:pointer}
+.legend .n{margin-left:auto;color:var(--muted);font-variant-numeric:tabular-nums}
+.dot{width:13px;height:13px;border-radius:50%;flex:none;border:1.5px solid rgba(0,0,0,.35)}
+.legend .note{color:var(--muted);font-size:12px;margin-top:6px;border-top:1px solid var(--rule-soft);padding-top:6px}
+.legend .ring{width:13px;height:13px;border-radius:50%;border:2px solid #555;background:#fff;flex:none}
+.legend svg{width:16px;height:16px;flex:none}
+.room-icon{background:none;border:none}
+.room-icon div{width:30px;height:30px;border-radius:8px;background:var(--ink);display:grid;place-items:center;
+  box-shadow:0 2px 6px rgba(0,0,0,.35);border:2px solid #fff}
+.room-icon svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.pop{font-size:13px;line-height:1.45}
+.pop b{font-size:14px}
+.pop .k{color:var(--muted)}
+.card{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:4px 0;overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums;font-size:14px}
+th,td{padding:8px 12px;text-align:right;white-space:nowrap;border-bottom:1px solid var(--rule-soft)}
+th:first-child,td:first-child{text-align:left}
+th{font-size:12px;color:var(--muted);font-weight:600}
+th .dot{display:inline-block;vertical-align:-2px;margin-right:4px}
+tr.total td{font-weight:700;border-bottom:none}
+td.rate{font-weight:700}
+.small{color:var(--muted);font-size:13px;margin:8px 2px 0;max-width:90ch}
+.msg{padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:14px}
+.msg.bad{background:var(--brass-soft);color:var(--brass)}
+.msg.wait{background:#FFF8E1;color:#7A5B00}
+.gidc-build{position:fixed;right:10px;bottom:8px;z-index:1000;font-size:11px;line-height:1;
+  color:#8E8E99;opacity:.7;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Sales Map</h1>
+  <p class="lede">Every retail customer from Access, by estimate date, coloured by how far they got. Dealer orders are left out. Distances are in a straight line to the nearest showroom.</p>
+
+  <div id="msg"></div>
+
+  <div class="bar">
+    <label>Estimate date from <input type="date" id="from"></label>
+    <label>to <input type="date" id="to"></label>
+    <div class="quick">
+      <button type="button" data-q="30d">Last 30 days</button>
+      <button type="button" data-q="90d">Last 90 days</button>
+      <button type="button" data-q="ytd">This year</button>
+      <button type="button" data-q="12m">Last 12 months</button>
+      <button type="button" data-q="all">Everything</button>
+    </div>
+    <label>Nearest showroom <select id="room"><option value="">All three</option></select></label>
+    <label>Measurement salesperson <select id="rep"><option value="">Everybody</option></select></label>
+  </div>
+
+  <div id="map" role="region" aria-label="Map of customers"></div>
+  <p class="small" id="mapnote"></p>
+
+  <h2>Close rate by distance from the nearest showroom</h2>
+  <p class="small" style="margin-top:0">Customers in the dates, showroom and salesperson chosen above, whichever colours are switched on in the legend. Close rate is sold out of all of them. With showroom is green out of green and yellow; in home only is purple out of purple and red.</p>
+  <div class="card"><table id="rates"></table></div>
+  <p class="small" id="ratenote"></p>
+</div>
+<div class="gidc-build">Sales Map 1.1 &middot; 26 Nov 2026</div>
+
+<script>
+(function(){
+'use strict';
+
+/* The colours, in legend order. Andrew, 26 November. The rule for each is
+   worked out from three dates the server sends for every customer:
+   measure_on (in home visit), showroom_on (showroom booking) and sold_on. */
+var KINDS = [
+  {key:'red',    label:'In home visit only, not sold',          colour:'#D7262B'},
+  {key:'yellow', label:'In home, then showroom, not sold',      colour:'#F4C20D'},
+  {key:'green',  label:'In home, then showroom, sold',          colour:'#2E9E44'},
+  {key:'purple', label:'Sold without a showroom visit',         colour:'#7D3CB5'},
+  {key:'blue',   label:'Sold in showroom, no in home visit',    colour:'#1F6FE0'}
+];
+var COLOUR = {}; KINDS.forEach(function(k){ COLOUR[k.key] = k.colour; });
+
+function kindOf(c){
+  var home = !!c.measure_on, show = !!c.showroom_on, sold = !!c.sold_on;
+  if(sold && show && home) return 'green';
+  if(sold && show)         return 'blue';
+  if(sold)                 return 'purple';
+  if(home && show)         return 'yellow';
+  if(home)                 return 'red';
+  return null;             /* showroom only, not sold: no colour (Orange dropped) */
+}
+
+/* Distance rings for the table, in km. */
+var RINGS = [[0,5],[5,10],[10,20],[20,30],[30,50],[50,Infinity]];
+
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function iso(d){ return d.getFullYear() + '-' + ('0'+(d.getMonth()+1)).slice(-2) + '-' + ('0'+d.getDate()).slice(-2); }
+function nice(s){
+  if(!s) return '';
+  var p = s.split('-'), m = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  return (+p[2]) + ' ' + m[(+p[1])-1] + ' ' + p[0];
+}
+function pct(a, b){ return b ? Math.round(100 * a / b) + '%' : ''; }
+function message(kind, text){ $('msg').innerHTML = text ? '<div class="msg ' + kind + '">' + text + '</div>' : ''; }
+
+function km(aLat, aLng, bLat, bLng){
+  var r = Math.PI / 180, dLat = (bLat - aLat) * r, dLng = (bLng - aLng) * r;
+  var h = Math.sin(dLat/2) * Math.sin(dLat/2) +
+          Math.cos(aLat * r) * Math.cos(bLat * r) * Math.sin(dLng/2) * Math.sin(dLng/2);
+  return 6371 * 2 * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+var CUSTOMERS = [], ROOMS = [], RUN = null;
+var SHOW = {red:true, yellow:true, green:true, purple:true, blue:true};
+var map, dots, legendBox;
+
+/* ---- reading ----------------------------------------------------------- */
+function readAll(path){
+  var out = [];
+  function page(from){
+    return GIDCAuth.api(path + '&offset=' + from + '&limit=1000', {headers: GIDCAuth.headers()})
+      .then(function(r){
+        if(!r.ok) return r.text().then(function(t){ throw new Error(r.status + ' ' + t); });
+        return r.json();
+      }).then(function(rows){
+        out = out.concat(rows);
+        return rows.length === 1000 ? page(from + 1000) : out;
+      });
+  }
+  return page(0);
+}
+
+var COLS = 'estimate_id,order_no,name,address,city,postal,created_on,measure_on,showroom_on,sold_on,lat,lng,placed_by';
+/* rep came with Sales Map 1.1. Asked for first; a database that has not had
+   the 1.1 SQL yet answers 400, and the map still opens without it. */
+function readCustomers(){
+  return readAll('/rest/v1/sales_map_customers?select=' + COLS + ',rep&order=estimate_id.asc')
+    .catch(function(e){
+      if(!/^400/.test(e.message)) throw e;
+      return readAll('/rest/v1/sales_map_customers?select=' + COLS + '&order=estimate_id.asc');
+    });
+}
+function load(){
+  message('wait', 'Reading the customers…');
+  return Promise.all([
+    readCustomers(),
+    readAll('/rest/v1/sales_map_showrooms?select=name,address,lat,lng,sort&order=sort.asc'),
+    readAll('/rest/v1/sales_map_runs?select=ran_at,counts')
+  ]).then(function(got){
+    ROOMS = got[1].filter(function(s){ return s.lat != null && s.lng != null; });
+    RUN = got[2][0] || null;
+    CUSTOMERS = got[0].map(function(c){
+      c.kind = kindOf(c);
+      if(c.lat != null && ROOMS.length){
+        var best = null;
+        ROOMS.forEach(function(s){
+          var d = km(c.lat, c.lng, s.lat, s.lng);
+          if(!best || d < best.d) best = {d:d, room:s.name};
+        });
+        c.km = best.d; c.room = best.room;
+      }
+      return c;
+    }).filter(function(c){ return c.kind; });
+    message('', '');
+    if(!got[0].length) message('wait', 'Nothing has come in from Access yet. Once the server sync has run, the customers show here.');
+    else if(!ROOMS.length) message('wait', 'The showrooms have not been placed on the map yet, so distances cannot be worked out. The server sync places them on its next run.');
+    var sel = $('room');
+    sel.innerHTML = '<option value="">All three</option>' + got[1].map(function(s){
+      return '<option value="' + esc(s.name) + '">' + esc(s.name) + '</option>'; }).join('');
+    var reps = {}, noRep = false;
+    CUSTOMERS.forEach(function(c){ if(c.rep) reps[c.rep] = 1; else noRep = true; });
+    $('rep').innerHTML = '<option value="">Everybody</option>' + Object.keys(reps).sort().map(function(r){
+      return '<option value="' + esc(r) + '">' + esc(r) + '</option>'; }).join('') +
+      (noRep && Object.keys(reps).length ? '<option value="(none)">No salesperson</option>' : '');
+    drawRooms();
+    draw();
+  }).catch(function(e){
+    message('bad', 'The map data could not be read (' + esc(e.message) + '). If this says permission, the Sales Map is for administrators only.');
+  });
+}
+
+/* ---- the map ------------------------------------------------------------ */
+var BUILDING = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 21h18"/><path d="M5 21V8l7-5 7 5v13"/><path d="M9 21v-6h6v6"/><path d="M9 10h.01M15 10h.01"/></svg>';
+
+function makeMap(){
+  map = L.map('map', {zoomControl: true, preferCanvas: true}).setView([43.45, -79.95], 9);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+  }).addTo(map);
+  L.control.scale({imperial: false}).addTo(map);
+  dots = L.layerGroup().addTo(map);
+
+  var Legend = L.Control.extend({
+    options: {position: 'bottomleft'},
+    onAdd: function(){
+      legendBox = L.DomUtil.create('div', 'legend');
+      L.DomEvent.disableClickPropagation(legendBox);
+      L.DomEvent.disableScrollPropagation(legendBox);
+      legendBox.addEventListener('change', function(e){
+        if(e.target && e.target.dataset.k){ SHOW[e.target.dataset.k] = e.target.checked; draw(); }
+      });
+      return legendBox;
+    }
+  });
+  map.addControl(new Legend());
+}
+
+var roomLayer;
+function drawRooms(){
+  if(roomLayer) roomLayer.remove();
+  roomLayer = L.layerGroup().addTo(map);
+  var icon = L.divIcon({className: 'room-icon', html: '<div>' + BUILDING + '</div>', iconSize: [30, 30], iconAnchor: [15, 15]});
+  ROOMS.forEach(function(s){
+    L.marker([s.lat, s.lng], {icon: icon, zIndexOffset: 1000, title: s.name + ' showroom'})
+      .bindPopup('<div class="pop"><b>' + esc(s.name) + ' showroom</b><br>' + esc(s.address) + '</div>')
+      .addTo(roomLayer);
+  });
+}
+
+function popup(c){
+  var rows = [];
+  rows.push('<b>' + esc(c.name || 'No name') + '</b>');
+  rows.push(esc([c.address, c.city].filter(Boolean).join(', ')));
+  rows.push('<span class="k">Estimate</span> ' + esc(c.estimate_id) + (c.order_no ? ' &middot; <span class="k">job</span> ' + esc(c.order_no) : ''));
+  rows.push('<span class="k">Estimate date</span> ' + nice(c.created_on));
+  if(c.measure_on)  rows.push('<span class="k">In home visit</span> ' + nice(c.measure_on));
+  if(c.showroom_on) rows.push('<span class="k">Showroom</span> ' + nice(c.showroom_on));
+  if(c.sold_on)     rows.push('<span class="k">Sold</span> ' + nice(c.sold_on));
+  if(c.rep)         rows.push('<span class="k">Measurement salesperson</span> ' + esc(c.rep));
+  if(c.km != null)  rows.push('<span class="k">Nearest showroom</span> ' + esc(c.room) + ', ' + c.km.toFixed(1) + ' km');
+  if(c.placed_by === 'postal') rows.push('<span class="k">Placed by postal code only, so near but not on the house.</span>');
+  return '<div class="pop">' + rows.join('<br>') + '</div>';
+}
+
+/* ---- what is chosen ------------------------------------------------------ */
+function chosen(){
+  var from = $('from').value, to = $('to').value, room = $('room').value, rep = $('rep').value;
+  return CUSTOMERS.filter(function(c){
+    if(from && c.created_on < from) return false;
+    if(to && c.created_on > to) return false;
+    if(room && c.room !== room) return false;
+    if(rep === '(none)' ? !!c.rep : (rep && c.rep !== rep)) return false;
+    return true;
+  });
+}
+
+function draw(){
+  var list = chosen();
+  var count = {}; KINDS.forEach(function(k){ count[k.key] = 0; });
+  var off = 0, postal = 0;
+  dots.clearLayers();
+  /* sold drawn last so they sit on top */
+  var order = {red:0, yellow:1, purple:2, blue:3, green:4};
+  list.slice().sort(function(a, b){ return order[a.kind] - order[b.kind]; }).forEach(function(c){
+    count[c.kind]++;
+    if(c.lat == null){ off++; return; }
+    if(!SHOW[c.kind]) return;
+    if(c.placed_by === 'postal') postal++;
+    var hollow = c.placed_by === 'postal';
+    L.circleMarker([c.lat, c.lng], {
+      radius: 6, weight: hollow ? 2.5 : 1, color: hollow ? COLOUR[c.kind] : 'rgba(0,0,0,.45)',
+      fillColor: COLOUR[c.kind], fillOpacity: hollow ? 0.15 : 0.9
+    }).bindPopup(popup(c)).addTo(dots);
+  });
+
+  legendBox.innerHTML = '<b>Customers</b>' + KINDS.map(function(k){
+    return '<label><input type="checkbox" data-k="' + k.key + '"' + (SHOW[k.key] ? ' checked' : '') + '>' +
+      '<span class="dot" style="background:' + k.colour + '"></span>' + esc(k.label) +
+      '<span class="n">' + count[k.key] + '</span></label>';
+  }).join('') +
+  '<label style="cursor:default"><span style="width:13px"></span><span class="room-icon" style="display:inline-block">' +
+    '<div style="width:18px;height:18px;border-radius:5px;border-width:1px">' + BUILDING.replace('<svg', '<svg style="width:12px;height:12px"') + '</div></span>Showroom</label>' +
+  '<div class="note">Hollow dot: placed by postal code only.<br>Untick a colour to hide it.</div>';
+
+  var notes = [];
+  if(off) notes.push(off + ' customer' + (off === 1 ? '' : 's') + ' in these dates could not be put on the map (the address was not found, or is still being looked up), so they count in the table under no distance.');
+  if(postal) notes.push(postal + ' dot' + (postal === 1 ? ' is' : 's are') + ' placed by postal code only.');
+  if(RUN) notes.push('Last sent from Access ' + new Date(RUN.ran_at).toLocaleString('en-CA', {dateStyle: 'medium', timeStyle: 'short'}) + '.');
+  if(RUN && RUN.counts && RUN.counts.waiting) notes.push(RUN.counts.waiting + ' address' + (RUN.counts.waiting === 1 ? ' is' : 'es are') + ' still waiting to be looked up; the hourly sync carries on with them.');
+  $('mapnote').textContent = notes.join(' ');
+
+  drawRates(list.filter(function(c){ return SHOW[c.kind]; }));
+}
+
+function drawRates(list){
+  function blank(){ var o = {all:0}; KINDS.forEach(function(k){ o[k.key] = 0; }); return o; }
+  var rows = RINGS.map(function(r){ var o = blank(); o.label = r[1] === Infinity ? 'Over ' + r[0] + ' km' : r[0] + ' to ' + r[1] + ' km'; o.r = r; return o; });
+  var none = blank(); none.label = 'No distance';
+  var total = blank(); total.label = 'All';
+  list.forEach(function(c){
+    var row = none;
+    if(c.km != null) for(var i = 0; i < RINGS.length; i++) if(c.km >= RINGS[i][0] && c.km < RINGS[i][1]){ row = rows[i]; break; }
+    row[c.kind]++; row.all++; total[c.kind]++; total.all++;
+  });
+  if(none.all) rows.push(none);
+  rows.push(total);
+
+  var head = '<tr><th>Distance</th><th>Customers</th>' + KINDS.map(function(k){
+    return '<th><span class="dot" style="background:' + k.colour + '"></span>' + k.key.charAt(0).toUpperCase() + k.key.slice(1) + '</th>'; }).join('') +
+    '<th>Sold</th><th>Close rate</th><th>With showroom</th><th>In home only</th></tr>';
+  var body = rows.map(function(o){
+    var sold = o.green + o.purple + o.blue;
+    return '<tr' + (o === total ? ' class="total"' : '') + '><td>' + esc(o.label) + '</td><td>' + o.all + '</td>' +
+      KINDS.map(function(k){ return '<td>' + (o[k.key] || '') + '</td>'; }).join('') +
+      '<td>' + sold + '</td><td class="rate">' + pct(sold, o.all) + '</td>' +
+      '<td>' + pct(o.green, o.green + o.yellow) + '</td><td>' + pct(o.purple, o.purple + o.red) + '</td></tr>';
+  }).join('');
+  $('rates').innerHTML = head + body;
+  $('ratenote').textContent = list.length ? '' : 'No customers in these dates.';
+}
+
+/* ---- the date buttons ------------------------------------------------------ */
+function quick(q){
+  var now = new Date(), from = '';
+  if(q === '30d') from = iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 30));
+  if(q === '90d') from = iso(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 90));
+  if(q === 'ytd') from = now.getFullYear() + '-01-01';
+  if(q === '12m') from = iso(new Date(now.getFullYear() - 1, now.getMonth(), now.getDate()));
+  $('from').value = from;
+  $('to').value = q === 'all' ? '' : iso(now);
+  if(map) draw();
+}
+document.querySelectorAll('.quick button').forEach(function(b){
+  b.addEventListener('click', function(){ quick(b.dataset.q); });
+});
+['from', 'to', 'room', 'rep'].forEach(function(id){ $(id).addEventListener('change', function(){ if(map) draw(); }); });
+
+/* ---- start ----------------------------------------------------------------- */
+quick('12m');
+GIDCAuth.load();
+GIDCAuth.whoami().then(function(me){
+  if(!me || !GIDCAuth.mayOpen(me, 'admin')) return;   /* the guard is already holding the page */
+  makeMap();
+  draw();
+  load();
+});
+})();
+</script>
+</body>
+</html>
