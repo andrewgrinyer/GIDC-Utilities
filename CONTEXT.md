@@ -45,7 +45,10 @@ are in `powershell/`.
 
 **The Google Sheet**, which the website contact form writes to. An Apps
 Script in it counts submissions per day and posts them to the same edge
-function. In `apps-script/`.
+function. In `apps-script/`. Since 26 November 2026 it also marks each lead
+Sold or Unsold with a Sold Price, hourly, in two columns it adds at the end
+(matched by email, then phone, then name, against sold jobs the server sends
+through the `web-leads` edge function; `sql/web-leads-sold.sql`).
 
 ---
 
@@ -76,6 +79,7 @@ edge functions for anything needing an admin key.
 | `kpi-import` | the only door numbers come in through | `KPI_IMPORT_KEY` |
 | `send-goback` | emails a go back to the office | `RESEND_API_KEY` |
 | `send-order-function` | emails a dealer order | `RESEND_API_KEY` |
+| `web-leads` | sold jobs in from the server, Sold or Unsold out to the leads sheet | `KPI_IMPORT_KEY` |
 
 `kpi-import` writes all rows or none. One bad row rejects the batch with
 a sentence naming which. That is deliberate: a half imported night is
