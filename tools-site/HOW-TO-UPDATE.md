@@ -1,6 +1,6 @@
 # GIDC Tools, all in one
 
-One Cloudflare Pages project serves the landing page and fourteen tools. Upload this
+One Cloudflare Pages project serves the landing page and fifteen tools. Upload this
 zip to the project that already answers on tools.gidc.ca and everything goes
 live together.
 
@@ -20,6 +20,7 @@ live together.
     tools.gidc.ca/paint/         Paint, under Order Supplies
     tools.gidc.ca/supplies/order/?c=shop     Shop Supplies (also sanding, install)
     tools.gidc.ca/salesmap/      Sales Map (administrators only)
+    tools.gidc.ca/webleads/      Web Leads (administrators and office staff)
 
 No subdomains, no DNS, no certificates. The tiles link to the folders sitting
 beside them, so they work whatever address the project ends up on.

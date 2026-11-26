@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Grinyer · Web Leads</title>
+
+<!-- gidc-guard
+     who: admin and user (office staff, "Staff" on the People screen),
+     where the receptionist sits. The database says the same thing
+     underneath: can_use_web_leads() in sql/web-leads-tracker.sql.
+
+     Andrew, 26 November 2026: every lead from the website form loads by
+     itself (the Google Sheet script sends them every five minutes) and
+     shows as NEW LEAD. The receptionist sets the status, writes notes,
+     and once the lead is booked links it to its estimate in Access. A
+     web lead is not in Access until an appointment is made, so the page
+     suggests the likeliest estimate but only links when somebody says so.
+
+     The statuses come from web_lead_statuses in the database, in
+     Andrew's order. "Done" ones (the three booked and Dead) can be
+     hidden with the Still to follow up button. -->
+<script>window.GIDC_TOOL = {who: ['admin', 'user']};</script>
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<style>
+:root{
+  --paper:#F6F6F7; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --rule-soft:#EFEFF2;
+  --brass:#C80000; --brass-soft:#FCECEC;
+  --green:#1E7B34; --green-soft:#E6F4EA; --amber:#7A5B00; --amber-soft:#FFF8E1;
+  --blue:#1A56B8; --blue-soft:#E8F0FD; --grey-soft:#F0F0F2;
+  --pad:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:1100px;margin:0 auto;padding:24px var(--pad) 72px}
+h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:-.01em}
+.lede{margin:0 0 18px;color:var(--muted);max-width:72ch}
+.bar{display:flex;flex-wrap:wrap;gap:10px 14px;align-items:flex-end;background:var(--card);
+  border:1px solid var(--rule);border-radius:14px;padding:14px;margin-bottom:12px}
+.bar label{display:flex;flex-direction:column;font-size:12px;color:var(--muted);gap:3px}
+.bar input,.bar select{font:inherit;padding:7px 9px;border:1px solid var(--rule);border-radius:8px;background:#fff;color:var(--ink)}
+.bar .grow{flex:1 1 220px}
+.bar .grow input{width:100%}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 14px}
+.chips button{font:inherit;font-size:13px;padding:6px 11px;border-radius:999px;border:1px solid var(--rule);
+  background:#fff;color:var(--ink);cursor:pointer}
+.chips button .n{color:var(--muted);margin-left:5px;font-variant-numeric:tabular-nums}
+.chips button.on{background:var(--ink);border-color:var(--ink);color:#fff}
+.chips button.on .n{color:#ccc}
+.lead{background:var(--card);border:1px solid var(--rule);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+.lead.new{border-color:var(--brass);box-shadow:inset 4px 0 0 var(--brass)}
+.top{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:flex-start}
+.who{flex:1 1 300px;min-width:0}
+.who b{font-size:17px}
+.when{color:var(--muted);font-size:13px}
+.contact{display:flex;flex-wrap:wrap;gap:4px 14px;margin-top:2px;font-size:14px}
+.contact a{color:var(--blue);text-decoration:none;word-break:break-all}
+.contact a:hover{text-decoration:underline}
+.said{margin:8px 0 0;color:var(--ink);font-size:14px;white-space:pre-wrap;max-height:4.6em;overflow:hidden}
+.side{display:flex;flex-direction:column;gap:6px;align-items:stretch;flex:0 1 270px}
+.side select{font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;background:#fff;width:100%}
+.side select.s-new{border-color:var(--brass);color:var(--brass);font-weight:600}
+.side select.s-done{border-color:var(--green);color:var(--green)}
+.side .by{font-size:12px;color:var(--muted)}
+.acc{margin-top:10px;font-size:13px;border-radius:10px;padding:8px 10px;display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center}
+.acc.linked{background:var(--green-soft);color:var(--green)}
+.acc.guess{background:var(--amber-soft);color:var(--amber)}
+.acc.none{background:var(--grey-soft);color:var(--muted)}
+.acc input{font:inherit;font-size:13px;width:140px;padding:5px 8px;border:1px solid var(--rule);border-radius:7px}
+button.small{font:inherit;font-size:13px;padding:5px 10px;border-radius:7px;border:1px solid var(--rule);background:#fff;color:var(--ink);cursor:pointer}
+button.small:hover{border-color:var(--brass);color:var(--brass)}
+button.go{background:var(--brass);border-color:var(--brass);color:#fff}
+button.go:hover{color:#fff;opacity:.9}
+button.link{border:none;background:none;padding:0;color:var(--blue);cursor:pointer;font:inherit;font-size:13px}
+.lastnote{margin-top:10px;font-size:14px;border-left:3px solid var(--rule);padding:2px 0 2px 10px}
+.lastnote .by{color:var(--muted);font-size:12px}
+.more{margin-top:8px}
+.panel{margin-top:10px;border-top:1px solid var(--rule-soft);padding-top:10px}
+.panel textarea{width:100%;min-height:64px;font:inherit;font-size:14px;padding:8px 10px;border:1px solid var(--rule);border-radius:8px;resize:vertical}
+.panel .row{display:flex;gap:8px;align-items:center;margin-top:6px;flex-wrap:wrap}
+.hist{list-style:none;margin:10px 0 0;padding:0;font-size:13px}
+.hist li{padding:5px 0;border-bottom:1px solid var(--rule-soft)}
+.hist .k{color:var(--muted)}
+.hist .st{font-weight:600}
+dl.det{display:grid;grid-template-columns:max-content 1fr;gap:3px 12px;margin:12px 0 0;font-size:13px}
+dl.det dt{color:var(--muted)}
+dl.det dd{margin:0;white-space:pre-wrap;word-break:break-word}
+.msg{padding:10px 14px;border-radius:10px;margin-bottom:12px;font-size:14px}
+.msg.bad{background:var(--brass-soft);color:var(--brass)}
+.msg.wait{background:var(--amber-soft);color:var(--amber)}
+.msg.ok{background:var(--green-soft);color:var(--green)}
+.empty{color:var(--muted);padding:30px 0;text-align:center}
+.foot{color:var(--muted);font-size:12px;margin-top:16px}
+.gidc-build{position:fixed;right:10px;bottom:8px;z-index:1000;font-size:11px;line-height:1;
+  color:#8E8E99;opacity:.7;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media (max-width:620px){ .side{flex:1 1 100%} h1{font-size:23px} }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Web Leads</h1>
+  <p class="lede">Every lead from the website form, newest first. A new one arrives within about five minutes and shows as NEW LEAD. Set the status, write a note after each call, and once the lead is booked link it to its estimate in Access.</p>
+
+  <div id="msg"></div>
+
+  <div class="bar">
+    <label class="grow">Search <input type="search" id="q" placeholder="Name, phone, email, note or estimate number"></label>
+    <label>Came in <select id="since">
+      <option value="30">Last 30 days</option>
+      <option value="90" selected>Last 90 days</option>
+      <option value="365">Last 12 months</option>
+      <option value="">Everything</option>
+    </select></label>
+  </div>
+  <div class="chips" id="chips"></div>
+  <div id="list"></div>
+  <p class="foot" id="foot"></p>
+</div>
+<div class="gidc-build">Web Leads 1.0 &middot; Tools 3.9 &middot; 26 Nov 2026</div>
+
+<script>
+(function(){
+'use strict';
+
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){
+  return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+var ZONE = 'America/Toronto';
+var MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+function torontoParts(d){
+  var p = {};
+  new Intl.DateTimeFormat('en-CA', {timeZone: ZONE, year:'numeric', month:'2-digit', day:'2-digit',
+    hour:'numeric', minute:'2-digit', hour12:true}).formatToParts(d).forEach(function(x){ p[x.type] = x.value; });
+  return p;
+}
+function dayKey(d){ var p = torontoParts(d); return p.year + '-' + p.month + '-' + p.day; }
+function niceDay(s){ if(!s) return ''; var p = String(s).slice(0,10).split('-'); return (+p[2]) + ' ' + MONTHS[(+p[1])-1] + ' ' + p[0]; }
+function niceWhen(iso){
+  if(!iso) return '';
+  var d = new Date(iso); if(isNaN(d)) return '';
+  var p = torontoParts(d), time = p.hour + ':' + p.minute + ' ' + String(p.dayPeriod || '').replace(/\./g,'').toLowerCase();
+  var today = dayKey(new Date()), yest = dayKey(new Date(Date.now() - 86400000)), k = dayKey(d);
+  if(k === today) return 'Today ' + time;
+  if(k === yest) return 'Yesterday ' + time;
+  return niceDay(k) + ', ' + time;
+}
+function money(n){ return n == null ? '' : '$' + Number(n).toLocaleString('en-CA', {minimumFractionDigits:2, maximumFractionDigits:2}); }
+function message(kind, html){ $('msg').innerHTML = html ? '<div class="msg ' + kind + '">' + html + '</div>' : ''; }
+
+var STATUSES = [], DONE = {}, LEADS = [], BOARD = null;
+var FILTER = '';            /* '' everything, '__open' still to follow up, or a status name */
+var OPEN = {}, DRAFT = {}, BUSY = false, LOADED_ONCE = false;
+
+/* ---- talking to Supabase -------------------------------------------- */
+function rpc(name, args){
+  return GIDCAuth.api('/rest/v1/rpc/' + name, {method:'POST', body: JSON.stringify(args || {})})
+    .then(function(r){
+      return r.text().then(function(t){
+        var j = null; try{ j = t ? JSON.parse(t) : null; }catch(e){}
+        if(!r.ok){
+          var why = j && (j.message || j.error) || t || ('error ' + r.status);
+          if(r.status === 404) why = 'The Web Leads part of the database is not set up yet (run web-leads-tracker.sql).';
+          throw new Error(why);
+        }
+        return j;
+      });
+    });
+}
+function sinceDate(){
+  var v = $('since').value; if(!v) return null;
+  return dayKey(new Date(Date.now() - (+v) * 86400000));
+}
+
+function load(quiet){
+  if(!quiet) message('wait', 'Reading the leads…');
+  return rpc('web_leads_board', {p_from: sinceDate()}).then(function(b){
+    BOARD = b;
+    STATUSES = (b.statuses || []).map(function(s){ return s.name; });
+    DONE = {}; (b.statuses || []).forEach(function(s){ DONE[s.name] = !!s.done; });
+    LEADS = b.leads || [];
+    LOADED_ONCE = true;
+    if(!quiet || /Reading/.test($('msg').textContent)) message('', '');
+    draw();
+  }).catch(function(e){
+    if(quiet && LOADED_ONCE) return;   /* a missed refresh is not worth a red box */
+    message('bad', 'The leads could not be read: ' + esc(e.message));
+  });
+}
+
+/* ---- what is shown --------------------------------------------------- */
+function nameOf(l){
+  var n = [l.first_name, l.last_name].filter(Boolean).join(' ') || l.name || '';
+  return n || 'No name given';
+}
+var SAID = /message|comment|question|project|describe|detail|tell|note|enquiry|inquiry|interest|service|product/i;
+/* The sheet's other columns, as [header, value] pairs in the sheet's order. */
+function pairs(l){
+  var d = l.details || [];
+  if(Array.isArray(d)) return d.filter(function(p){ return Array.isArray(p) && p.length > 1; });
+  return Object.keys(d).map(function(k){ return [k, d[k]]; });
+}
+function saidOf(l){
+  return pairs(l).filter(function(p){ return SAID.test(p[0]); }).map(function(p){ return p[1]; }).join('\n');
+}
+function lastNote(l){
+  var ev = (l.events || []).filter(function(e){ return e.kind === 'note'; });
+  return ev.length ? ev[ev.length - 1] : null;
+}
+function matches(l, q){
+  if(!q) return true;
+  var hay = [nameOf(l), l.email, l.phone, l.estimate_id, l.status,
+             JSON.stringify(l.details || {})].concat((l.events || []).map(function(e){ return e.body; }))
+             .join(' ').toLowerCase();
+  var digits = q.replace(/\D/g, '');
+  if(digits.length >= 4 && String(l.phone || '').replace(/\D/g, '').indexOf(digits) !== -1) return true;
+  return q.toLowerCase().split(/\s+/).every(function(w){ return hay.indexOf(w) !== -1; });
+}
+function shown(){
+  var q = $('q').value.trim();
+  return LEADS.filter(function(l){
+    if(FILTER === '__open' && DONE[l.status]) return false;
+    if(FILTER && FILTER !== '__open' && l.status !== FILTER) return false;
+    return matches(l, q);
+  });
+}
+
+function drawChips(){
+  var counts = {}, open = 0;
+  LEADS.forEach(function(l){ counts[l.status] = (counts[l.status] || 0) + 1; if(!DONE[l.status]) open++; });
+  var html = '<button type="button" data-f=""' + (FILTER === '' ? ' class="on"' : '') + '>Everything<span class="n">' + LEADS.length + '</span></button>' +
+    '<button type="button" data-f="__open"' + (FILTER === '__open' ? ' class="on"' : '') + '>Still to follow up<span class="n">' + open + '</span></button>';
+  STATUSES.forEach(function(s){
+    html += '<button type="button" data-f="' + esc(s) + '"' + (FILTER === s ? ' class="on"' : '') + '>' + esc(s) +
+            '<span class="n">' + (counts[s] || 0) + '</span></button>';
+  });
+  $('chips').innerHTML = html;
+  var fresh = counts['NEW LEAD'] || 0;
+  document.title = (fresh ? '(' + fresh + ') ' : '') + 'Grinyer · Web Leads';
+}
+
+function accessHtml(l){
+  var k = esc(l.lead_key);
+  if(l.estimate_id){
+    var a = l.access;
+    var said = 'Linked to Access estimate <b>' + esc(l.estimate_id) + '</b>';
+    if(a){
+      said += ' &middot; ' + esc(a.name || '') + (a.created_on ? ', made ' + niceDay(a.created_on) : '') +
+              (a.sold_on ? ' &middot; <b>Sold ' + niceDay(a.sold_on) + '</b>' + (a.price != null ? ' ' + money(a.price) : '') : '');
+    } else if(BOARD && BOARD.access_copy){
+      said += ' &middot; not in the hourly copy from Access yet';
+    }
+    return '<div class="acc linked">' + said +
+      '<button type="button" class="link" data-unlink="' + k + '">Take the link off</button></div>';
+  }
+  var box = '<input inputmode="numeric" placeholder="Estimate number" data-estbox="' + k + '" value="' + esc(DRAFT['e' + l.lead_key] || '') + '">' +
+            '<button type="button" class="small" data-linktyped="' + k + '">Link</button>';
+  if(l.suggest){
+    var g = l.suggest;
+    return '<div class="acc guess">Access may have this one: estimate <b>' + esc(g.estimate_id) + '</b> ' +
+      esc(g.name || '') + (g.created_on ? ', made ' + niceDay(g.created_on) : '') +
+      (g.sold_on ? ', sold ' + niceDay(g.sold_on) : '') + ' (same ' + esc(g.by) + ')' +
+      '<button type="button" class="small go" data-linkguess="' + k + '" data-est="' + esc(g.estimate_id) + '">Link it</button>' +
+      '<span>or</span>' + box + '</div>';
+  }
+  return '<div class="acc none">Not linked to Access. Once booked, type the estimate number:' + box + '</div>';
+}
+
+function leadHtml(l){
+  var k = esc(l.lead_key), isNew = l.status === 'NEW LEAD';
+  var cls = isNew ? 's-new' : DONE[l.status] ? 's-done' : '';
+  var opts = STATUSES.map(function(s){
+    return '<option' + (s === l.status ? ' selected' : '') + '>' + esc(s) + '</option>'; }).join('');
+  var phone = l.phone ? String(l.phone).split(/;\s*/).map(function(p){
+    return '<a href="tel:' + esc(p.replace(/[^\d+]/g, '')) + '">' + esc(p) + '</a>'; }).join(' ') : '';
+  var email = l.email ? String(l.email).split(/;\s*/).map(function(e){
+    return '<a href="mailto:' + esc(e) + '">' + esc(e) + '</a>'; }).join(' ') : '';
+  var said = saidOf(l), note = lastNote(l), n = (l.events || []).length;
+  var h = '<div class="lead' + (isNew ? ' new' : '') + '" data-lead="' + k + '">' +
+    '<div class="top"><div class="who"><b>' + esc(nameOf(l)) + '</b> <span class="when">' + esc(niceWhen(l.received_at) || niceDay(l.lead_day)) + '</span>' +
+      '<div class="contact">' + (phone || '<span class="when">No phone</span>') + (email || '<span class="when">No email</span>') + '</div>' +
+      (said ? '<p class="said">' + esc(said) + '</p>' : '') + '</div>' +
+    '<div class="side"><select data-status="' + k + '" class="' + cls + '" aria-label="Status">' + opts + '</select>' +
+      (l.status_by ? '<span class="by">Set by ' + esc(l.status_by) + ', ' + esc(niceWhen(l.status_at)) + '</span>' : '') +
+    '</div></div>' +
+    accessHtml(l) +
+    (note ? '<div class="lastnote">' + esc(note.body) + '<div class="by">' + esc(note.by || '') + ', ' + esc(niceWhen(note.at)) + '</div></div>' : '') +
+    '<div class="more"><button type="button" class="link" data-toggle="' + k + '">' +
+      (OPEN[l.lead_key] ? 'Close' : 'Add a note, see everything' + (n ? ' (' + n + ' in the history)' : '')) + '</button></div>';
+  if(OPEN[l.lead_key]){
+    h += '<div class="panel"><textarea data-note="' + k + '" placeholder="What happened on the call, when to try again">' + esc(DRAFT['n' + l.lead_key] || '') + '</textarea>' +
+      '<div class="row"><button type="button" class="small go" data-addnote="' + k + '">Save note</button></div>';
+    if(n){
+      h += '<ul class="hist">' + l.events.slice().reverse().map(function(e){
+        var what = e.kind === 'status' ? 'Status set to <span class="st">' + esc(e.body) + '</span>'
+                 : e.kind === 'link' ? esc(e.body) : esc(e.body);
+        return '<li>' + what + ' <span class="k">' + esc(e.by || '') + ', ' + esc(niceWhen(e.at)) + '</span></li>';
+      }).join('') + '</ul>';
+    }
+    var det = pairs(l);
+    if(det.length){
+      h += '<dl class="det">' + det.map(function(p){ return '<dt>' + esc(p[0]) + '</dt><dd>' + esc(p[1]) + '</dd>'; }).join('') + '</dl>';
+    }
+    if(l.sheet_row) h += '<p class="foot">Row ' + esc(l.sheet_row) + ' of the web leads sheet when it last came in.</p>';
+    h += '</div>';
+  }
+  return h + '</div>';
+}
+
+function draw(){
+  drawChips();
+  var list = shown();
+  $('list').innerHTML = list.length ? list.map(leadHtml).join('')
+    : '<div class="empty">' + (LEADS.length ? 'No leads match.' : 'No web leads have come in yet for these dates. They arrive from the sheet every five minutes once the sheet script is turned on.') + '</div>';
+  var foot = [];
+  var s = BOARD && BOARD.sheet;
+  if(s && s.sent_at) foot.push('The sheet last sent ' + niceWhen(s.sent_at) + ' (' + s.sent + ' leads from the last 30 days' + (s.added ? ', ' + s.added + ' new' : '') + ').');
+  else foot.push('Nothing has come from the sheet yet.');
+  if(BOARD && BOARD.access_copy){
+    foot.push(BOARD.access_sent_at ? 'Access suggestions are from the office copy made ' + niceWhen(BOARD.access_sent_at) + '.'
+                                   : 'The office server has not sent its Access copy yet, so there are no suggestions.');
+  }
+  foot.push('The page checks for new leads every minute.');
+  $('foot').textContent = foot.join(' ');
+}
+
+/* ---- changing things --------------------------------------------------- */
+function find(k){ for(var i = 0; i < LEADS.length; i++) if(LEADS[i].lead_key === k) return LEADS[i]; return null; }
+function act(p){
+  BUSY = true;
+  return p.then(function(){ return load(true); })
+    .catch(function(e){ message('bad', 'That was not saved: ' + esc(e.message)); draw(); })
+    .then(function(){ BUSY = false; });
+}
+function link(k, est){
+  var n = parseInt(String(est).replace(/\D/g, ''), 10);
+  if(!n){ message('bad', 'Type the estimate number from Access first.'); return; }
+  delete DRAFT['e' + k];
+  message('', '');
+  act(rpc('web_lead_link', {p_key: k, p_estimate: n}));
+}
+$('list').addEventListener('change', function(e){
+  var t = e.target;
+  if(t.dataset.status){
+    var l = find(t.dataset.status); if(l) l.status = t.value;
+    message('', '');
+    act(rpc('web_lead_set_status', {p_key: t.dataset.status, p_status: t.value}));
+  }
+});
+$('list').addEventListener('input', function(e){
+  var t = e.target;
+  if(t.dataset.note) DRAFT['n' + t.dataset.note] = t.value;
+  if(t.dataset.estbox) DRAFT['e' + t.dataset.estbox] = t.value;
+});
+$('list').addEventListener('keydown', function(e){
+  if(e.key === 'Enter' && e.target.dataset.estbox){ e.preventDefault(); link(e.target.dataset.estbox, e.target.value); }
+});
+$('list').addEventListener('click', function(e){
+  var t = e.target.closest('button'); if(!t) return;
+  var d = t.dataset;
+  if(d.toggle){ OPEN[d.toggle] = !OPEN[d.toggle]; draw();
+    if(OPEN[d.toggle]){ var ta = document.querySelector('textarea[data-note="' + CSS.escape(d.toggle) + '"]'); if(ta) ta.focus(); } }
+  else if(d.addnote){
+    var txt = (DRAFT['n' + d.addnote] || '').trim();
+    if(!txt){ message('bad', 'Write the note first.'); return; }
+    t.disabled = true;
+    message('', '');
+    act(rpc('web_lead_add_note', {p_key: d.addnote, p_note: txt}).then(function(){ delete DRAFT['n' + d.addnote]; }));
+  }
+  else if(d.linkguess) link(d.linkguess, d.est);
+  else if(d.linktyped){
+    var box = document.querySelector('input[data-estbox="' + CSS.escape(d.linktyped) + '"]');
+    link(d.linktyped, box ? box.value : '');
+  }
+  else if(d.unlink){ act(rpc('web_lead_link', {p_key: d.unlink, p_estimate: null})); }
+});
+$('chips').addEventListener('click', function(e){
+  var t = e.target.closest('button'); if(!t) return;
+  FILTER = t.dataset.f; draw();
+});
+$('q').addEventListener('input', draw);
+$('since').addEventListener('change', function(){ load(false); });
+
+/* Every minute, quietly, unless somebody is in the middle of typing or
+   choosing, so a new lead never takes a half written note away. */
+function typing(){
+  var a = document.activeElement;
+  return a && /^(TEXTAREA|SELECT)$/.test(a.tagName) || (a && a.dataset && a.dataset.estbox);
+}
+setInterval(function(){ if(!BUSY && !typing() && !document.hidden) load(true); }, 60000);
+document.addEventListener('visibilitychange', function(){ if(!document.hidden && !BUSY && LOADED_ONCE) load(true); });
+
+/* ---- start --------------------------------------------------------------- */
+GIDCAuth.load();
+GIDCAuth.whoami().then(function(me){
+  if(!me || !GIDCAuth.mayOpen(me, ['admin', 'user'])) return;   /* the guard is already holding the page */
+  load(false);
+});
+})();
+</script>
+</body>
+</html>

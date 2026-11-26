@@ -20,13 +20,29 @@
 //     -> { "results": [ { "row": 2, "status": "Sold", "price": 8123.45,
 //                         "sold_on": "2026-01-20", "by": "email" } ],
 //          "sales_sent_at": "...", "sales_loaded": 1388 }
-//   Nothing the sheet sends is kept. The rules are in web_leads_match(),
-//   sql/web-leads-sold.sql.
+//   Nothing the sheet sends for a match is kept. The rules are in
+//   web_leads_match(), sql/web-leads-sold.sql.
+//
+//   the same script (sendLeadsToTracker, every five minutes) sends the
+//   last 30 days of leads to the Web Leads tracker on the tools site
+//   (Andrew, 26 November 2026). These ARE kept, in web_lead_tracker,
+//   so the receptionist can call them back:
+//     { "action": "track",
+//       "leads": [ { "key": "9f2c...", "received_at": "2026-11-26T14:03:00.000Z",
+//                    "day": "2026-11-26", "row": 3512, "first": "Ann", "last": "Ray",
+//                    "name": "", "email": "...", "phone": "...",
+//                    "details": [ ["City", "..."], ["Message", "..."] ] } ] }
+//   details are every other column of the row, in the sheet's order.
+//     -> { "sent": 41, "added": 2 }
+//   A lead already there keeps its status, notes and Access link; only
+//   the sheet's own details are refreshed. Rules in
+//   web_lead_tracker_load(), sql/web-leads-tracker.sql.
 //
 // Deploy:  Supabase dashboard, Edge Functions, Deploy a new function, Via
 //          Editor, named exactly web-leads. Paste this in and deploy. Turn
 //          Verify JWT off for it, like sales-map-sync: both callers sign in
-//          with the import key, not as a person. Needs sql/web-leads-sold.sql.
+//          with the import key, not as a person. Needs sql/web-leads-sold.sql
+//          for load and match, and sql/web-leads-tracker.sql for track.
 //
 // Secrets it reads, under Edge Functions, Secrets:
 //   KPI_IMPORT_KEY   the same one the KPI import, the syncs and the sheet's
@@ -53,6 +69,8 @@ const DEADLINE_MS = 25000;
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const MAX_SALES = 60000;
 const MAX_LEADS = 30000;
+const MAX_TRACK = 5000;
+const KEY = /^[0-9a-f]{16,64}$/;
 
 async function call(what: string, url: string, init: RequestInit, ms = DEADLINE_MS) {
   const started = Date.now();
@@ -176,7 +194,47 @@ Deno.serve(async (req) => {
       return json({ results, sales_sent_at: sentAt, sales_loaded: loaded });
     }
 
-    return json({ error: "Say which: action load or action match" }, 400);
+    // ---- the sheet's new leads, for the tracker ---------------------
+    if (body.action === "track") {
+      if (!Array.isArray(body.leads)) return json({ error: "No leads" }, 400);
+      if (body.leads.length > MAX_TRACK)
+        return json({ error: `Too many leads in one go. Send at most ${MAX_TRACK}.` }, 413);
+      const leads: Record<string, unknown>[] = [];
+      let dropped = 0;
+      for (const l of body.leads) {
+        const key = String(l.key ?? "");
+        if (!KEY.test(key)) { dropped++; continue; }
+        const rcv = l.received_at == null ? null : new Date(String(l.received_at));
+        const details: [string, string][] = [];
+        if (Array.isArray(l.details)) {
+          for (const pair of (l.details as unknown[]).slice(0, 60)) {
+            if (!Array.isArray(pair)) continue;
+            const t = text(pair[1], 4000);
+            if (t) details.push([String(pair[0] ?? "").slice(0, 80), t]);
+          }
+        }
+        const d = day(l.day);
+        leads.push({
+          key,
+          received_at: rcv && !isNaN(rcv.getTime()) ? rcv.toISOString() : null,
+          day: d && DAY.test(d) ? d : null,
+          row: Number.isInteger(Number(l.row)) ? Number(l.row) : null,
+          first: text(l.first, 100),
+          last: text(l.last, 100),
+          name: text(l.name, 200),
+          email: text(l.email, 400),
+          phone: text(l.phone, 400),
+          details,
+        });
+      }
+      const ran = await call("track", `${url}/rest/v1/rpc/web_lead_tracker_load`,
+        { method: "POST", headers: asAdmin, body: JSON.stringify({ p_leads: leads }) });
+      if (!ran.ok) return json({ error: "The leads would not load into the tracker", detail: await ran.text() }, 500);
+      const did = await ran.json();
+      return json({ ...did, dropped: dropped || undefined });
+    }
+
+    return json({ error: "Say which: action load, match or track" }, 400);
   } catch (e) {
     console.log("failed:", (e as Error)?.message ?? e);
     return json({ error: (e as Error)?.message ?? "Something went wrong" }, 500);

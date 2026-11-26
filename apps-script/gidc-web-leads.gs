@@ -24,6 +24,15 @@
  * hour, so anything typed into them by hand is replaced. No other
  * column is ever written to. See SOLD OR UNSOLD, PUTTING IT IN, below.
  *
+ * THE WEB LEADS TRACKER (Andrew, 26 November 2026)
+ * Every five minutes it also sends the leads from the last 30 days to
+ * the Web Leads page on the tools site, where the receptionist sets
+ * each one's status and writes notes. Each lead goes with every column
+ * of its row, so the page shows what the customer wrote. These are
+ * kept in GIDC's own Supabase (web_lead_tracker); a lead already there
+ * keeps its status and notes. Nothing is written to the sheet by this.
+ * See THE TRACKER, PUTTING IT IN, below.
+ *
  * ---------------------------------------------------------------------
  * PUTTING IT IN, ONCE
  *
@@ -76,6 +85,20 @@
  *     "turnOffSoldStatus" stops it; the columns keep what they had.
  *
  * ---------------------------------------------------------------------
+ * THE TRACKER, PUTTING IT IN (once web-leads-tracker.sql has been run
+ * and the web-leads function deployed again)
+ *
+ *  1. Replace all of the code with this new copy and save, as above.
+ *
+ *  2. Choose "checkLeadTracker" and press Run. Allow it if asked. It
+ *     sends nothing. The log says which columns it read and how many
+ *     leads from the last 30 days it would send.
+ *
+ *  3. Choose "turnOnLeadTracker" and press Run. It sends them now, and
+ *     then every five minutes. Running it twice is harmless.
+ *     "turnOffLeadTracker" stops it; the tracker keeps what it has.
+ *
+ * ---------------------------------------------------------------------
  * IF THE SHEET CHANGES
  *
  * If the form gains or loses columns this keeps working: it looks for
@@ -125,7 +148,11 @@ var SETTINGS = {
   // a name column that is not the person's name
   notNameLike: /first|last|sur|company|business|user|file/i,
   // the edge function that answers Not Booked, Booked or Sold
-  matchFunction: 'web-leads'
+  matchFunction: 'web-leads',
+
+  // THE TRACKER. How many days of leads go to the Web Leads page each
+  // time. A lead older than this that is already there stays there.
+  trackDaysBack: 30
 };
 
 // =====================================================================
@@ -493,4 +520,138 @@ function findDateColumn_(headers, values) {
     for (var r = 1; r < Math.min(values.length, 20); r++) if (values[r][c2] instanceof Date) return c2;
   }
   return -1;
+}
+
+
+// =====================================================================
+//  THE WEB LEADS TRACKER (Andrew, 26 November 2026)
+// =====================================================================
+
+/** Shows what it would send to the tracker, and sends nothing. */
+function checkLeadTracker() {
+  var got = leadsForTracker_();
+  if (!got.ok) { Logger.log(got.why); return; }
+  Logger.log('%s leads from the last %s days would go to the Web Leads page (%s rows with no date left out).',
+             got.leads.length, SETTINGS.trackDaysBack, got.noDate);
+  if (got.leads.length) {
+    var l = got.leads[got.leads.length - 1];
+    Logger.log('The newest came in %s and has these columns filled: %s.',
+               l.received_at, l.details.map(function (d) { return d[0]; }).join(', ') || 'none');
+  }
+  Logger.log('Nothing was sent. Run turnOnLeadTracker when this looks right.');
+}
+
+/** Sends the leads now. The five minute timer runs this. */
+function sendLeadsToTracker() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) { Logger.log('Already running.'); return; }
+  try {
+    var key = PropertiesService.getScriptProperties().getProperty('KPI_KEY');
+    if (!key) { Logger.log('No KPI_KEY in Script Properties, so nothing was sent.'); return; }
+    var got = leadsForTracker_();
+    if (!got.ok) { Logger.log(got.why); return; }
+    if (!got.leads.length) { Logger.log('No leads in the last %s days.', SETTINGS.trackDaysBack); return; }
+    var res = UrlFetchApp.fetch(SETTINGS.url + '/functions/v1/' + SETTINGS.matchFunction, {
+      method: 'post', contentType: 'application/json',
+      headers: { apikey: SETTINGS.anon, Authorization: 'Bearer ' + SETTINGS.anon, 'x-gidc-key': key },
+      payload: JSON.stringify({ action: 'track', leads: got.leads }),
+      muteHttpExceptions: true
+    });
+    var code = res.getResponseCode();
+    if (code >= 200 && code < 300) Logger.log('Sent %s lead(s) to the tracker. %s', got.leads.length, res.getContentText());
+    else Logger.log('The tracker would not take them. It answered %s: %s', code, res.getContentText());
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Sets the five minute timer and sends once now. Run once. */
+function turnOnLeadTracker() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendLeadsToTracker') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('sendLeadsToTracker').timeBased().everyMinutes(5).create();
+  Logger.log('On. New leads go to the Web Leads page every five minutes.');
+  sendLeadsToTracker();
+}
+
+/** Stops it. The tracker keeps what it has. */
+function turnOffLeadTracker() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'sendLeadsToTracker') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  Logger.log(n ? 'Off.' : 'It was not on.');
+}
+
+/** A lead's key: the moment it came in and its email, else its phone,
+    so sorting the sheet or fixing a typo in a name keeps the same lead. */
+function leadKey_(when, email, phone) {
+  var who = String(email || '').toLowerCase().replace(/\s+/g, '') ||
+            String(phone || '').replace(/\D/g, '').slice(-10);
+  var bytes = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256,
+                                      when.toISOString().slice(0, 19) + '|' + who,
+                                      Utilities.Charset.UTF_8);
+  return bytes.map(function (b) { return ('0' + (b & 255).toString(16)).slice(-2); }).join('').slice(0, 32);
+}
+
+function leadsForTracker_() {
+  var book = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = SETTINGS.tabName ? book.getSheetByName(SETTINGS.tabName) : book.getSheets()[0];
+  if (!sheet) return { ok: false, why: 'There is no tab called "' + SETTINGS.tabName + '".' };
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return { ok: false, why: 'That tab has no rows in it yet.' };
+  var headers = values[0].map(function (h) { return String(h).trim(); });
+  var dateCol = findDateColumn_(headers, values);
+  if (dateCol < 0) return { ok: false, why: 'No column in that tab holds dates, so no lead can be told apart. Nothing was sent.' };
+
+  // the Status and Sold Price columns this script adds are left out
+  var skip = {};
+  [SETTINGS.statusHeader, SETTINGS.priceHeader].forEach(function (t) {
+    headers.forEach(function (h, c) { if (h.toLowerCase() === t.toLowerCase()) skip[c] = true; });
+  });
+  var cols = { email: [], phone: [], first: [], last: [], name: [] };
+  headers.forEach(function (h, c) {
+    if (!h || skip[c]) return;
+    if (SETTINGS.emailLike.test(h)) cols.email.push(c);
+    else if (SETTINGS.phoneLike.test(h)) cols.phone.push(c);
+    else if (SETTINGS.firstLike.test(h)) cols.first.push(c);
+    else if (SETTINGS.lastLike.test(h)) cols.last.push(c);
+    else if (SETTINGS.nameLike.test(h) && !SETTINGS.notNameLike.test(h)) cols.name.push(c);
+  });
+  function joined(row, list) {
+    return list.map(function (c) { return String(row[c] == null ? '' : row[c]).trim(); })
+               .filter(function (v) { return v; }).join('; ');
+  }
+  function shown(v) {
+    if (v instanceof Date) return Utilities.formatDate(v, SETTINGS.zone, 'yyyy-MM-dd HH:mm');
+    return String(v == null ? '' : v).trim();
+  }
+
+  var since = new Date(Date.now() - SETTINGS.trackDaysBack * 86400000);
+  var leads = [], noDate = 0;
+  for (var r = 1; r < values.length; r++) {
+    var row = values[r];
+    var when = row[dateCol];
+    if (when && !(when instanceof Date)) { var p = new Date(when); when = isNaN(p.getTime()) ? null : p; }
+    if (!when) {
+      if (row.some(function (v, c) { return !skip[c] && v !== '' && v !== null; })) noDate++;
+      continue;
+    }
+    if (when < since) continue;
+    var email = joined(row, cols.email), phone = joined(row, cols.phone);
+    // in the sheet's own column order, as [header, value] pairs
+    var details = [];
+    headers.forEach(function (h, c) {
+      if (skip[c] || c === dateCol) return;
+      var v = shown(row[c]);
+      if (v) details.push([h || ('Column ' + (c + 1)), v]);
+    });
+    leads.push({ key: leadKey_(when, email, phone), received_at: when.toISOString(),
+                 day: dayOf_(when), row: r + 1, email: email, phone: phone,
+                 name: joined(row, cols.name), first: joined(row, cols.first), last: joined(row, cols.last),
+                 details: details });
+  }
+  leads.sort(function (a, b) { return a.received_at < b.received_at ? -1 : 1; });
+  return { ok: true, leads: leads, noDate: noDate };
 }
