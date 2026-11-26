@@ -3052,12 +3052,13 @@ const trackFormula = (f, r) => String(f).replace('IF(D' + r + '="GDL",R' + r + '
 const gdlWords = o => isGdl(o) ? {frame:o.v.frameColour ? 'Frame: ' + o.v.frameColour : '',
   insert:o.v.insertColour ? 'Insert: ' + o.v.insertColour : '', track:o.v.thirdTrack && thirdTrackStyle(o) ? 'Third track' : ''} : null;
 // the frame and insert chips (in-home card and the Edit screen)
-function gdlFields(o, opId, req){
+function gdlFields(o, opId, req, noColours){
   if(!isGdl(o)) return '';
   const row = (k, label, items) => '<div class="field gdl-f"><label>' + label +
     (req ? ' <span style="color:var(--brass)">required</span>' : '') + '</label>' +
     chips({k, chips:items}, o, opId).replace(' num"', '"') + '</div>';
-  return row('frameColour', 'Frame colour', frameChoices(o)) + row('insertColour', 'Insert colour', GDL_INSERTS) +
+  // 2.69, Andrew 25 Nov: In-Home Measurement puts the frame and insert colours away (Edit still has them)
+  return (noColours ? '' : row('frameColour', 'Frame colour', frameChoices(o)) + row('insertColour', 'Insert colour', GDL_INSERTS)) +
     (canThirdTrack(o, ((state.job && state.job.openings) || []).find(x => x.id === opId)) ? '<div class="field gdl-f"><label>Third track</label><div class="chips"><button type="button" class="chip' +
       (o.v.thirdTrack ? ' on' : '') + '" data-track3="' + o.id + '" data-op="' + opId + '">Add a third track</button></div>' +
       '<p class="hint">Single top and bottom track, $' + (TRACK_TOP_FT + TRACK_BOTTOM_FT).toFixed(2) + ' a foot of width, added to the door price.</p></div>' : '');
@@ -6613,7 +6614,7 @@ function renderJob(){
           h += '<div class="field"><label>' + pf.label +
                (op.options.length > 1 ? ' · ' + esc(o.v.doorType || 'this option') : '') +
                ' <span style="color:var(--brass)">required</span></label>' +
-               chips(pf, o, op.id) + '</div>' + gdlFields(o, op.id, true);
+               chips(pf, o, op.id) + '</div>' + gdlFields(o, op.id, true, true);
         });
       }
       // 2.56: the door's note (left column on a tablet, which has the room)
