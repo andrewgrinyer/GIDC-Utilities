@@ -106,7 +106,7 @@ if (Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue) {
   Write-Host ("There is already a task called {0}. Replacing it." -f $TaskName) -ForegroundColor Yellow
   Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
 }
-$desc = "Sends the sold retail jobs from Access to Supabase every hour, for the web leads sheet."
+$desc = "Sends the retail estimates and sales from Access to Supabase every hour, for the web leads sheet."
 try {
   if ($AsSystem) {
     Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `

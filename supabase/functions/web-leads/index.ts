@@ -1,14 +1,15 @@
 // Supabase Edge Function: web-leads
 //
-// Marks the web leads in the Google Sheet Sold or Unsold, with the sold
-// price (Andrew, 26 November 2026). Two callers, one secret:
+// Marks the web leads in the Google Sheet Not Booked, Booked or Sold,
+// with the sold price (Andrew, 26 November 2026). Two callers, one secret:
 //
-//   the office server (gidc-web-leads-sync.ps1, hourly) sends every sold
-//   retail estimate from Access:
+//   the office server (gidc-web-leads-sync.ps1, hourly) sends every
+//   retail estimate from Access, sold or not (sold_on empty):
 //     { "action": "load",
 //       "sales": [ { "estimate_id": 9123, "first_name": "Ann", "last_name": "Ray",
 //                    "emails": "a@b.ca; c@d.com", "phones": "519 555 1234 cell",
-//                    "sold_on": "2026-01-20", "price": 8123.45 } ],
+//                    "created_on": "2026-01-05", "sold_on": "2026-01-20",
+//                    "price": 8123.45 } ],
 //       "counts": { ... what the script read ... } }
 //
 //   the script in the Google Sheet (apps-script/gidc-web-leads.gs, hourly)
@@ -120,8 +121,10 @@ Deno.serve(async (req) => {
       for (const s of body.sales) {
         const id = Number(s.estimate_id);
         if (!Number.isInteger(id) || id <= 0) { dropped.push(`estimate_id ${s.estimate_id}`); continue; }
-        const sold = day(s.sold_on);
-        if (!sold || !DAY.test(sold)) { dropped.push(`estimate ${id}: no sale date`); continue; }
+        const sold = day(s.sold_on), made = day(s.created_on);
+        if ((sold && !DAY.test(sold)) || (made && !DAY.test(made)) || (!sold && !made)) {
+          dropped.push(`estimate ${id}: no date that makes sense`); continue;
+        }
         const price = s.price == null || s.price === "" ? null : Number(s.price);
         rows.push({
           estimate_id: id,
@@ -129,6 +132,7 @@ Deno.serve(async (req) => {
           last_name: text(s.last_name, 80),
           emails: text(s.emails, 400),
           phones: text(s.phones, 400),
+          created_on: made,
           sold_on: sold,
           price: price != null && Number.isFinite(price) ? price : null,
         });

@@ -12,9 +12,11 @@ const psql = (sql) => execFileSync('psql', ['-h', '/tmp/pg', '-p', '5499', '-U',
 const lit = (s) => "'" + String(s).replace(/'/g, "''") + "'";
 
 psql(`select web_lead_sales_load(${lit(JSON.stringify([
-  { estimate_id: 1, first_name: 'John', last_name: 'Smith', emails: 'john@x.ca', phones: '519 555 1111', sold_on: '2026-03-01', price: 8000.5 },
-  { estimate_id: 2, first_name: 'Mary', last_name: 'Lee', emails: '', phones: '905-555-2222', sold_on: '2026-05-01', price: 4000 },
-  { estimate_id: 3, first_name: 'Ann', last_name: 'Ray', emails: '', phones: '', sold_on: '2026-06-01', price: 3000 },
+  { estimate_id: 1, first_name: 'John', last_name: 'Smith', emails: 'john@x.ca', phones: '519 555 1111', created_on: '2026-02-02', sold_on: '2026-03-01', price: 8000.5 },
+  { estimate_id: 2, first_name: 'Mary', last_name: 'Lee', emails: '', phones: '905-555-2222', created_on: '2026-04-02', sold_on: '2026-05-01', price: 4000 },
+  { estimate_id: 3, first_name: 'Ann', last_name: 'Ray', emails: '', phones: '', created_on: '2026-05-20', sold_on: '2026-06-01', price: 3000 },
+  { estimate_id: 5, first_name: 'Kim', last_name: 'Park', emails: 'kim@x.ca', phones: '', created_on: '2026-07-03', sold_on: null, price: 2000 },
+  { estimate_id: 6, first_name: 'Old', last_name: 'Timer', emails: 'old@x.ca', phones: '', created_on: '2019-07-03', sold_on: null, price: 2000 },
 ]))}, '{}')`);
 
 const D = (s) => new Date(s + 'T15:00:00Z');
@@ -45,6 +47,8 @@ const sheet = makeSheet([
   [D('2026-04-01'), 'Mary', 'm@z.com', '(905) 555-2222', ''],
   [D('2026-05-15'), 'Ray Ann', '', '', ''],
   [D('2026-07-01'), 'John Smith', 'john@x.ca', '', ''],
+  [D('2026-07-01'), 'Kim Park', 'KIM@x.ca', '', ''],
+  [D('2026-07-01'), 'Old Timer', 'old@x.ca', '', ''],
   ['', '', '', '', ''],
 ]);
 const log = [];
@@ -75,8 +79,9 @@ ctx.checkSoldStatus();
 eq('check writes nothing', sheet.rows[0].length, 5);
 ctx.markSoldNow();
 eq('headers added at the end', sheet.rows[0], ['Timestamp', 'Name', 'Email', 'Phone Number', 'Tell us about your project', 'Status', 'Sold Price']);
-eq('status', sheet.rows.slice(1).map((r) => r[5]), ['Sold', 'Sold', 'Sold', 'Unsold', '']);
-eq('price', sheet.rows.slice(1).map((r) => r[6]), [8000.5, 4000, 3000, '', '']);
+eq('status', sheet.rows.slice(1).map((r) => r[5]), ['Sold', 'Sold', 'Sold', 'Not Booked', 'Booked', 'Not Booked', '']);
+eq('price only when sold', sheet.rows.slice(1).map((r) => r[6]), [8000.5, 4000, 3000, '', '', '', '']);
+eq('log counts', log.some((l) => /6 leads: Sold 3 \(by email 1, by phone 1, by name 1\), Booked 1 \(by email 1, by phone 0, by name 0\), Not Booked 2\./.test(l)), true);
 eq('existing columns untouched', sheet.rows[1].slice(0, 5).slice(1), ['J S', 'JOHN@x.ca', '', 'call 416 555 0000']);
 eq('message column not read as a phone', log.some((l) => /phone "Phone Number", name/.test(l)), true);
 const before = log.length;

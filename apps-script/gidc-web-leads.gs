@@ -10,14 +10,16 @@
  * no email, no phone number, no message. The sheet is not published and
  * nothing outside Google is given access to it.
  *
- * SOLD OR UNSOLD (Andrew, 26 November 2026)
- * Every hour it also marks each lead Sold or Unsold, with the Sold
+ * NOT BOOKED, BOOKED OR SOLD (Andrew, 26 November 2026)
+ * Every hour it also marks each lead Not Booked (not in Access at all),
+ * Booked (in Access, not sold) or Sold, with the Sold
  * Price, in two columns it adds at the end: Status and Sold Price.
  * Leads are matched to Access by email first, then phone, then name,
  * and only a sale on or after the day the lead came in counts. To ask,
  * it sends each row's number, date, email, phone and name to GIDC's own
- * Supabase (the web-leads function), which answers Sold with the price,
- * or Unsold, and keeps nothing it was sent. The sold jobs come from
+ * Supabase (the web-leads function), which answers Not Booked, Booked,
+ * or Sold with the price, and keeps nothing it was sent. The estimates
+ * and sales come from
  * the office server every hour. The two columns are rewritten each
  * hour, so anything typed into them by hand is replaced. No other
  * column is ever written to. See SOLD OR UNSOLD, PUTTING IT IN, below.
@@ -65,8 +67,8 @@
  *
  *  2. Choose "checkSoldStatus" and press Run. Allow it if asked. It
  *     writes nothing. The log says which columns it read the email,
- *     phone and name from, and how many leads would be Sold (by email,
- *     by phone, by name) and Unsold.
+ *     phone and name from, and how many leads would be Sold, Booked and
+ *     Not Booked.
  *
  *  3. When that looks right, choose "turnOnSoldStatus" and press Run.
  *     It adds the Status and Sold Price columns, fills them in now, and
@@ -122,7 +124,7 @@ var SETTINGS = {
   nameLike: /name/i,
   // a name column that is not the person's name
   notNameLike: /first|last|sur|company|business|user|file/i,
-  // the edge function that answers Sold or Unsold
+  // the edge function that answers Not Booked, Booked or Sold
   matchFunction: 'web-leads'
 };
 
@@ -416,20 +418,25 @@ function soldStatus_(write) {
   var said = JSON.parse(res.getContentText());
   if (!said.sales_sent_at) {
     return { ok: false, why: 'The office server has not sent the sold jobs yet, so every lead would look ' +
-                             'Unsold. Nothing was written. Run the server sync first.' };
+                             'Not Booked. Nothing was written. Run the server sync first.' };
   }
   var hoursOld = (Date.now() - new Date(said.sales_sent_at).getTime()) / 3600000;
   Logger.log('The sold jobs list came from the office server %s (%s sold jobs).',
              Utilities.formatDate(new Date(said.sales_sent_at), SETTINGS.zone, 'yyyy-MM-dd HH:mm'), said.sales_loaded);
   if (hoursOld > 26) Logger.log('That is over a day old. Check the "GIDC web leads sync" task on the server.');
 
-  var byRow = {}, tally = { email: 0, phone: 0, name: 0, unsold: 0 };
+  var byRow = {}, tally = { Sold: {}, Booked: {}, 'Not Booked': 0 };
   (said.results || []).forEach(function (x) {
     byRow[x.row] = x;
-    if (x.status === 'Sold') tally[x.by] = (tally[x.by] || 0) + 1; else tally.unsold++;
+    if (x.status === 'Not Booked') tally['Not Booked']++;
+    else { var t = tally[x.status] || (tally[x.status] = {}); t[x.by] = (t[x.by] || 0) + 1; }
   });
-  Logger.log('%s leads: Sold %s (by email %s, by phone %s, by name %s), Unsold %s.', leads.length,
-             tally.email + tally.phone + tally.name, tally.email, tally.phone, tally.name, tally.unsold);
+  function how(t) {
+    var e = t.email || 0, p = t.phone || 0, n = t.name || 0;
+    return (e + p + n) + ' (by email ' + e + ', by phone ' + p + ', by name ' + n + ')';
+  }
+  Logger.log('%s leads: Sold %s, Booked %s, Not Booked %s.', leads.length,
+             how(tally.Sold), how(tally.Booked), tally['Not Booked']);
   if (!write) return { ok: true };
 
   // add our two columns at the end if they are not there yet
