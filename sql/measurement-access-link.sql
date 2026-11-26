@@ -676,15 +676,46 @@ end $$;
 
 -- search the Access list: every word has to be in the name, address,
 -- city, email, job number or phone
+--
+-- 2.73, Andrew 26 Nov: "the estimate number is linking to the wrong
+-- order ... the tool is getting confused with a similar number".
+-- Estimate numbers (EstimateID) and job numbers (OrderNo) run through
+-- the same range in Access, so one number is often the estimate number
+-- of one customer AND the job number of another. A sold customer's
+-- Access screen shows the job number, and typed into the estimate box
+-- it linked whoever had that as an estimate number. A number typed on its own (up to 6 digits) now
+-- finds only those two exact matches, never a phone, an address or a
+-- longer job number that happens to contain it. Each row says which
+-- number it matched (hit: estimate or job), the estimate first.
+-- A longer number is still read as a phone.
 create or replace function public.gidc_access_search(p_q text)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
-declare w text[];
+declare w text[]; n text;
 begin
   if not public.can_link_access_jobs() then
     raise exception 'Only office staff or an administrator can link jobs to Access.';
   end if;
   w := array(select x from regexp_split_to_table(lower(btrim(coalesce(p_q, ''))), '\s+') x where x <> '');
   if cardinality(w) = 0 then return '[]'::jsonb; end if;
+  -- one number on its own, "5067", "#5067", "E5067" or "job 5067"
+  if cardinality(w) <= 2 and w[cardinality(w)] ~ '^(#|e|j|no\.?)?\d{1,6}$'
+     and (cardinality(w) = 1 or w[1] in ('estimate', 'est', 'job', 'order', '#', 'no', 'no.')) then
+    n := ltrim(regexp_replace(w[cardinality(w)], '\D', '', 'g'), '0');
+    return coalesce((
+      select jsonb_agg(to_jsonb(r) - 'rank' order by r.rank, r.estimate_id)
+        from (select a.estimate_id, a.order_no, concat_ws(' ', a.first_name, a.last_name) as name,
+                     a.last_name,
+                     case when a.estimate_id::text = n then 'estimate' else 'job' end as hit,
+                     case when a.estimate_id::text = n then 0 else 1 end as rank,
+                     a.address, a.city, a.phone, a.email, a.created_on, st.status, a.rep,
+                     (select coalesce(nullif(o.customer, ''), 'another job') from public.jobs o
+                       where o.access_estimate_id = a.estimate_id) as taken_by
+                from public.access_customers a
+                cross join lateral public.gidc_acc_status(a) st
+               where n <> ''
+                 and (a.estimate_id::text = n
+                      or ltrim(regexp_replace(coalesce(a.order_no, ''), '\D', '', 'g'), '0') = n)) r), '[]'::jsonb);
+  end if;
   return coalesce((
     select jsonb_agg(to_jsonb(r) - 'exact_no' order by r.exact_no desc, r.created_on desc nulls last, r.estimate_id desc)
       from (select a.estimate_id, a.order_no, concat_ws(' ', a.first_name, a.last_name) as name,
@@ -692,6 +723,8 @@ begin
                    -- that contain it (2.67: every customer has an estimate number,
                    -- only a sold one has a job number too)
                    (a.estimate_id::text = any(w) or coalesce(a.order_no = any(w), false)) as exact_no,
+                   case when a.estimate_id::text = any(w) then 'estimate'
+                        when coalesce(a.order_no = any(w), false) then 'job' end as hit,
                    a.address, a.city, a.phone, a.email, a.created_on, st.status, a.rep,
                    (select coalesce(nullif(o.customer, ''), 'another job') from public.jobs o
                      where o.access_estimate_id = a.estimate_id) as taken_by

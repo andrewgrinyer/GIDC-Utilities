@@ -158,6 +158,17 @@ These cost the most to find and are invisible in the code.
 OrderNo 5067 and OrderID 5069; Cortes 4273 and 4275. `access_order_id`
 stores the **ID**. Getting this wrong links an order to the wrong job.
 
+**An estimate number can also be another customer's job number.**
+`Estimates.EstimateID` and `Orders.OrderNo` run through the same range,
+so 5067 is often one customer's estimate and a different customer's job.
+A sold customer's Access screen shows the job number, and typed into the
+measurement app's estimate box (2.67 to 2.72) it linked whoever had that
+as an estimate (Andrew, 26 Nov). Since 2.73 a number on its own searches
+only exact estimate and job numbers, each row says which it is, and the
+box links straight away only when the number is an estimate, nobody has
+it as a job number, and the surname is on the job. `sql/check-estimate-links.sql`
+lists jobs already linked this way.
+
 **`access_order_no` holds the No, `access_order_id` the ID.** Added 23
 October with `sql/dealer-order-number.sql`. People type the No, the job
 number on the Access screen; the database finds the ID from the staged

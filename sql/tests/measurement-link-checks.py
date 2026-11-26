@@ -170,11 +170,26 @@ found = json.loads(sql("select gidc_access_search('(%s) %s-%s')" % (ph[:3], ph[3
 check("search by a phone typed with punctuation finds them", any(f["estimate_id"] == sug[0]["estimate_id"] for f in found))
 num = sql("select order_no from access_customers where order_no is not null order by estimate_id limit 1")
 found = json.loads(sql("select gidc_access_search('%s')" % num, who="admin"))
-check("search by the Access job number finds it", found and found[0]["order_no"] == num, found[:1])
+check("search by the Access job number finds it, marked as the job number",
+      any(f["order_no"] == num and f["hit"] == "job" for f in found), found[:2])
 # 2.67: every customer has an estimate number, sold or not
 unsold = int(sql("select estimate_id from access_customers where order_no is null order by estimate_id desc limit 1"))
 found = json.loads(sql("select gidc_access_search('%d')" % unsold, who="admin"))
 check("search by an estimate number that is not sold yet finds it first", found and found[0]["estimate_id"] == unsold, found[:1])
+# 2.73, Andrew 26 Nov: a number on its own is an exact estimate or job number,
+# never a phone or address or a longer number that contains it
+both = int(sql("select a.estimate_id from access_customers a join access_customers b on b.order_no = a.estimate_id::text "
+               "and b.estimate_id <> a.estimate_id order by a.estimate_id limit 1"))
+found = json.loads(sql("select gidc_access_search('%d')" % both, who="admin"))
+check("a number that is an estimate and another customer's job finds just those two, the estimate first",
+      [(f["estimate_id"], f["hit"]) for f in found] == [(both, "estimate"), (both + 2, "job")], found)
+found = json.loads(sql("select gidc_access_search('#%d')" % both, who="admin"))
+check("typed with a # it is the same", [f["estimate_id"] for f in found] == [both, both + 2], found)
+ph4 = sql("select substr(k_phones[1], 4, 4) from access_customers where k_phones[1] is not null order by estimate_id limit 1")
+hits = json.loads(sql("select gidc_access_search('%s')" % ph4, who="admin"))
+check("four digits of a phone do not bring that customer up as a number",
+      all(str(f["estimate_id"]) == ph4.lstrip("0") or str(f["order_no"]) == ph4.lstrip("0") for f in hits), hits[:2])
+check("the estimate number box gives the surname to check", "last_name" in found[0], found[0].keys())
 r = sql("select gidc_link_job_access('%s', 99999999, false, false)" % flagged, who="admin", ok=False)
 check("a typed estimate number Access does not have is refused", "no retail estimate 99999999" in r, r)
 ok = json.loads(sql("select gidc_link_job_access('%s', %d, false, false)" % (flagged, sug[0]["estimate_id"]), who="admin"))

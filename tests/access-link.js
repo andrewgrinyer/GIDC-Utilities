@@ -50,6 +50,11 @@ const server = http.createServer(async (q, r) => {
   if(u.startsWith('/rest/v1/rpc/')){
     const fn = u.slice(13), b = JSON.parse(await body(q) || '{}'); calls.push({fn, b});
     if(fn === 'gidc_access_suggest') return send(200, SUG);
+    // 2.73: estimate numbers and job numbers share a range; 8500 is both
+    const row = (e, o, name, hit) => ({estimate_id: e, order_no: o, name, last_name: name.split(' ').pop(), hit, address: '1 Elm St', city: 'Ayr', phone: '', email: '', created_on: '2026-11-01', status: o ? 'Sold' : 'Inquiry', taken_by: null});
+    if(fn === 'gidc_access_search' && b.p_q === '8500') return send(200, [row(8500, null, 'Bob Grant', 'estimate'), row(8502, '8500', 'Ann Kelly', 'job')]);
+    if(fn === 'gidc_access_search' && b.p_q === '8600') return send(200, [row(8602, '8600', 'Sue Kelly', 'job')]);
+    if(fn === 'gidc_access_search' && b.p_q === '8700') return send(200, [row(8700, null, 'Tom Fraser', 'estimate')]);
     if(fn === 'gidc_access_search' && b.p_q === '8400') return send(200, [{estimate_id: 8400, order_no: null, name: 'Dana Kelly', address: '3 Oak St', city: 'Paris', phone: '', email: '', created_on: '2026-11-20', status: 'Initial Visit Booked', taken_by: null}]);
     if(fn === 'gidc_access_search') return send(200, /patel/i.test(b.p_q) ? [{estimate_id: 8300, order_no: '8300', name: 'Raj Patel', address: '9 Pine Rd', city: 'Ayr', phone: '', email: '', created_on: '2026-10-02', status: 'Sold', taken_by: null}] : []);
     if(fn === 'gidc_link_job_access'){
@@ -157,8 +162,25 @@ const pills = page => page.evaluate(() => Object.fromEntries([...document.queryS
   check('the link screen has a box for the estimate number', await page.locator('[data-accest]').textContent() === 'Link');
   await page.fill('[data-accestq]', '9999'); await page.press('[data-accestq]', 'Enter');
   await page.waitForTimeout(300);
-  check('an estimate number Access does not have is refused, nothing linked', /no retail estimate 9999/.test(await page.textContent('body')) &&
+  check('an estimate number Access does not have is refused, nothing linked', /no retail estimate or job number 9999/.test(await page.textContent('body')) &&
     !calls.some(c => c.fn === 'gidc_link_job_access' && c.b.p_estimate === 9999));
+  // 2.73, Andrew 26 Nov: it was linking the wrong order
+  const linksNow = () => calls.filter(c => c.fn === 'gidc_link_job_access').length;
+  let before = linksNow();
+  await page.fill('[data-accestq]', '8500'); await page.click('[data-accest]'); await page.waitForSelector('.acc-est + .accnote');
+  check('a number that is one customer\'s estimate and another\'s job links nothing by itself', linksNow() === before);
+  check('and says so, with both names', /8500 is the estimate number of Bob Grant and the job number of Ann Kelly/.test(await page.textContent('.acc-est + .accnote')));
+  check('each row says which number it is', /Estimate number 8500/.test(await page.textContent('#app')) && /Job number 8500, not the estimate number/.test(await page.textContent('#app')));
+  await page.fill('[data-accestq]', '8600'); await page.click('[data-accest]'); await page.waitForFunction(() => /no estimate 8600/i.test(document.body.textContent));
+  check('a job number typed in the estimate box is not linked as an estimate', linksNow() === before &&
+    /There is no estimate 8600. It is the job number of Sue Kelly/.test(await page.textContent('.acc-est + .accnote')));
+  await page.fill('[data-accestq]', '8700'); await page.click('[data-accest]'); await page.waitForFunction(() => /Tom Fraser, not Kelly/.test(document.body.textContent));
+  check('an estimate for somebody with another surname waits to be checked', linksNow() === before);
+  await page.fill('[data-accestq]', '8500'); await page.click('[data-accest]'); await page.waitForSelector('.acc-est + .accnote');
+  await page.click('.acc-est + .accnote + .card [data-accpick="8502"]'); await page.waitForSelector('#joblist');
+  const picked = calls.filter(c => c.fn === 'gidc_link_job_access').pop();
+  check('picking the right row links that customer\'s estimate', picked.b.p_estimate === 8502 && picked.b.p_job === 'j666666', picked);
+  await page.evaluate(() => openAccLink('j666666')); await page.waitForSelector('[data-accestq]');
   await page.fill('[data-accestq]', '8400'); await page.click('[data-accest]');
   await page.waitForSelector('#joblist');
   const byEst = calls.filter(c => c.fn === 'gidc_link_job_access').pop();

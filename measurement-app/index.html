@@ -6567,6 +6567,12 @@ function accText(a){
   if(a && a.accLink === 'none') return 'Not in Access';
   return 'Not linked to Access yet';
 }
+/* 2.73: true when the Access customer's surname is a word of the job's name */
+function accSameName(j, c){
+  const words = t => String(t || '').toLowerCase().split(/[^a-z\u00c0-\u024f]+/).filter(w => w.length >= 2);
+  const mine = words(j && j.customer), theirs = words(c && (c.last_name || c.name));
+  return !!mine.length && theirs.some(w => mine.includes(w));
+}
 async function openAccLink(id){
   state.acc = {job:id, back: state.view, q:'', sug:null, found:null, err:''};
   state.view = 'acclink'; render();
@@ -6606,6 +6612,8 @@ function accCandHtml(c, cur){
     '<span>' + esc([c.address, c.city].filter(Boolean).join(', ')) + '</span>' +
     '<span>' + esc([c.phone, c.email].filter(Boolean).join(' · ')) + '</span>' +
     '<span>' + esc(['Created ' + accDay(c.created_on), c.status, c.rep].filter(Boolean).join(' · ')) + '</span>' +
+    (c.hit === 'estimate' ? '<span><em>Estimate number ' + esc(c.estimate_id) + '</em></span>'
+      : c.hit === 'job' ? '<span><i>Job number ' + esc(c.order_no) + ', not the estimate number</i></span>' : '') +
     (c.why ? '<span><em>Matches on ' + esc(c.why) + '</em>' + (c.in_window === false ? ' <i>(a different time)</i>' : '') + '</span>' : '') +
     (c.taken_by && !here ? '<span><i>Linked to ' + esc(c.taken_by) + '</i></span>' : '') +
     '</div>' +
@@ -6630,6 +6638,8 @@ function renderAccLink(){
     '<div class="acc-est"><input class="acc-q" type="text" inputmode="numeric" data-accestq="1" enterkeyhint="go" ' +
     'autocomplete="off" placeholder="Estimate number" value="' + esc(a.est || '') + '">' +
     '<button class="btn btn-primary" data-accest="1">Link</button></div>';
+  if(a.num) h += '<div class="accnote">' + esc(a.num.note) + '</div><div class="card" style="margin-top:8px">' +
+    a.num.rows.map(c => accCandHtml(c, j)).join('') + '</div>';
   h += '<div class="acc-h">Suggested from Access</div><div class="card">' +
     (a.sug == null ? '<div class="acc-empty">Looking in Access…</div>'
       : a.sug.length ? a.sug.map(c => accCandHtml(c, j)).join('')
@@ -6684,20 +6694,38 @@ async function accClick(d){
     }
     if(d.accest !== undefined){
       const box = document.querySelector('[data-accestq]');
-      const n = String(box ? box.value : a.est || '').replace(/\D/g, '');
+      const n = String(box ? box.value : a.est || '').replace(/\D/g, '').replace(/^0+/, '');
       if(!n) return toast('Type the Access estimate number first');
-      const found = await accRpc('gidc_access_search', {p_q:n});
-      const c = (found || []).find(x => String(x.estimate_id) === n);
-      if(!c) return toast('There is no retail estimate ' + n + ' in Access');
+      /* 2.73, Andrew 26 Nov: it was linking the wrong order. Estimate numbers
+         and job numbers run through the same range in Access, so 5067 can be
+         one customer's estimate and another customer's job. The search now
+         gives back only those exact matches, and this links straight away only
+         when the number is an estimate, no other customer has it as a job
+         number, and the surname is the one on this job. Anything else is shown
+         with the names, to pick from. */
+      const found = await accRpc('gidc_access_search', {p_q:n}) || [];
       const j = state.jobs.find(x => x.id === a.job) || {};
-      if(j.accEst === c.estimate_id) return toast('This job is already linked to estimate ' + n);
-      if(c.taken_by){
-        const ok = await sure({title:'Move this Access customer?', what:'Access estimate ' + n + ' (' + (c.name || 'no name') + ') is linked to ' + c.taken_by + '.',
-          why:'It comes off that job, which goes back on the list to link, and onto this one.', final:'You can link it back later.', go:'Move it here', goClass:'btn-primary'});
-        if(!ok) return;
+      const c = found.find(x => String(x.estimate_id) === n);
+      const jobs = found.filter(x => x !== c && String(x.order_no || '').replace(/^0+/, '') === n);
+      if(!c && !jobs.length){ a.num = null; render();
+        return toast('Access has no retail estimate or job number ' + n + ' from the last three years'); }
+      if(c && j.accEst === c.estimate_id && !jobs.length) return toast('This job is already linked to estimate ' + n);
+      const same = c ? accSameName(j, c) : false;
+      if(c && !jobs.length && same){
+        if(c.taken_by){
+          const ok = await sure({title:'Move this Access customer?', what:'Access estimate ' + n + ' (' + (c.name || 'no name') + ') is linked to ' + c.taken_by + '.',
+            why:'It comes off that job, which goes back on the list to link, and onto this one.', final:'You can link it back later.', go:'Move it here', goClass:'btn-primary'});
+          if(!ok) return;
+        }
+        await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:+n, p_none:false, p_move:!!c.taken_by});
+        return accDone('Linked to Access estimate ' + n + (c.name ? ', ' + c.name : ''));
       }
-      await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:+n, p_none:false, p_move:!!c.taken_by});
-      return accDone('Linked to Access estimate ' + n + (c.name ? ', ' + c.name : ''));
+      const who = x => x.name || 'a customer with no name';
+      a.num = {rows: [c, ...jobs].filter(Boolean), note:
+        c && jobs.length ? n + ' is the estimate number of ' + who(c) + ' and the job number of ' + jobs.map(who).join(', ') + '. Link the right one.'
+        : !c ? 'There is no estimate ' + n + '. It is the job number of ' + jobs.map(who).join(', ') + '. Check the name, then link.'
+        : 'Estimate ' + n + ' is ' + who(c) + (j.customer ? ', not ' + j.customer : '') + '. Check the name, then link.'};
+      return render();
     }
     if(d.accnone !== undefined){
       await accRpc('gidc_link_job_access', {p_job:a.job, p_estimate:null, p_none:true, p_move:false});
@@ -7822,6 +7850,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.72 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.73 · 26 Nov 2026</div>
 </body>
 </html>
