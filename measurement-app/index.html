@@ -7207,7 +7207,10 @@ document.addEventListener('click', async e => {
     toast('Defaults cleared. Openings already added are untouched.');
     return render();
   }
-  if(d.only){
+  /* 2.69, Andrew 25 Nov: a GDL door's style box carries data-only too (the
+     GDL styles it may list), so tapping it unticked every option and the job
+     would not go to Review order. Only an option's own Quote this counts. */
+  if(d.only && op.options.some(x => x.id === d.only)){
     op.options.forEach(x => x.include = (x.id === d.only));
     render(); return persistBg();
   }
@@ -7474,6 +7477,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.68 · 24 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.69 · 25 Nov 2026</div>
 </body>
 </html>
