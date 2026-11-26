@@ -912,6 +912,23 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
 .cl-mfrom{font-size:12px;color:var(--muted)}
 .cl-note{margin-top:12px}
 .cl-print{display:none}
+/* 2.70: the closet order and details */
+.cl-order .field{margin:0 0 10px}
+.cl-order input.need{border-color:#C80000}
+.cl-chips{display:flex;flex-wrap:wrap;gap:6px}
+.cl-chip{font:inherit;font-size:14px;border:1px solid var(--rule);background:#fff;border-radius:999px;padding:8px 14px;min-height:40px;cursor:pointer;color:inherit}
+.cl-chip.on{background:#17171A;border-color:#17171A;color:#fff}
+.cl-tear .cl-chip{border-radius:12px;text-align:left}
+.cl-file{display:flex;flex-wrap:wrap;align-items:center;gap:8px}
+.cl-file span{color:var(--muted);font-size:13px}
+.cl-up{width:100%;justify-content:center}
+.cl-det{margin:12px 0 4px;display:grid;grid-template-columns:repeat(4,1fr);gap:4px 14px}
+.cl-det .cl-mh, .cl-det .cl-dl{grid-column:span 2}
+.cl-det .cl-dl.half{grid-column:span 1}
+@media (max-width:600px){ .cl-det{grid-template-columns:1fr 1fr} .cl-det .cl-dl.half{grid-column:span 1} .cl-det .cl-dl:not(.half){grid-column:1 / -1} }
+.cl-dl{margin:0 0 8px}
+.cl-rv p{margin:4px 0}
+.print-designs{display:none}
 @media (max-width:600px){
   .cl-shapes{grid-template-columns:repeat(2,1fr)}
   .cl-shape .cl-svg{max-height:56px}
@@ -932,6 +949,13 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
   .clp-one .cl-svg{width:100%;height:auto;max-height:3.6in}
   .clp-marks{margin:2px 0;padding-left:18px;font-size:10px}
   .clp-note{margin:2px 0;font-size:10px;color:#B5121B;white-space:pre-wrap}
+  .clp-det{margin:2px 0;font-size:9.5px}
+  body.reviewing .cl-order-print{display:block!important;break-before:page;page:form}
+  body.reviewing .cl-order-print .print-sig{margin-top:14px}
+  body.reviewing .print-designs{display:block!important}
+  .print-design{break-before:page;page:form;text-align:center}
+  .print-design img{max-width:100%;max-height:10.3in}
+  .print-design.wide img{max-height:7.8in}
 }
 
 /* 2.65: job list search and filters */
@@ -1046,6 +1070,20 @@ const JOB_DOCS = [
   {id:'condo', title:'Condominium Installation Details & Agreement', file:'condo-installation-agreement.pdf',
    png:'condo-installation-agreement.png', stamp:'condo', sign:{x:341, y:627, dx:112, dateY:649},
    why:'a condo building', jobNeeds:job => !!job.condo, needs:() => false},
+  /* 2.70, Andrew 26 Nov: a job with closets signs the Closet Installation
+     Details (what the organizer looks like and the tear out choice; the
+     rough patch one carries the rough patch photo), and a condo job with
+     closets the Standard Wall Spaces form too. scripts/closet-forms.js
+     makes all three. */
+  {id:'closetpatch', title:'Closet Installation Details', file:'closet-installation-details-patch.pdf',
+   png:'closet-installation-details-patch.png', stamp:'corner', sign:{x:56, y:691, dx:410},
+   why:'closet organizers, no charge tear out and rough patch', jobNeeds:job => closetsOf(job).length > 0 && job.closetTearOut === 'patch', needs:() => false},
+  {id:'closetpaint', title:'Closet Installation Details', file:'closet-installation-details-paint.pdf',
+   png:'closet-installation-details-paint.png', stamp:'corner', sign:{x:56, y:678, dx:410},
+   why:'closet organizers, customer to tear out and paint', jobNeeds:job => closetsOf(job).length > 0 && job.closetTearOut === 'paint', needs:() => false},
+  {id:'condocloset', title:'Condominium Closet Installation: Standard Wall Spaces', file:'condo-closet-wall-spaces.pdf',
+   png:'condo-closet-wall-spaces.png', stamp:'corner', sign:{x:56, y:567, dx:410},
+   why:'closets in a condo building', jobNeeds:job => !!job.condo && closetsOf(job).length > 0, needs:() => false},
 ];
 // what a document is for, in words: the openings it covers, or the job
 const docFor = d => 'For ' + d.why + (d.jobNeeds ? '' : ': opening' + (d.openings.length > 1 ? 's ' : ' ') + [...new Set(d.openings)].join(', '));
@@ -1338,7 +1376,8 @@ function signFp(job){
   const jr = jambRows(job).map(r => [r.n, r.type, r.dir, r.jamb, r.w, r.h, r.match]);
   const s = JSON.stringify([sheetInputs(job), job.docType || '', jobDocs(job).map(d => d.id),
                             doorPicks(job).map(p => p.sub ? [p.style, p.qty, p.sub] : [p.style, p.qty])].concat(jr.length ? [jr] : [])
-                            .concat(noteOf(job) || job.openings.some(noteOf) ? [[noteOf(job), job.openings.map(noteOf)]] : []));
+                            .concat(noteOf(job) || job.openings.some(noteOf) ? [[noteOf(job), job.openings.map(noteOf)]] : [])
+                            .concat(closetsOf(job).length ? [clFp(job)] : []));
   let h = 5381; for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36) + '.' + s.length.toString(36);
 }
@@ -1525,8 +1564,10 @@ const INI_TAG = '<span class="ini"></span>';
 const SO_TERM = 'Special order items are made for this order and cannot be returned or refunded.';
 function signFields(job){
   const total = calc && typeof cv('U54') === 'number' ? money(cv('U54')) : '';
+  const nc = closetsOf(job).length;
   const f = [{id:'contract', kind:'sign', title:'Sign the order',
-    note:'You agree to the doors, hardware and prices on this order' + (total ? ', grand total ' + total : '') + '.'}];
+    note:'You agree to the ' + (reviewLines(job).length ? 'doors, hardware' + (nc ? ', closet organizers' : '') : 'closet organizers') +
+      ' and prices on this order' + (total ? ', grand total ' + total : '') + '.'}];
   // 2.32: special order items are initialled on their own
   const so = specialOrders(job);
   if(so.length) f.push({id:'ini-so', kind:'initial', title:'Initial the special order items',
@@ -1542,6 +1583,10 @@ function signFields(job){
   const jr = jambRows(job);
   if(jr.length) f.push({id:'jambs', kind:'sign', title:'Sign the door jamb take-off sheet',
     note:'Opening' + (jr.length > 1 ? 's ' : ' ') + jr.map(r => r.n).join(', ') + ': jamb widths, swing directions and door sizes.'});
+  // 2.70: the closet measurements, details and design
+  if(nc) f.push({id:'closets', kind:'sign', title:'Sign the closet organizer order',
+    note:nc + ' closet' + (nc === 1 ? '' : 's') + ', ' + (CL_TEAR[job.closetTearOut] || 'tear out not chosen') +
+      (job.closetFile ? ', and the closet design (' + clPages(job.closetFile) + ')' : '') + '.'});
   jobDocs(job).forEach(d => f.push({id:'form-' + d.id, kind:'sign', title:'Sign the ' + d.title, note:docFor(d) + '.'}));
   return f;
 }
@@ -1761,10 +1806,10 @@ async function contractPdf(job, opts){
   const spot = (pg, id, x, y, w, h, from) => { const p = pdf.getPageCount() - 1;
     spots[id] = {p, x, y, w, h, W:pg.getWidth(), H:pg.getHeight(),
                  pages:Array.from({length:p - (from == null ? p : from) + 1}, (_, k) => (from == null ? p : from) + k)}; };
-  let orderFrom = null;
+  let orderFrom = null, closetFrom = null;
   const sigLines = (pg, id, x, y) => {      // y is the baseline of the lines
     const m = signed(id);
-    spot(pg, id, x + 184, y - 4, 262, 40, id === 'contract' ? orderFrom : null);
+    spot(pg, id, x + 184, y - 4, 262, 40, id === 'contract' ? orderFrom : id === 'closets' ? closetFrom : null);
     text(pg, 'Date:', x, y + 2, {size:9});
     pg.drawLine({start:{x:x + 28, y}, end:{x:x + 150, y}, thickness:0.8, color:INK});
     if(m) text(pg, signDay(m.at), x + 32, y + 3, {size:9});
@@ -1883,12 +1928,17 @@ async function contractPdf(job, opts){
         text(pg, fitText(v || '', i ? F : FB, 8.5, 140), cx, cy - 9, {size:8.5, font:i ? F : FB, color:i ? INK : RED}); });
       y -= 62;
     }
+    // 2.70: a closets only order has no door table
+    let x = 28;
+    if(!lines.length){ kicker(pg, 'Closet organizers only: no doors on this order. The closets follow.', 28, y); y -= 10; }
+    else {
     kicker(pg, pageNo === 1 ? 'Doors on this order' : 'Doors on this order, continued', 28, y); y -= 6;
     // header row
     pg.drawRectangle({x:28, y:y - 13, width:LW - 56, height:13, color:CHAR});
-    let x = 28; COLS.forEach(([t, w], k) => { const cw = w * scaleW, num = prices && k >= COLS.length - 3;
+    COLS.forEach(([t, w], k) => { const cw = w * scaleW, num = prices && k >= COLS.length - 3;
       text(pg, t.toUpperCase(), num ? x + cw - 3 : x + 3, y - 9, {size:5.6, font:FB, color:WHITE, right:num}); x += cw; });
     y -= 13;
+    }
     while(li < lines.length && y - 15 - noteH(li) > 120){
       const vals = cell(lines[li], li), stop = sizeCheck(lines[li].op, lines[li].o, cv('R' + PAGE_ROWS[li])).status === 'so';
       if(li % 2) pg.drawRectangle({x:28, y:y - 15, width:LW - 56, height:15, color:rgb(0.969, 0.969, 0.969)});
@@ -2131,6 +2181,81 @@ async function contractPdf(job, opts){
     sigLines(pg, 'jambs', 90, 64); foot(pg, W);
   }
 
+  /* 3c. 2.70, Andrew 26 Nov: the closets. The order (price, tear out),
+     each closet's drawing, sizes, details, obstructions and notes, two
+     across, signed once at the end; then every page of the closet design
+     PDF the sales associate uploaded. */
+  const cls = closetsOf(job);
+  if(cls.length){
+    const W = 612, H = 792, colW = (W - 56 - 16) / 2;
+    const pics = await Promise.all(cls.map(c => clPts(c).length > 1 ? closetPng(c).catch(() => null) : null));
+    const cards = [];
+    for(let i = 0; i < cls.length; i++){
+      const c = cls[i], img = pics[i] ? await pdf.embedPng(pics[i]) : null;
+      const segs = clSegs(c).filter(g => clVal(c, g.k));
+      const rows = [];
+      if(segs.length || c.ceiling) rows.push({t:'Sizes: ' + segs.map(g => (g.door ? 'door opening' : g.k) + ' ' + sizeText(clVal(c, g.k)) + '"')
+        .concat(c.ceiling ? ['ceiling ' + sizeText(c.ceiling) + '"'] : []).join(', ')});
+      const det = clDetRows(c);
+      if(det.length) rows.push({t:det.map(([l, v]) => l + ': ' + v).join(', ')});
+      clMarks(c).forEach((m, k) => rows.push({t:(k + 1) + '. ' + m.type + ' on wall ' + m.wall +
+        CL_MARK_F.filter(([f]) => clMarkVal(m, f)).map(([f, l]) => ', ' + l.toLowerCase() + ' ' + sizeText(clMarkVal(m, f)) + '"').join('')}));
+      if(noteOf(c)) rows.push({t:'Notes: ' + noteOf(c), red:true});
+      const ls = rows.flatMap(r => wrap(r.t, F, 7.4, colW - 8).map(l => ({l, red:r.red})));
+      const ih = img ? Math.min(170, (colW - 8) * img.height / img.width) : 0;
+      cards.push({c, img, ih, ls, h:18 + ih + 6 + ls.length * 9 + 8});
+    }
+    const tear = CL_TEAR[job.closetTearOut] || 'Not chosen';
+    const sumRows = [['Tear out', tear], ['Closets', String(cls.length)]]
+      .concat(prices && clPriceNum(job) != null ? [['Selling price before tax', money(clPriceNum(job)) + ' (Organizer on the order)']] : [])
+      .concat(job.condo ? [['Building', 'Condominium: standard wall spaces apply']] : [])
+      .concat(job.closetFile ? [['Closet design', job.closetFile.name + ', ' + clPages(job.closetFile) + ', attached after this page']] : []);
+    let pg = null, y = 0, k = 0;
+    const newPage = first => {
+      pg = pdf.addPage([W, H]);
+      if(closetFrom == null) closetFrom = pdf.getPageCount() - 1;
+      y = head(pg, W, H, 'Closet Organizers' + (first ? '' : ', continued'), who) - 4;
+      if(first){
+        const bh = 12 + sumRows.length * 12;
+        pg.drawRectangle({x:28, y:y - bh, width:W - 56, height:bh, color:PANEL});
+        sumRows.forEach(([l, v], j) => { text(pg, l.toUpperCase(), 36, y - 14 - j * 12, {size:6, font:FB, color:GREY});
+          text(pg, fitText(v, j ? F : FB, 9, W - 56 - 150), 160, y - 14 - j * 12, {size:9, font:j ? F : FB, color:j ? INK : RED}); });
+        y -= bh + 12;
+      }
+    };
+    newPage(true);
+    while(k < cards.length){
+      const pair = cards.slice(k, k + 2), rh = Math.max(...pair.map(x => x.h));
+      if(y - rh < 104 && y < H - 140){ foot(pg, W); newPage(false); continue; }
+      pair.forEach((cd, j) => {
+        const x0 = 28 + j * (colW + 16);
+        pg.drawLine({start:{x:x0, y}, end:{x:x0 + colW, y}, thickness:0.8, color:RULE});
+        text(pg, fitText(clName(cd.c).replace(/ · /, ', '), FB, 10.5, colW), x0, y - 13, {size:10.5, font:FB});
+        let yy = y - 18;
+        if(cd.img){ const iw = cd.ih * cd.img.width / cd.img.height;
+          pg.drawImage(cd.img, {x:x0 + (colW - iw) / 2, y:yy - cd.ih, width:iw, height:cd.ih}); yy -= cd.ih + 6; }
+        cd.ls.forEach(l => { text(pg, l.l, x0 + 2, yy - 7, {size:7.4, color:l.red ? RED : INK}); yy -= 9; });
+      });
+      y -= rh + 4; k += 2;
+    }
+    if(y < 100){ foot(pg, W); newPage(false); }
+    wrap('Your signature confirms the closet measurements, details and tear out choice above' +
+      (job.closetFile ? ' and the closet design pages that follow' : '') + '. All closet materials are special order and cannot be returned.',
+      F, 7.5, W - 56).forEach((l, j) => text(pg, l, 28, 96 - j * 9, {size:7.5, color:GREY}));
+    sigLines(pg, 'closets', 90, 64); foot(pg, W);
+    // the design PDF, every page, as uploaded
+    if(job.closetFile){
+      const src = await PDFDocument.load(await designBytes(job), {ignoreEncryption:true});
+      const idx = src.getPageIndices();
+      const copied = await pdf.copyPages(src, idx);
+      copied.forEach((cp, n) => { pdf.addPage(cp);
+        const cw = cp.getWidth();
+        text(cp, fitText('Closet design, page ' + (n + 1) + ' of ' + idx.length + '  -  ' + (job.customer || '') + '  -  part of this order', F, 6.5, cw - 40),
+          cw / 2, 6, {size:6.5, color:GREY, center:true});
+        if(rnote) text(cp, fitText(rnote, F, 6.5, 400), cw - 20, cp.getHeight() - 12, {size:6.5, color:RED, right:true}); });
+    }
+  }
+
   /* 4. the forms, each with its own signature and date */
   for(const d of jobDocs(job)){
     const src = await PDFDocument.load(await stampedDoc(d, job));
@@ -2210,7 +2335,7 @@ async function remoteCall(body, asStaff){
 /* ---------- the associate's side ---------- */
 async function sendToSign(job, again){
   if(!SB) return toast('Sending to sign needs the online database');
-  if(!reviewLines(job).length) return toast('There are no doors on this order');
+  if(!reviewLines(job).length && !closetsOf(job).length) return toast('There are no doors or closets on this order');
   const miss = missing(job);
   if(miss.length) return toast('Fill these in before sending: ' + miss.slice(0, 2).join('; ') + (miss.length > 2 ? ' and ' + (miss.length - 2) + ' more' : ''));
   const unconf = sizeUnconfirmed(job);
@@ -2449,7 +2574,7 @@ function quoteFigures(job){
 const quoteName = job => ((job.customer || 'Customer') + ' estimate ' + new Date().toISOString().slice(0, 10))
   .replace(/[^\w\- ]+/g, '').trim() + '.pdf';
 async function sendQuote(job){
-  if(!reviewLines(job).length) return toast('There are no doors on this order');
+  if(!reviewLines(job).length && !closetsOf(job).length) return toast('There are no doors or closets on this order');
   if(!String(job.customer || '').trim()) return toast('Put the customer name on the job first');
   if(prices0(job)) return toast('Every door needs a price before an estimate. Type the Door MSRP on the S/O lines.');
   const to = String(job.email || '').trim(), canMail = SB && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to);
@@ -2503,7 +2628,7 @@ async function emailContract(job, bytes){
   return j;
 }
 async function signContract(job){
-  if(!reviewLines(job).length) return toast('There are no doors on this order to sign for');
+  if(!reviewLines(job).length && !closetsOf(job).length) return toast('There are no doors or closets on this order to sign for');
   const miss = missing(job);
   if(miss.length) return toast('Fill these in before signing: ' + miss.slice(0, 2).join('; ') + (miss.length > 2 ? ' and ' + (miss.length - 2) + ' more' : ''));
   const unconf = sizeUnconfirmed(job);
@@ -3728,6 +3853,12 @@ function newJob(){
 function missing(job){
   const out = [];
   JOBFIELDS.filter(f => f.req).forEach(f => { if(!job[f.k]) out.push(f.label); });
+  // 2.70: a job with closets needs their price, the tear out choice and the design
+  if(closetsOf(job).length){
+    if(clPriceNum(job) == null) out.push('Closets: selling price before tax');
+    if(!CL_TEAR[job.closetTearOut]) out.push('Closets: tear out choice');
+    if(!job.closetFile) out.push('Closets: upload the closet design PDF');
+  }
   job.openings.forEach(op => {
     const on = op.options.filter(o => o.include);
     if(!op.options.length){
@@ -3994,6 +4125,9 @@ function sheetInputs(job){
   const fee = k => { const v = (job.fees || {})[k]; return v === '' || v == null || isNaN(v) ? null : Number(v); };
   out.push(['C47', fee('serviceQty')]);
   out.push(['K47', fee('disposalQty')]);
+  /* 2.70, Andrew 26 Nov: the closet selling price, before tax, is the
+     Organizer line of the Order Total box; the sheet adds the tax. */
+  out.push(['U46', closetsOf(job).length ? clPriceNum(job) : null]);
   return out;
 }
 /* every cell sheetInputs can touch, for putting the template back */
@@ -4002,7 +4136,7 @@ const INPUT_REFS = (() => {
   PAGE_ROWS.forEach(row => Object.values(COLMAP).forEach(c => r.push(c + row)));
   PAGE_ROWS.forEach(row => r.push('R' + row, 'U' + row, 'AJ' + row));   // 2.10 S/O; 2.23 typed prices; 2.61 third track
   [55, 56, 57].forEach(row => ['F','J','K'].forEach(c => r.push(c + row)));
-  r.push('C47', 'K47');
+  r.push('C47', 'K47', 'U46');
   return r;
 })();
 
@@ -5005,6 +5139,7 @@ function renderReview(){
   h += [...new Set(notes)].map(n => '<p class="warn">' + esc(n) + '</p>').join('');
 
   h += docsBox(job);
+  h += closetReviewBox(job);          // 2.70
   const formsToPrint = jobDocs(job);
 
   // the boxes underneath, as on the sheet
@@ -5033,10 +5168,11 @@ function renderReview(){
   h += termsPage(job);
   h += doorsPage(job);
   h += jambPage(job);                 // 2.52
+  h += closetPrint(job, true) + (job.closetFile ? '<div class="print-designs"></div>' : '');   // 2.70
   if(formsToPrint.length) h += '<div class="print-forms">' + formsToPrint.map(d => docPage(d, job)).join('') + '</div>';
   $('#app').innerHTML = h;
 
-  const miss = missing(job);
+  const miss = missing(job), anyLine = lines.length || closetsOf(job).length;   // 2.70: closets count
   $('#dock').innerHTML =
     '<div class="count">' + (miss.length
       ? esc(miss[0]) + (miss.length > 1 ? ' (+' + (miss.length - 1) + ' more)' : '')
@@ -5048,11 +5184,11 @@ function renderReview(){
       : typeof cv('U54') === 'number' ? 'Grand total ' + esc(money(cv('U54')))
       : 'No grand total until every door has a price') + '</div>' +
     '<button class="btn" data-revprint="1">Print</button>' +
-    (prices ? '<button class="btn btn-sign" data-sign="1"' + (lines.length ? '' : ' disabled') + '>' +
+    (prices ? '<button class="btn btn-sign" data-sign="1"' + (anyLine ? '' : ' disabled') + '>' +
       (signedOk(job) ? 'Signed' : 'Sign') + '</button>' : '') +
-    (prices && SB ? '<button class="btn" data-sendsign="1"' + (lines.length ? '' : ' disabled') + '>Send to Sign</button>' : '') +
-    (prices ? '<button class="btn" data-quote="1"' + (lines.length ? '' : ' disabled') + '>Send Estimate</button>' : '') +
-    '<button class="btn btn-primary" data-xml="1"' + (lines.length ? '' : ' disabled') + '>Download workbook</button>';
+    (prices && SB ? '<button class="btn" data-sendsign="1"' + (anyLine ? '' : ' disabled') + '>Send to Sign</button>' : '') +
+    (prices ? '<button class="btn" data-quote="1"' + (anyLine ? '' : ' disabled') + '>Send Estimate</button>' : '') +
+    '<button class="btn btn-primary" data-xml="1"' + (anyLine ? '' : ' disabled') + '>Download workbook</button>';
 }
 
 async function openReview(){
@@ -5572,10 +5708,102 @@ function clMissing(c){
   if(!c.ceiling) m.push('ceiling height');
   return m;
 }
+/* 2.70, Andrew 26 Nov: the closet order. The details from the paper closet
+   contract go on each closet; the selling price (before tax), the tear out
+   choice and the closet design PDF (one per job, every closet in it) go on
+   the job. The price is the Organizer line on the order; the tear out choice
+   picks which Closet Installation Details form is signed. */
+const CL_DETAIL = [
+  {k:'finish', label:'Finish', text:'e.g. White'},
+  {k:'pole', label:'Pole finish', text:'e.g. Chrome'},
+  {k:'thick', label:'Thickness', ch:['3/4"', '1"']},
+  {k:'depth', label:'Material depth', ch:['14"', '20"', '24"']},
+  {k:'acc', label:'Accessories', multi:['Jewelry', 'Belt', 'Tie', 'Valet', 'Scarf']},
+  {k:'backing', label:'Backing', ch:['Yes', 'No']},
+  {k:'notched', label:'Notched', ch:['Yes', 'No']},
+  {k:'holes', label:'Adjustment holes', ch:['Yes', 'No']},
+  {k:'guides', label:'Drawer guides', ch:['Full', 'N/A']},
+  {k:'dstyle', label:'Drawer style', ch:['Modern', 'Raised', 'Allegra', 'Milan', 'Shaker', 'Premier']}];
+// what the paper contract nearly always has circled; the rep changes any of them
+const CL_DEF = {thick:'3/4"', backing:'No', notched:'Yes', holes:'Yes', guides:'Full'};
+const CL_TEAR = {patch:'No Charge Tear Out and Rough Patch', paint:'Customer to Tear Out and Paint Prior to Install'};
+const clDet = c => (c.det = c.det && typeof c.det === 'object' ? c.det : {...CL_DEF});
+const clDetRows = c => CL_DETAIL.map(f => { const v = clDet(c)[f.k];
+  return [f.label, Array.isArray(v) ? v.join(', ') : String(v || '').trim()]; }).filter(r => r[1]);
+const clPriceNum = job => { const v = parseFloat(String(job.closetPrice == null ? '' : job.closetPrice).replace(/[$,\s]/g, ''));
+  return isNaN(v) || v < 0 ? null : Math.round(v * 100) / 100; };
+const clPages = f => (f && f.pages ? f.pages + ' page' + (f.pages === 1 ? '' : 's') : 'PDF');
+// what a signature on the closets covers, for the fingerprint
+const clFp = job => [closetsOf(job).map(c => [c.number, c.location, c.shape, clPts(c), c.dims || {}, c.ceiling || '', noteOf(c),
+  clMarks(c).map(m => [m.type, m.wall, m.from, m.size, m.off, m.tall]), clDetRows(c)]),
+  clPriceNum(job), job.closetTearOut || '', job.closetFile ? [job.closetFile.name, job.closetFile.path || job.closetFile.local, job.closetFile.size] : ''];
+
+/* the closet design PDF's bytes: kept in memory once seen; online it lives in
+   the private store (remote-sign design and closet actions), offline on this
+   device. */
+const DESIGNS = {};
+async function designBytes(job){
+  const f = job.closetFile; if(!f) throw new Error('there is no closet design PDF on this job');
+  const key = f.path || f.local;
+  if(DESIGNS[key]) return DESIGNS[key];
+  if(f.local){
+    let b = null; try{ b = localStorage.getItem('gidc:design:' + f.local); }catch(e){}
+    if(!b) throw new Error('the closet design PDF is not on this device. Upload it again on the Closets screen.');
+    return DESIGNS[key] = Uint8Array.from(atob(b), ch => ch.charCodeAt(0));
+  }
+  const j = state.view === 'remote' && state.remote ? await remoteCall({action:'closet', token:remoteToken()})
+          : await remoteCall({action:'design', id:job.id, path:f.path}, true);
+  const r = await fetch(j.url);
+  if(!r.ok) throw new Error('the closet design PDF did not download');
+  return DESIGNS[key] = new Uint8Array(await r.arrayBuffer());
+}
+async function closetUpload(job, file){
+  if(!file) return;
+  if(!/\.pdf$/i.test(file.name) && file.type !== 'application/pdf') return toast('The closet design has to be a PDF');
+  if(file.size > 25 * 1024 * 1024) return toast('That PDF is over 25 MB. Save it smaller and try again.');
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if(String.fromCharCode(...bytes.slice(0, 4)) !== '%PDF') return toast('That file is not a PDF');
+  let pages = 0;
+  try{
+    if(!window.PDFLib) await loadScript(PDFLIB_SRC);
+    pages = (await window.PDFLib.PDFDocument.load(bytes, {ignoreEncryption:true})).getPageCount();
+  }catch(err){ return toast('That PDF could not be read: ' + (err.message || err)); }
+  const rec = {name:file.name, size:file.size, pages, at:new Date().toISOString()};
+  toast('Uploading the closet design...');
+  if(SB){
+    try{ await persist(); }catch(e){ return; }
+    try{ rec.path = (await remoteCall({action:'design-up', id:job.id, pdf:toB64(bytes)}, true)).path; }
+    catch(err){ return toast('The closet design did not upload: ' + (err.message || err)); }
+    DESIGNS[rec.path] = bytes;
+  } else {
+    rec.local = uid(); DESIGNS[rec.local] = bytes;
+    try{ localStorage.setItem('gidc:design:' + rec.local, toB64(bytes)); }catch(e){ toast('Kept until the app is closed: too big to keep on this device'); }
+  }
+  const old = job.closetFile;
+  if(old && old.local){ try{ localStorage.removeItem('gidc:design:' + old.local); }catch(e){} }
+  job.closetFile = rec;
+  render(); persistBg();
+  toast('Closet design added: ' + clPages(rec));
+}
+/* a closet's drawing as a PNG for the contract PDF */
+function closetPng(c){
+  const svg = closetSvg(c, 'print').replace('<svg ', '<svg font-family="Helvetica, Arial, sans-serif" ');
+  const vb = (/viewBox="([^"]+)"/.exec(svg) || [])[1].split(' ').map(Number);
+  const sc = Math.min(1400 / vb[2], 1000 / vb[3]), w = Math.round(vb[2] * sc), h = Math.round(vb[3] * sc);
+  const src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg.replace('<svg ', '<svg width="' + w + '" height="' + h + '" '));
+  return new Promise((ok, no) => {
+    const im = new Image();
+    im.onload = () => { const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const x = cv.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, w, h); x.drawImage(im, 0, 0, w, h);
+      cv.toBlob(b => b ? b.arrayBuffer().then(a => ok(new Uint8Array(a)), no) : no(new Error('no picture')), 'image/png'); };
+    im.onerror = () => no(new Error('the closet drawing did not draw'));
+    im.src = src;
+  });
+}
 function newCloset(job){
   const list = closetsOf(job);
   const n = list.reduce((x, c) => Math.max(x, +c.number || 0), 0) + 1;
-  const c = {id:uid(), number:n, location:'', shape:'', pts:[], dims:{}, ceiling:'', note:''};
+  const c = {id:uid(), number:n, location:'', shape:'', pts:[], dims:{}, ceiling:'', note:'', det:{...CL_DEF}};
   list.push(c);
   return c;
 }
@@ -5809,19 +6037,74 @@ function closetSwitch(job, on){
       (nc ? ' <small>' + nc + '</small>' : '') + '</button></div>';
 }
 
-function closetPrint(job){
-  const list = closetsOf(job).filter(c => clPts(c).length > 1);
+function closetPrint(job, order){
+  const list = closetsOf(job).filter(c => clPts(c).length > 1 || order);
   if(!list.length) return '';
   const who = [['Customer', job.customer], ['Address', docAddress(job)], ['Phone', job.phone], ['Email', job.email],
                ['Date', job.date], ['Salesperson', job.salesRep || job.owner]];
-  return '<div class="cl-print">' + letterhead() +
-    '<div class="clp-title"><h1>Closet Measurements</h1></div>' +
-    '<div class="clp-who">' + who.map(([l, v]) => '<div><span>' + l + '</span><b>' + esc(v || '') + '</b></div>').join('') + '</div>' +
+  // 2.70: printed with the order, the closet order and a signature too
+  const ord = order ? [['Tear out', CL_TEAR[job.closetTearOut] || 'Not chosen']]
+    .concat(canSeePrices() && clPriceNum(job) != null ? [['Selling price before tax', money(clPriceNum(job))]] : [])
+    .concat(job.closetFile ? [['Closet design', job.closetFile.name + ', ' + clPages(job.closetFile)]] : []) : [];
+  return '<div class="cl-print' + (order ? ' cl-order-print' : '') + '">' + letterhead() +
+    '<div class="clp-title"><h1>' + (order ? 'Closet Organizers' : 'Closet Measurements') + '</h1></div>' +
+    '<div class="clp-who">' + who.concat(ord).map(([l, v]) => '<div><span>' + l + '</span><b>' + esc(v || '') + '</b></div>').join('') + '</div>' +
     '<div class="clp-grid">' + list.map(c => '<div class="clp-one"><h2>' + esc(clName(c)) + '</h2>' + closetSvg(c, 'print') +
       (clMarks(c).length ? '<ol class="clp-marks">' + clMarks(c).map(m => '<li>' + esc(m.type) + ' on wall ' + esc(m.wall) +
         CL_MARK_F.filter(([f]) => clMarkVal(m, f)).map(([f, l]) => ', ' + l.toLowerCase() + ' ' + esc(sizeText(clMarkVal(m, f))) + '"').join('') +
         '</li>').join('') + '</ol>' : '') +
-      (noteOf(c) ? '<p class="clp-note">Notes: ' + esc(noteOf(c)) + '</p>' : '') + '</div>').join('') + '</div></div>';
+      (clDetRows(c).length ? '<p class="clp-det">' + clDetRows(c).map(([l, v]) => esc(l) + ': <b>' + esc(v) + '</b>').join(', ') + '</p>' : '') +
+      (noteOf(c) ? '<p class="clp-note">Notes: ' + esc(noteOf(c)) + '</p>' : '') + '</div>').join('') + '</div>' +
+    (order ? sigBlock(job, 'closets') : '') + '</div>';
+}
+/* 2.70: the closets on the review, with what the order still needs */
+function closetReviewBox(job){
+  const list = closetsOf(job); if(!list.length) return '';
+  const need = missing(job).filter(m => m.indexOf('Closets:') === 0).map(m => m.replace('Closets: ', ''));
+  return '<div class="docs-box cl-rv"><h3>Closet organizers</h3><p>' + list.length + ' closet' + (list.length === 1 ? '' : 's') + ' \u00b7 ' +
+    esc(CL_TEAR[job.closetTearOut] || 'tear out not chosen') +
+    (canSeePrices() && clPriceNum(job) != null ? ' \u00b7 ' + esc(money(clPriceNum(job))) + ' before tax (Organizer)' : '') +
+    (job.closetFile ? ' \u00b7 design ' + esc(job.closetFile.name) + ' (' + esc(clPages(job.closetFile)) + ')' : '') + '</p>' +
+    (need.length ? '<p class="warn">Closets still need: ' + esc(need.join(', ')) + '.</p>' : '') +
+    '<button class="btn btn-sm" data-cl="closets">Open the closets</button></div>';
+}
+
+/* 2.70: the closet order, at the top of the Closets screen */
+function closetOrderCard(job){
+  const f = job.closetFile, prices = canSeePrices();
+  const forms = jobDocs(job).filter(d => /^closet|condocloset/.test(d.id));
+  return '<div class="card cl-order"><div class="card-body" style="border-top:0">' +
+    '<div class="cl-mh">Closet order</div>' +
+    (prices ? '<div class="field"><label>Selling price before tax, all closets</label>' +
+      '<input type="text" inputmode="decimal" data-clprice="1" placeholder="$0.00" value="' + esc(job.closetPrice || '') + '"' +
+      (clPriceNum(job) == null ? ' class="need"' : '') + '>' +
+      '<small class="hint">Goes on the order as Organizer. The tax is added there.</small></div>' : '') +
+    '<div class="field"><label>Tear out</label><div class="cl-chips cl-tear">' +
+      Object.keys(CL_TEAR).map(k => '<button type="button" class="cl-chip' + (job.closetTearOut === k ? ' on' : '') +
+        '" data-cl="tear" data-v="' + k + '">' + CL_TEAR[k] + '</button>').join('') + '</div></div>' +
+    '<label class="field jf-condo"><input type="checkbox" data-jcondo="1"' + (job.condo ? ' checked' : '') +
+      '><span>Condo building<small>Adds the condo forms, with the standard wall spaces for closets</small></span></label>' +
+    '<div class="field"><label>Closet design PDF (every closet on this job)</label>' +
+      (f ? '<div class="cl-file"><b>' + esc(f.name) + '</b><span>' + esc(clPages(f)) + '</span>' +
+           '<button type="button" class="btn btn-sm" data-cl="fview">View</button>' +
+           '<label class="btn btn-sm">Replace<input type="file" accept="application/pdf,.pdf" data-clfile="1" hidden></label>' +
+           '<button type="button" class="btn btn-sm btn-ghost" data-cl="frm">Remove</button></div>'
+         : '<label class="btn cl-up">Upload closet design PDF<input type="file" accept="application/pdf,.pdf" data-clfile="1" hidden></label>') +
+      '<small class="hint">It goes with the contract, after the closet measurements.</small></div>' +
+    (forms.length ? '<p class="hint">Signed with the order: ' + forms.map(d => esc(d.title)).join(' and ') + '.</p>' : '') +
+    '</div></div>';
+}
+/* 2.70: the paper closet contract's details, on each closet */
+function closetDetails(c){
+  const d = clDet(c);
+  return '<div class="cl-det"><div class="cl-mh">Closet details</div>' + CL_DETAIL.map(f => {
+    if(f.text) return '<div class="field cl-dl"><label>' + f.label + '</label><input type="text" data-cldet="' + f.k +
+      '" data-cid="' + c.id + '" placeholder="' + esc(f.text) + '" value="' + esc(d[f.k] || '') + '"></div>';
+    const list = f.multi || f.ch, on = v => f.multi ? (d[f.k] || []).indexOf(v) >= 0 : d[f.k] === v;
+    return '<div class="field cl-dl' + (f.ch && f.ch.length === 2 ? ' half' : '') + '"><label>' + f.label + (f.multi ? ' <small>(any)</small>' : '') + '</label><div class="cl-chips">' +
+      list.map(v => '<button type="button" class="cl-chip' + (on(v) ? ' on' : '') + '" data-cl="det" data-cid="' + c.id +
+        '" data-k="' + f.k + '" data-v="' + esc(v) + '">' + esc(v) + '</button>').join('') + '</div></div>';
+  }).join('') + '</div>';
 }
 
 function renderClosets(){
@@ -5832,6 +6115,7 @@ function renderClosets(){
     '<h1>' + esc(job.customer || 'Untitled job') + '</h1><span class="crumb">Closets</span>';
   const list = closetsOf(job);
   let h = closetSwitch(job, 'closets');
+  if(list.length) h += closetOrderCard(job);
   if(!list.length)
     h += '<div class="card"><div class="card-body cl-empty" style="border-top:0">No closets on this job yet. ' +
          'Add one for each closet you measure.</div></div>';
@@ -5889,6 +6173,7 @@ function renderClosets(){
           '<div class="cl-mfrom">From corner is measured from ' + esc(clStartOf(c, mk.wall)) + ' along wall ' + esc(mk.wall) + '.</div></div>').join('') +
           '<button class="btn btn-sm" data-cl="madd" data-cid="' + c.id + '">+ Window or obstruction</button></div>';
       }
+      h += closetDetails(c);
       h += '<div class="field cl-note"><label>Notes</label>' +
            noteBox('data-clnote="' + c.id + '"', c.note, 'e.g. baseboard 4", outlet on wall B, remove the old shelf') + '</div>' +
            '<div style="display:flex;gap:8px;padding-top:8px"><button class="btn btn-sm btn-danger" data-cl="rm" data-cid="' + c.id +
@@ -5904,7 +6189,8 @@ function renderClosets(){
       ? list.length + ' closet' + (list.length === 1 ? '' : 's') + (todo ? ' · ' + todo + ' still need sizes' : ' · all measured')
       : 'No closets yet') + '</div>' +
     '<button class="btn" data-cl="doors">Doors</button>' +
-    '<button class="btn btn-primary" data-cl="print"' + (list.some(c => clPts(c).length > 1) ? '' : ' disabled') + '>Print closets</button>';
+    '<button class="btn" data-cl="print"' + (list.some(c => clPts(c).length > 1) ? '' : ' disabled') + '>Print closets</button>' +
+    (list.length ? '<button class="btn btn-primary" data-review="1">Review order</button>' : '');
   if(state.scrollTo){
     const target = state.scrollTo; state.scrollTo = null;
     requestAnimationFrame(() => { const el = document.getElementById('cl-' + target);
@@ -5937,7 +6223,28 @@ document.addEventListener('click', async e => {
     }
     const n = newCloset(job); state.closetOpen = n.id; state.scrollTo = n.id; render(); return persistBg(); }
   if(act === 'print'){ return window.print(); }
+  if(act === 'tear'){ job.closetTearOut = job.closetTearOut === d.v ? '' : d.v; render(); return persistBg(); }
+  if(act === 'fview'){
+    const w = window.open('', '_blank');
+    try{ const url = URL.createObjectURL(new Blob([await designBytes(job)], {type:'application/pdf'}));
+      if(w) w.location.href = url; else saveBytes(await designBytes(job), job.closetFile.name, 'application/pdf');
+      setTimeout(() => URL.revokeObjectURL(url), 60000); }
+    catch(err){ if(w) w.close(); toast('The closet design could not open: ' + (err.message || err)); }
+    return;
+  }
+  if(act === 'frm'){
+    if(!await sure({title:'Remove the closet design?', what:job.closetFile.name + ' comes off this job.',
+        why:'The contract needs a closet design before it is signed.', go:'Remove'})) return;
+    if(job.closetFile.local){ try{ localStorage.removeItem('gidc:design:' + job.closetFile.local); }catch(e){} }
+    delete job.closetFile; render(); return persistBg();
+  }
   if(!c) return;
+  if(act === 'det'){
+    const dt = clDet(c), f = CL_DETAIL.find(x => x.k === d.k); if(!f) return;
+    if(f.multi){ const a = Array.isArray(dt[f.k]) ? dt[f.k] : []; dt[f.k] = a.indexOf(d.v) >= 0 ? a.filter(x => x !== d.v) : a.concat([d.v]); }
+    else dt[f.k] = dt[f.k] === d.v ? '' : d.v;
+    render(); return persistBg();
+  }
   if(act === 'toggle'){ state.closetOpen = state.closetOpen === c.id ? null : c.id; return render(); }
   if(act === 'shape'){
     if(c.shape === d.k) return;
@@ -5963,6 +6270,9 @@ document.addEventListener('click', async e => {
 });
 document.addEventListener('change', e => {
   const t = e.target, d = t.dataset, job = state.job;
+  if(job && d.clprice){ job.closetPrice = t.value.trim(); render(); return persistBg(); }
+  if(job && d.clfile){ const f = t.files && t.files[0]; t.value = ''; return closetUpload(job, f); }
+  if(job && d.cldet){ const c = clFind(job, d.cid); if(c){ clDet(c)[d.cldet] = t.value.trim(); persistBg(); } return; }
   if(!job || !(d.clloc || d.clnote || d.clmark)) return;
   const c = clFind(job, d.clloc || d.clnote || d.cid);
   if(!c) return;
@@ -6767,14 +7077,15 @@ function renderJob(){
   if(!job.openings.length){
     const nc = closetsOf(job).length;
     $('#dock').innerHTML = '<div class="count">' + (nc ? 'Closets only \u00b7 ' + nc + ' closet' + (nc === 1 ? '' : 's') : 'No doors yet') + '</div>' +
-      '<button class="btn btn-primary" data-cl="closets">Closets</button>';
+      '<button class="btn' + (nc ? '' : ' btn-primary') + '" data-cl="closets">Closets</button>' +
+      (nc ? '<button class="btn btn-primary" data-review="1">Review order</button>' : '');
     return;
   }
   $('#dock').innerHTML =
     '<div class="count">' + (miss.length
       ? esc(miss[0]) + (miss.length > 1 ? ' (+' + (miss.length - 1) + ' more)' : '')
       : n + ' line' + (n === 1 ? '' : 's') + ' will be written') + '</div>' +
-    '<button class="btn" data-review="1"' + (n ? '' : ' disabled') + '>Review order</button>' +
+    '<button class="btn" data-review="1"' + (n || closetsOf(job).length ? '' : ' disabled') + '>Review order</button>' +
     '<button class="btn btn-primary" data-xml="1"' + (n ? '' : ' disabled') + '>Download workbook</button>';
 }
 
@@ -6965,6 +7276,25 @@ document.addEventListener('click', async e => {
     return toast(!d.sizeok ? 'Back to Check' : d.sizeok === 'so' ? 'Opening ' + op.number + ' is special order' : 'Opening ' + op.number + ' confirmed stock');
   }
   if(d.revprint !== undefined){
+    // 2.70: the closet design pages, drawn as pictures for printing
+    const pd = document.querySelector('.print-designs');
+    if(pd && job.closetFile && !pd.dataset.done){
+      try{
+        toast('Getting the closet design ready to print...');
+        if(!window.pdfjsLib) await loadScript(PDFJS_SRC);
+        const lib = window.pdfjsLib; lib.GlobalWorkerOptions.workerSrc = PDFJS_WORKER;
+        const doc = await lib.getDocument({data:(await designBytes(job)).slice()}).promise;
+        let out = '';
+        for(let n = 1; n <= doc.numPages; n++){
+          const pg = await doc.getPage(n), v1 = pg.getViewport({scale:1}), vp = pg.getViewport({scale:Math.min(2.4, 2000 / Math.max(v1.width, v1.height))});
+          const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
+          const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
+          await pg.render({canvasContext:x, viewport:vp}).promise;
+          out += '<div class="print-design' + (v1.width > v1.height ? ' wide' : '') + '"><img src="' + c.toDataURL('image/jpeg', 0.88) + '" alt=""></div>';
+        }
+        pd.innerHTML = out; pd.dataset.done = '1';
+      }catch(err){ toast('The closet design will not print: ' + (err.message || err)); }
+    }
     // the form pages are pictures: wait until they are in before printing
     await Promise.all(jobDocs(job).map(f => f.png).concat(doorPicks(job).map(p => p.photo).filter(Boolean)).concat(handlePicks(job).flatMap(h => [h.photo, h.rosePhoto]).filter(Boolean))
       .map(src => new Promise(ok => { const im = new Image(); im.onload = im.onerror = ok; im.src = src; })));
@@ -7478,6 +7808,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.69 · 25 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.70 · 26 Nov 2026</div>
 </body>
 </html>

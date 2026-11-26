@@ -6,12 +6,15 @@
    file cached whatever came back, so a single 403 from the edge could be kept
    and handed out afterwards, which is exactly what happened on 23 Sep 2026.
    A response already in the cache from that version is ignored and refetched. */
-const CACHE = 'gidc-11.4';  // 2.69, GDL style box no longer unticks the door
+const CACHE = 'gidc-11.5';  // 2.70, closet order: price, tear out, details, design PDF, closet forms
 const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.png', './icon-512.png',
                './apple-touch-icon.png', './manifest.webmanifest',
                './handle-hardware-selection.pdf', './bypass-door-overlap-guide.pdf',
                './bifold-door-fit-guide.pdf', './handle-hardware-selection.png',
                './condo-installation-agreement.pdf', './condo-installation-agreement.png',
+               './closet-installation-details-patch.pdf', './closet-installation-details-patch.png',
+               './closet-installation-details-paint.pdf', './closet-installation-details-paint.png',
+               './condo-closet-wall-spaces.pdf', './condo-closet-wall-spaces.png',
                './bypass-door-overlap-guide.png', './bifold-door-fit-guide.png',
                './pdf-lib-1.17.1.min.js', './pdfjs-3.11.174.min.js', './pdfjs-worker-3.11.174.min.js',
                './1-lite-clear.jpg',
