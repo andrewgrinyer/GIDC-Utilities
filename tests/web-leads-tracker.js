@@ -223,8 +223,12 @@ async function mock(page){
   check(/Cambridge/.test(await annCard().locator('dl.det').innerText()), 'everything the sheet had shows when opened');
   vm.runInContext('sendLeadsToTracker()', sandbox);
   const nCol = SHEET[0].indexOf('Lead Notes');
-  check(nCol === SHEET[0].indexOf('Lead Status') + 1 && /^\d+ \w{3} \d{4}, Reception: Left a voicemail, try again Friday$/.test(SHEET[1][nCol]),
-        'the note goes into a Lead Notes column in the sheet (' + SHEET[1][nCol] + ')');
+  const lines = String(SHEET[1][nCol]).split('\n');
+  check(nCol === SHEET[0].indexOf('Lead Status') + 1 && lines.length === 2 &&
+        /^\d+ \w{3} \d{4} \d+:\d\d [ap]m, Reception: Left a voicemail, try again Friday$/.test(lines[0]) &&
+        /^\d+ \w{3} \d{4} \d+:\d\d [ap]m, Reception: Status set to First Call No Answer$/.test(lines[1]),
+        'Lead Notes in the sheet has the note and the status change, with who and when, newest first (' + lines.join(' / ') + ')');
+  check(SHEET[7][nCol] === '', 'the tracker\'s own automatic marks stay out of the sheet (Sal)');
   if(SHOTS) await page.screenshot({path: SHOTS + '/web-leads-open.png', fullPage: true});
 
   // link a suggestion, then a typed number

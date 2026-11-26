@@ -343,15 +343,24 @@ begin
   return n + m;
 end $$;
 
--- every lead's notes, newest first, for the sheet's Lead Notes column
+-- every lead's notes, newest first, for the sheet's Lead Notes column.
+-- Andrew, 26 November: each status change and Access link goes in too,
+-- with when and the name of the login that made it, so the column reads
+-- as the lead's whole story:
+--   26 Nov 2026 9:14 am, Jane Smith: Status set to First Call No Answer
+--   26 Nov 2026 9:15 am, Jane Smith: Left a voicemail
+-- The tracker's own marks (by "Automatic") stay on the page only, or
+-- every old lead would carry one.
 create or replace function public.web_lead_sheet_notes()
 returns jsonb language sql stable security definer set search_path = public as $$
   select coalesce(jsonb_object_agg(lead_key, notes), '{}') from (
     select e.lead_key,
-           string_agg(to_char(e.at at time zone 'America/Toronto', 'FMDD Mon YYYY') ||
-                      coalesce(', ' || e.by_name, '') || ': ' || e.body, E'\n' order by e.at desc) as notes
+           string_agg(to_char(e.at at time zone 'America/Toronto', 'FMDD Mon YYYY FMHH12:MI am') ||
+                      coalesce(', ' || e.by_name, '') || ': ' ||
+                      case e.kind when 'status' then 'Status set to ' || e.body else e.body end,
+                      E'\n' order by e.at desc, e.id desc) as notes
       from public.web_lead_events e
-     where e.kind = 'note'
+     where e.by_name is distinct from 'Automatic'
      group by e.lead_key) x
 $$;
 
