@@ -6,9 +6,21 @@
  * night it counts how many rows arrived on each of the last few days and
  * sends those counts, and nothing else, to the dashboard.
  *
- * What leaves the sheet is a date and a number per day. No name, no
- * email, no phone number, no message. The sheet is not published and
+ * What the nightly count sends is a date and a number per day. No name,
+ * no email, no phone number, no message. The sheet is not published and
  * nothing outside Google is given access to it.
+ *
+ * SOLD OR UNSOLD (Andrew, 26 November 2026)
+ * Every hour it also marks each lead Sold or Unsold, with the Sold
+ * Price, in two columns it adds at the end: Status and Sold Price.
+ * Leads are matched to Access by email first, then phone, then name,
+ * and only a sale on or after the day the lead came in counts. To ask,
+ * it sends each row's number, date, email, phone and name to GIDC's own
+ * Supabase (the web-leads function), which answers Sold with the price,
+ * or Unsold, and keeps nothing it was sent. The sold jobs come from
+ * the office server every hour. The two columns are rewritten each
+ * hour, so anything typed into them by hand is replaced. No other
+ * column is ever written to. See SOLD OR UNSOLD, PUTTING IT IN, below.
  *
  * ---------------------------------------------------------------------
  * PUTTING IT IN, ONCE
@@ -46,6 +58,22 @@
  *     the switch on the server so Access stops counting these as well.
  *
  * ---------------------------------------------------------------------
+ * SOLD OR UNSOLD, PUTTING IT IN (once the server sync has sent once)
+ *
+ *  1. Replace all of the code with this new copy and save, as above.
+ *     KPI_KEY is already in Script Properties, so nothing to add.
+ *
+ *  2. Choose "checkSoldStatus" and press Run. Allow it if asked. It
+ *     writes nothing. The log says which columns it read the email,
+ *     phone and name from, and how many leads would be Sold (by email,
+ *     by phone, by name) and Unsold.
+ *
+ *  3. When that looks right, choose "turnOnSoldStatus" and press Run.
+ *     It adds the Status and Sold Price columns, fills them in now, and
+ *     then every hour. Running it twice is harmless.
+ *     "turnOffSoldStatus" stops it; the columns keep what they had.
+ *
+ * ---------------------------------------------------------------------
  * IF THE SHEET CHANGES
  *
  * If the form gains or loses columns this keeps working: it looks for
@@ -80,7 +108,22 @@ var SETTINGS = {
 
   // Toronto, so a submission at eleven at night counts as that day
   // rather than the next one.
-  zone: 'America/Toronto'
+  zone: 'America/Toronto',
+
+  // SOLD OR UNSOLD. The two columns it adds at the end of the tab.
+  statusHeader: 'Status',
+  priceHeader: 'Sold Price',
+  // Which columns hold the email, phone and name, found by their
+  // headers. Every column whose header matches is read.
+  emailLike: /e-?mail/i,
+  phoneLike: /phone|cell|mobile|^tel\b/i,
+  firstLike: /^first|first ?name/i,
+  lastLike: /^last|last ?name|surname/i,
+  nameLike: /name/i,
+  // a name column that is not the person's name
+  notNameLike: /first|last|sur|company|business|user|file/i,
+  // the edge function that answers Sold or Unsold
+  matchFunction: 'web-leads'
 };
 
 // =====================================================================
@@ -248,4 +291,179 @@ function countTheDays_() {
 /** A date as the dashboard wants it, in Toronto time rather than UTC. */
 function dayOf_(when) {
   return Utilities.formatDate(when, SETTINGS.zone, 'yyyy-MM-dd');
+}
+
+
+// =====================================================================
+//  SOLD OR UNSOLD (Andrew, 26 November 2026)
+// =====================================================================
+
+/** Shows what it would mark, and writes nothing. Safe to run any time. */
+function checkSoldStatus() {
+  var got = soldStatus_(false);
+  if (!got.ok) { Logger.log(got.why); return; }
+  Logger.log('Nothing was written. Run turnOnSoldStatus when these look right.');
+}
+
+/** Marks every lead now. The hourly timer runs this. */
+function markSoldNow() {
+  var lock = LockService.getScriptLock();
+  if (!lock.tryLock(5000)) { Logger.log('Already running.'); return; }
+  try {
+    var got = soldStatus_(true);
+    if (!got.ok) Logger.log(got.why);
+  } finally {
+    lock.releaseLock();
+  }
+}
+
+/** Sets the hourly timer and marks the leads once now. Run once. */
+function turnOnSoldStatus() {
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'markSoldNow') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('markSoldNow').timeBased().everyHours(1).create();
+  Logger.log('On. Status and Sold Price will be filled in every hour.');
+  markSoldNow();
+}
+
+/** Stops it. The two columns keep what they had. */
+function turnOffSoldStatus() {
+  var n = 0;
+  ScriptApp.getProjectTriggers().forEach(function (t) {
+    if (t.getHandlerFunction() === 'markSoldNow') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  Logger.log(n ? 'Off.' : 'It was not on.');
+}
+
+var OUR_NOTE_ = 'Filled in every hour from Access by the GIDC script ' +
+                '(Extensions, Apps Script). Typing here is replaced.';
+
+function soldStatus_(write) {
+  var key = PropertiesService.getScriptProperties().getProperty('KPI_KEY');
+  if (!key) return { ok: false, why: 'No KPI_KEY in Script Properties, so it cannot ask. Nothing was written.' };
+
+  var book = SpreadsheetApp.getActiveSpreadsheet();
+  var sheet = SETTINGS.tabName ? book.getSheetByName(SETTINGS.tabName) : book.getSheets()[0];
+  if (!sheet) return { ok: false, why: 'There is no tab called "' + SETTINGS.tabName + '".' };
+  var values = sheet.getDataRange().getValues();
+  if (values.length < 2) return { ok: false, why: 'That tab has no rows in it yet.' };
+  var headers = values[0].map(function (h) { return String(h).trim(); });
+
+  // our two columns: found by header, and only if this script made them
+  var notes = sheet.getRange(1, 1, 1, headers.length).getNotes()[0];
+  function ours(title) {
+    for (var c = 0; c < headers.length; c++) {
+      if (headers[c].toLowerCase() === title.toLowerCase()) {
+        return notes[c] === OUR_NOTE_ ? { col: c } : { col: c, notOurs: true };
+      }
+    }
+    return { col: -1 };
+  }
+  var st = ours(SETTINGS.statusHeader), pr = ours(SETTINGS.priceHeader);
+  if (st.notOurs || pr.notOurs) {
+    return { ok: false, why: 'There is already a column called "' +
+      (st.notOurs ? SETTINGS.statusHeader : SETTINGS.priceHeader) +
+      '" that this script did not make, so it has left the sheet alone. Change statusHeader or priceHeader in SETTINGS to another name.' };
+  }
+
+  // where the email, phone and name are, leaving out our own two columns
+  var cols = { email: [], phone: [], first: [], last: [], name: [] };
+  headers.forEach(function (h, c) {
+    if (!h || c === st.col || c === pr.col) return;
+    if (SETTINGS.emailLike.test(h)) cols.email.push(c);
+    else if (SETTINGS.phoneLike.test(h)) cols.phone.push(c);
+    else if (SETTINGS.firstLike.test(h)) cols.first.push(c);
+    else if (SETTINGS.lastLike.test(h)) cols.last.push(c);
+    else if (SETTINGS.nameLike.test(h) && !SETTINGS.notNameLike.test(h)) cols.name.push(c);
+  });
+  var dateCol = findDateColumn_(headers, values);
+  function names(list) { return list.length ? list.map(function (c) { return '"' + headers[c] + '"'; }).join(', ') : 'none'; }
+  Logger.log('Reading the "%s" tab. Date %s, email %s, phone %s, name %s, first name %s, last name %s.',
+             sheet.getName(), dateCol < 0 ? 'none' : '"' + headers[dateCol] + '"',
+             names(cols.email), names(cols.phone), names(cols.name), names(cols.first), names(cols.last));
+  if (!cols.email.length && !cols.phone.length && !cols.name.length && !cols.first.length) {
+    return { ok: false, why: 'No email, phone or name column found, so there is nothing to match on. Nothing was written.' };
+  }
+
+  function joined(row, list) {
+    return list.map(function (c) { return String(row[c] == null ? '' : row[c]).trim(); })
+               .filter(function (v) { return v; }).join('; ');
+  }
+  var leads = [];
+  for (var r = 1; r < values.length; r++) {
+    var row = values[r];
+    var blank = row.every(function (v, c) { return c === st.col || c === pr.col || v === '' || v === null; });
+    if (blank) continue;
+    var when = dateCol < 0 ? null : row[dateCol];
+    if (when && !(when instanceof Date)) { var p = new Date(when); when = isNaN(p.getTime()) ? null : p; }
+    leads.push({ row: r + 1, day: when ? dayOf_(when) : null,
+                 email: joined(row, cols.email), phone: joined(row, cols.phone),
+                 name: joined(row, cols.name), first: joined(row, cols.first), last: joined(row, cols.last) });
+  }
+  if (!leads.length) return { ok: false, why: 'No leads in that tab yet.' };
+
+  var res = UrlFetchApp.fetch(SETTINGS.url + '/functions/v1/' + SETTINGS.matchFunction, {
+    method: 'post', contentType: 'application/json',
+    headers: { apikey: SETTINGS.anon, Authorization: 'Bearer ' + SETTINGS.anon, 'x-gidc-key': key },
+    payload: JSON.stringify({ action: 'match', leads: leads }),
+    muteHttpExceptions: true
+  });
+  if (res.getResponseCode() < 200 || res.getResponseCode() >= 300) {
+    return { ok: false, why: 'Supabase would not answer. It said ' + res.getResponseCode() + ': ' +
+                             res.getContentText() + ' Nothing was written.' };
+  }
+  var said = JSON.parse(res.getContentText());
+  if (!said.sales_sent_at) {
+    return { ok: false, why: 'The office server has not sent the sold jobs yet, so every lead would look ' +
+                             'Unsold. Nothing was written. Run the server sync first.' };
+  }
+  var hoursOld = (Date.now() - new Date(said.sales_sent_at).getTime()) / 3600000;
+  Logger.log('The sold jobs list came from the office server %s (%s sold jobs).',
+             Utilities.formatDate(new Date(said.sales_sent_at), SETTINGS.zone, 'yyyy-MM-dd HH:mm'), said.sales_loaded);
+  if (hoursOld > 26) Logger.log('That is over a day old. Check the "GIDC web leads sync" task on the server.');
+
+  var byRow = {}, tally = { email: 0, phone: 0, name: 0, unsold: 0 };
+  (said.results || []).forEach(function (x) {
+    byRow[x.row] = x;
+    if (x.status === 'Sold') tally[x.by] = (tally[x.by] || 0) + 1; else tally.unsold++;
+  });
+  Logger.log('%s leads: Sold %s (by email %s, by phone %s, by name %s), Unsold %s.', leads.length,
+             tally.email + tally.phone + tally.name, tally.email, tally.phone, tally.name, tally.unsold);
+  if (!write) return { ok: true };
+
+  // add our two columns at the end if they are not there yet
+  var last = sheet.getLastColumn();
+  if (st.col < 0) { last++; sheet.getRange(1, last).setValue(SETTINGS.statusHeader).setNote(OUR_NOTE_); st.col = last - 1; }
+  if (pr.col < 0) { last++; sheet.getRange(1, last).setValue(SETTINGS.priceHeader).setNote(OUR_NOTE_); pr.col = last - 1; }
+
+  var n = values.length - 1;
+  var stRange = sheet.getRange(2, st.col + 1, n, 1), prRange = sheet.getRange(2, pr.col + 1, n, 1);
+  var stNow = stRange.getValues(), prNow = prRange.getValues();
+  var stNew = [], prNew = [], changed = 0;
+  for (var i = 0; i < n; i++) {
+    var x = byRow[i + 2];
+    var s = x ? x.status : stNow[i][0];
+    var pv = x ? (x.status === 'Sold' && x.price != null ? Number(x.price) : '') : prNow[i][0];
+    if (String(s) !== String(stNow[i][0]) || String(pv) !== String(prNow[i][0])) changed++;
+    stNew.push([s]); prNew.push([pv]);
+  }
+  if (changed) {
+    stRange.setValues(stNew);
+    prRange.setValues(prNew).setNumberFormat('$#,##0.00');
+  }
+  Logger.log('Wrote %s changed row(s).', changed);
+  return { ok: true };
+}
+
+/** The column holding when the submission arrived, as countTheDays_ finds it. */
+function findDateColumn_(headers, values) {
+  for (var i = 0; i < SETTINGS.dateHeaders.length; i++) {
+    var want = SETTINGS.dateHeaders[i].toLowerCase();
+    for (var c = 0; c < headers.length; c++) if (headers[c].toLowerCase() === want) return c;
+  }
+  for (var c2 = 0; c2 < headers.length; c2++) {
+    for (var r = 1; r < Math.min(values.length, 20); r++) if (values[r][c2] instanceof Date) return c2;
+  }
+  return -1;
 }

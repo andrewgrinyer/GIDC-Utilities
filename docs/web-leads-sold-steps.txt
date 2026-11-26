@@ -1,0 +1,42 @@
+WEB LEADS MARKED SOLD OR UNSOLD, WITH THE SOLD PRICE
+Six steps. Do them in this order.
+
+1. SUPABASE, SQL editor
+   Open 1-supabase-web-leads-sold.sql, paste it all in, Run.
+   Safe to run twice. It only adds a table of sold jobs.
+
+2. SUPABASE, Edge Functions
+   Deploy a new function, Via Editor, named exactly: web-leads
+   Paste in all of 2-edge-web-leads.ts and deploy.
+   Then open its settings and turn Verify JWT OFF (same as sales-map-sync).
+   No new secret: it uses the KPI_IMPORT_KEY that is already there.
+
+3. SERVER SVR-GDDC
+   Unzip 3-server-web-leads-sync.zip into C:\GIDC (the files sit straight in C:\GIDC).
+   Double click 3-TRY-WEB-LEADS-SYNC.bat. It reads Access and sends nothing.
+   It shows how many sold jobs it found and how many have an email, phone and price.
+   Send me what it says (it never shows a customer).
+
+4. SERVER SVR-GDDC
+   Double click 4-SEND-WEB-LEADS-SYNC-NOW.bat. It should finish with "ok. Sent ...".
+
+5. SERVER SVR-GDDC
+   Right click 5-SET-UP-HOURLY-WEB-LEADS-SYNC.bat, Run as administrator.
+   Use the same account as the other GIDC tasks (GDadmin). It runs at 42 past each hour.
+
+6. THE GOOGLE SHEET with the web leads
+   Extensions, then Apps Script. Select everything in Code.gs and delete it.
+   Paste in all of 6-google-sheet-script.txt and save (Ctrl S).
+   Choose checkSoldStatus at the top and press Run. Allow it if Google asks.
+   It writes nothing. The log at the bottom says which columns it read the email,
+   phone and name from, and how many leads are Sold and Unsold. Send me that.
+   If it looks right, choose turnOnSoldStatus and press Run.
+   That adds Status and Sold Price at the end of the sheet, fills them in now,
+   and then every hour. Your existing columns are never touched.
+
+HOW A LEAD IS MATCHED
+   Email first. If no email matches, the phone (last ten digits). If neither, the full name,
+   and only for a sale within a year of the lead. Only a sale on or after the day the lead
+   came in counts, so a past customer sending a new form is Unsold until they buy again.
+   Sold Price is the price on the estimate in Access (Estimates.Price), for the first sale
+   after the lead. Dealer and wholesale jobs are left out.
