@@ -229,6 +229,17 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
   border-radius:6px;padding:4px 5px;min-height:30px;background:#fff}
 .rv-box input.rv-boxtext{width:100%;min-width:80px;text-align:left}
 .rv-box input.rv-boxin:not(.rv-boxtext){width:58px!important;max-width:58px}
+/* 2.76: Mix Door Types */
+.mix-f{margin:6px 0 4px}
+.mix-tick{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px;cursor:pointer}
+.mix-tick input{width:20px;height:20px}
+.mix-rows{display:grid;gap:6px;margin:6px 0 2px}
+.mix-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.mix-row b{min-width:18px;color:var(--brass)}
+.mix-row select{flex:1 1 150px;min-width:0;max-width:280px}
+.mix-p{font-size:13px;white-space:nowrap}
+.mix-print{display:none}
+@media print{.mix-f{display:none!important}.mix-print{display:block!important;font-size:7.5px}}
 /* 2.75: minus button beside a discount box */
 .neg-wrap{display:inline-flex;align-items:stretch;gap:4px;max-width:100%}
 .field .neg-wrap{display:flex}
@@ -1263,6 +1274,16 @@ const WIDE_PHOTO = p => /(^|\/)gdl-/.test(p);
 function doorPicks(job){
   const by = new Map();
   (job.openings || []).forEach(op => op.options.filter(o => o.include && o.v.doorStyle).forEach(o => {
+    // 2.76: a mixed door shows each location's style (and insert), one door each
+    if(isMix(op, o)){
+      o.v.mix.forEach((m, i) => { if(!m.style) return;
+        const g = gdlWords(o), sub = g ? [g.frame, m.insert ? 'Insert: ' + m.insert : '', g.track].filter(Boolean).join(', ') : '';
+        const k = m.style + (sub ? '|' + sub : '');
+        if(!by.has(k)) by.set(k, {style:m.style, sub, photo:DOOR_PHOTOS[m.style] || '', edge:gdlEdge(m.style), where:[], qty:0});
+        const e = by.get(k);
+        e.where.push((op.location || 'Opening ' + op.number) + ' ' + MIX_LETTERS[i]); e.qty += 1; });
+      return;
+    }
     // 2.59: a GDL door is told apart by its frame and insert colours too
     const g = gdlWords(o), sub = g ? [g.frame, g.insert, g.track].filter(Boolean).join(', ') : '';
     const k = o.v.doorStyle + (sub ? '|' + sub : '');
@@ -1387,7 +1408,9 @@ function signFp(job){
   const s = JSON.stringify([sheetInputs(job), job.docType || '', jobDocs(job).map(d => d.id),
                             doorPicks(job).map(p => p.sub ? [p.style, p.qty, p.sub] : [p.style, p.qty])].concat(jr.length ? [jr] : [])
                             .concat(noteOf(job) || job.openings.some(noteOf) ? [[noteOf(job), job.openings.map(noteOf)]] : [])
-                            .concat(closetsOf(job).length ? [clFp(job)] : []));
+                            .concat(closetsOf(job).length ? [clFp(job)] : [])
+                            .concat(hasMix(job) ? [mixFp(job)] : [])
+                            .concat(hasMidPulls(job) ? [['midPulls', pullFp(job)]] : []));   // 2.76
   let h = 5381; for(let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) | 0;
   return (h >>> 0).toString(36) + '.' + s.length.toString(36);
 }
@@ -1927,7 +1950,7 @@ async function contractPdf(job, opts){
   const noteH = i => { const n = noteLines(i).length; return n ? n * 8 + 3 : 0; };
   const orderNote = noteOf(job) ? wrap('Order notes: ' + noteOf(job), F, 7.5, LW - 68) : [];
   const cell = (ln, i) => { const {op, o} = ln, row = PAGE_ROWS[i], v = o.v;
-    const base = [op.number, op.location, op.qty, v.doorType, styleName(v.doorStyle || ''), v.productType,
+    const base = [op.number, op.location, op.qty, v.doorType, isMix(op, o) ? 'Mix Door Types' : styleName(v.doorStyle || ''), v.productType,
       lineSize(op, ln.o).height, lineSize(op, ln.o).width, orderedText(op, ln.o, i), v.jamb].concat(gdlWords(o)
       ? [gdlWords(o).frame, gdlWords(o).insert, gdlWords(o).track, '']     // 2.59: frame and insert where the handle goes; 2.61 third track
       : [v.handleType, v.handleStyle, v.hwColour, v.paintColour]).concat([v.install]);
@@ -2473,7 +2496,7 @@ function renderRemote(){
         '<th' + (i >= 9 ? ' class="num"' : '') + '>' + c + '</th>').join('') + '</tr></thead><tbody>' +
       lines.map((l, i) => { const v = l.o.v, row = PAGE_ROWS[i];
         return '<tr><td>' + esc(l.op.number) + '</td><td>' + esc(l.op.location || '') + '</td><td>' + esc(l.op.qty || 1) + '</td><td>' +
-          esc(v.doorType || '') + '</td><td>' + esc(styleName(v.doorStyle || '')) + '</td><td>' + esc((lineSize(l.op, l.o).width || '') + ' x ' + (lineSize(l.op, l.o).height || '')) +
+          esc(v.doorType || '') + '</td><td>' + esc(isMix(l.op, l.o) ? 'Mix Door Types' : styleName(v.doorStyle || '')) + '</td><td>' + esc((lineSize(l.op, l.o).width || '') + ' x ' + (lineSize(l.op, l.o).height || '')) +
           '</td><td>' + esc(gdlWords(l.o) ? [gdlWords(l.o).frame, gdlWords(l.o).insert, gdlWords(l.o).track].filter(Boolean).join(', ')
             : [v.handleType, v.handleStyle].filter(x => x && x !== 'N/A').join(', ')) + '</td><td>' + esc(v.hwColour || '') +
           '</td><td>' + esc(v.paintColour || '') + '</td><td class="num">' + esc(money(cv('T' + row))) + '</td><td class="num">' +
@@ -3025,6 +3048,7 @@ function syncHandles(job){
   }));
   syncGdl(job);
   syncInstall(job);
+  syncMix(job);                                // 2.76
 }
 /* 2.59, Andrew 19 Nov: THE GDL LINE
  *
@@ -3153,7 +3177,7 @@ function specialText(op){
   return 'SPECIAL CASE: ' + op.qty + ' doors in this GDL set, set by hand' + (a && a.length ? ' (price list: ' + a.join(' or ') + ')' : ' (past the price list)') + '.';
 }
 // a door's note with the special case flag in front
-const lineNote = op => [specialText(op), noteOf(op) ? 'Note: ' + noteOf(op) : ''].filter(Boolean).join('  ');
+const lineNote = op => [specialText(op), opMixText(op), opPullText(op), noteOf(op) ? 'Note: ' + noteOf(op) : ''].filter(Boolean).join('  ');   // 2.76: and the mixed doors
 function gdlQtyRule(op, o){
   const auto = gdlPanels(op, o);
   const all = []; for(let n = 1; n <= GDL_PANEL_MAX; n++) all.push(n);
@@ -3195,6 +3219,161 @@ function gdlFields(o, opId, req, noColours){
     (canThirdTrack(o, ((state.job && state.job.openings) || []).find(x => x.id === opId)) ? '<div class="field gdl-f"><label>Third track</label><div class="chips"><button type="button" class="chip' +
       (o.v.thirdTrack ? ' on' : '') + '" data-track3="' + o.id + '" data-op="' + opId + '">Add a third track</button></div>' +
       '<p class="hint">Single top and bottom track, $' + (TRACK_TOP_FT + TRACK_BOTTOM_FT).toFixed(2) + ' a foot of width, added to the door price.</p></div>' : '');
+}
+/* 2.76, Andrew 26 Nov: MIX DOOR TYPES
+ *
+ * A bypass of 2, 3 or 4 doors, plain or GDL, can have a different door in
+ * each location, A to D. A tick, Mix Door Types, opens a style for each
+ * location (and, on a GDL door, a glass insert for each).
+ *   Bypass      each location is priced on its own from the price list
+ *               (same core, type and size, that location's style); the Door
+ *               MSRP is their average, so Door Price and Door Total carry it
+ *               forward exactly as for one style.
+ *   GDL bypass  the set price does not change: each location takes a style
+ *               of the same line as location A (Glissade Square, Glissade
+ *               Swept, or the wood line) and an insert.
+ * The workbook keeps its layout: the Door Style cell gets Custom - See Notes
+ * (style 111 in Access) and the Door MSRP cell the price worked out here;
+ * the office sets the doors up in Access. The locations show in red under
+ * the door on the review, the contract, the signing page and the printed
+ * order, and each style is on the door selections page.
+ * Location A is the opening's own style (and insert), so photos, the size
+ * check, the GDL door count and the third track all read it as before. */
+const MIX_LETTERS = ['A', 'B', 'C', 'D'];
+const MIX_STYLE = 'Custom - See Notes';
+const canMix = (op, o) => !!(op && o) && BYPASS_TYPES.indexOf(o.v.doorType) >= 0 && Number(op.qty) >= 2 && Number(op.qty) <= MIX_LETTERS.length;
+const isMix = (op, o) => !!(o && o.v.mixTypes && canMix(op, o) && Array.isArray(o.v.mix));
+const hasMix = job => ((job && job.openings) || []).some(op => op.options.some(o => o.include && isMix(op, o)));
+// the styles location i can have: A any for the door; on GDL the others stay on A's line
+function mixStyles(o, i){
+  if(!isGdl(o)) return LISTS.doorStyle.filter(d => !/^GDL/.test(d.f) && d.n !== MIX_STYLE).map(d => d.n);
+  const all = gdlStyles(o.v.doorType), a = ((o.v.mix || [])[0] || {}).style || '';
+  if(!i || !a) return all;
+  const line = /^Glissade \w+/.exec(a);
+  return all.filter(n => line ? n.indexOf(line[0]) === 0 : styleFam(n) === styleFam(a));
+}
+function syncMix(job){
+  ((job && job.openings) || []).forEach(op => op.options.forEach(o => {
+    const v = o.v;
+    if(!v.mixTypes){ if(v.mix) delete v.mix; return; }
+    if(!canMix(op, o)) return;                      // kept as it was while the type or count is off
+    const n = Number(op.qty), gdl = isGdl(o);
+    v.mix = (Array.isArray(v.mix) ? v.mix : []).slice(0, n);
+    while(v.mix.length < n) v.mix.push({style:(v.mix[0] || {}).style || v.doorStyle || '', insert:gdl ? ((v.mix[0] || {}).insert || v.insertColour || '') : ''});
+    v.mix.forEach((m, i) => {
+      if(m.style && mixStyles(o, i).indexOf(m.style) < 0) m.style = '';
+      if(!gdl) m.insert = '';
+      else if(m.insert && GDL_INSERTS.indexOf(m.insert) < 0) m.insert = '';
+    });
+    v.doorStyle = v.mix[0].style || '';
+    if(gdl) v.insertColour = v.mix[0].insert || '';
+  }));
+}
+// the tick and the location pickers, from the Edit screen or the review
+function mixSet(job, op, o, k, val){
+  const v = o.v;
+  if(k === 'on'){
+    if(val){ v.mixTypes = true; v.mix = []; }
+    else { delete v.mixTypes; delete v.mix; }
+  } else {
+    const [f, i] = k.split(':');
+    if(!isMix(op, o) || !v.mix[+i]) return;
+    v.mix[+i][f === 'insert' ? 'insert' : 'style'] = val;
+  }
+  syncMix(job);
+}
+// in words, for the contract, the signing page and the printed order
+function mixText(op, o){
+  if(!isMix(op, o)) return '';
+  return 'Mix Door Types: ' + o.v.mix.map((m, i) => MIX_LETTERS[i] + ' ' + (m.style ? styleName(m.style) : '(style to pick)') +
+    (isGdl(o) ? ', ' + (m.insert || '(insert to pick)') : '')).join('; ') + '.';
+}
+/* 2.76, Andrew 26 Nov: a three door bypass (not GDL) has a tick, Install
+   double middle door finger pulls. Unticked, the order says No middle door
+   finger pulls. It goes on the review, the contract, the signing page and the
+   printed order in red under the door; the workbook has no place for it and
+   is unchanged, and it does not change the price. */
+const canMidPull = (op, o) => !!(op && o) && o.v.doorType === 'Bypass' && !isGdl(o) && Number(op.qty) === 3;
+const midPullText = (op, o) => canMidPull(op, o) ? (o.v.midPulls ? 'Install double middle door finger pulls.' : 'No middle door finger pulls.') : '';
+const opPullText = op => op.options.filter(o => o.include).map(o => midPullText(op, o)).filter(Boolean).join('  ');
+function pullFields(op, o){
+  if(!canMidPull(op, o)) return '';
+  return '<div class="mix-f pull-f"><label class="mix-tick"><input type="checkbox" data-pull="1" data-op="' + op.id + '" data-o="' + o.id + '"' +
+    (o.v.midPulls ? ' checked' : '') + '> Install double middle door finger pulls</label>' +
+    (o.v.midPulls ? '' : '<p class="hint">No middle door finger pulls.</p>') + '</div>';
+}
+const opMixText = op => op.options.filter(o => o.include).map(o => mixText(op, o)).filter(Boolean).join('  ');
+const mixFp = job => job.openings.map(op => op.options.filter(o => o.include && isMix(op, o)).map(o => [op.number, o.v.mix.map(m => [m.style, m.insert || ''])]));
+const hasMidPulls = job => ((job && job.openings) || []).some(op => op.options.some(o => o.include && o.v.midPulls && canMidPull(op, o)));
+const pullFp = job => job.openings.map(op => op.options.filter(o => o.include && o.v.midPulls && canMidPull(op, o)).map(() => op.number));
+/* the price of each location, from the line's own Door MSRP formula with
+   that location's style in place of the style cell. Needs the calculator,
+   after calcJob has put the job in. A style the price list or the supplier
+   size check cannot price is S/O, which stops the line like any S/O door. */
+const mixCache = {};
+function mixPrices(op, o, row){
+  const f = String(calc.orig['R' + row] || '');
+  return o.v.mix.map(m => {
+    if(!m.style || !/^=/.test(f)) return 'S/O';
+    const z = sizeCheck(op, Object.assign({}, o, {v:Object.assign({}, o.v, {doorStyle:m.style})}));
+    if(z.status === 'so' && !z.keepPrice) return 'S/O';
+    const lit = '"' + m.style.replace(/"/g, '""') + '"';
+    let r;
+    try{ r = calc.hf.calculateFormula(f.replace(/(^|[^!:$A-Z])\$F(\d+)(?!\d)/g, (s, b, n) => +n === row ? b + lit : s), calc.sid); }catch(e){ r = null; }
+    if(r && typeof r === 'object') r = r.value;
+    return typeof r === 'number' && r > 0 ? r : 'S/O';
+  });
+}
+/* Factory Finishing (column G) comes off the style too, and Custom - See
+   Notes would read Standard, which put a finishing charge on a GDL set. So a
+   mixed line gets the finishing of its own styles: GDL none, Glass for glass
+   doors, Standard for the rest. One line holds one finishing, so a mix of
+   glass and panel doors takes the one most of its doors have (a tie, Glass). */
+function mixFinish(o){
+  const n = {};
+  o.v.mix.forEach(m => { let r;
+    try{ r = calc.hf.calculateFormula('=VLOOKUP("' + String(m.style || '').replace(/"/g, '""') + '",\'Door Styles\'!$B$6:$D$120,3,0)', calc.sid); }catch(e){ r = null; }
+    if(typeof r === 'string' && r) n[r] = (n[r] || 0) + 1; });
+  const k = Object.keys(n).sort((a, b) => n[b] - n[a] || (b === 'Glass') - (a === 'Glass'));
+  return k[0] || null;
+}
+function mixPrice(op, o, row){
+  const p = mixPrices(op, o, row);
+  const avg = p.some(x => typeof x !== 'number') ? 'S/O' : Math.round(p.reduce((a, b) => a + b, 0) / p.length * 100) / 100;
+  return mixCache[o.id] = {prices:p, avg, finish:mixFinish(o)};
+}
+// a Door MSRP typed on the review still wins over the mix
+const msrpTypedOf = o => { const t = o.v.msrpTyped; return t === '' || t == null || isNaN(t) ? null : Number(t); };
+// the Door MSRP cells the mix sets, for the downloaded file (after calcJob)
+function mixCells(job){
+  const out = [];
+  reviewLines(job).slice(0, PAGE_ROWS.length).forEach(({op, o}, i) => {
+    if(!isMix(op, o)) return;
+    const c = mixCache[o.id];
+    if(c && c.finish) out.push(['G' + PAGE_ROWS[i], c.finish]);
+    if(msrpTypedOf(o) == null) out.push(['R' + PAGE_ROWS[i], c && typeof c.avg === 'number' ? c.avg : 'S/O']);
+  });
+  return out;
+}
+function mixFields(op, o, onReview){
+  if(!canMix(op, o)) return '';
+  const at = k => 'data-mix="' + k + '" data-op="' + op.id + '" data-o="' + o.id + '"';
+  const on = isMix(op, o), gdl = isGdl(o), c = mixCache[o.id];
+  let h = '<div class="mix-f' + (on ? ' on' : '') + '"><label class="mix-tick"><input type="checkbox" ' + at('on') + (on ? ' checked' : '') +
+    '> Mix Door Types</label>';
+  if(on){
+    h += '<div class="mix-rows">' + o.v.mix.map((m, i) => '<div class="mix-row"><b>' + MIX_LETTERS[i] + '</b>' +
+      '<select ' + at('style:' + i) + ' aria-label="Location ' + MIX_LETTERS[i] + ' style"><option value=""></option>' +
+        mixStyles(o, i).map(n => '<option value="' + esc(n) + '"' + (n === m.style ? ' selected' : '') + '>' + esc(styleName(n)) + '</option>').join('') + '</select>' +
+      (gdl ? '<select ' + at('insert:' + i) + ' aria-label="Location ' + MIX_LETTERS[i] + ' insert"><option value=""></option>' +
+        GDL_INSERTS.map(n => '<option' + (n === m.insert ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select>' : '') +
+      (!gdl && onReview && canSeePrices() && c && c.prices && c.prices.length === o.v.mix.length ? '<span class="mix-p">' + esc(money(c.prices[i])) + '</span>' : '') +
+      '</div>').join('') + '</div>' +
+      '<p class="hint">' + (gdl ? 'GDL: the set price stays the same. Each location has its style and glass insert.'
+        : 'Each location is priced on its own; the Door MSRP is their average.') +
+      ' The workbook gets ' + MIX_STYLE + ' for the office to set up in Access.</p>';
+  }
+  return h + '</div>';
 }
 /* 2.52, Andrew 19 Nov: SWING DIRECTION AND THE DOOR JAMB TAKE-OFF SHEET
  *
@@ -3899,6 +4078,11 @@ function missing(job){
       if(!o.v.frameColour) out.push('Opening ' + op.number + ': GDL frame colour');
       if(!o.v.insertColour) out.push('Opening ' + op.number + ': GDL insert colour');
     });
+    // 2.76: every location of a mixed door needs its style, and on GDL its insert
+    on.filter(o => isMix(op, o)).forEach(o => o.v.mix.forEach((m, i) => {
+      if(!m.style) out.push('Opening ' + op.number + ': Mix Door Types, style for location ' + MIX_LETTERS[i]);
+      if(isGdl(o) && !m.insert) out.push('Opening ' + op.number + ': Mix Door Types, insert for location ' + MIX_LETTERS[i]);
+    }));
     const r = qtyRule(op);
     if(r && r.choices && r.choices.indexOf(Number(op.qty)) < 0)
       out.push('Opening ' + op.number + ': pick the quantity (' + r.choices.join(', ') + ')');
@@ -4102,6 +4286,8 @@ function sheetInputs(job){
       if(k === 'reRail' && needsReRail(op) && !isGdl(o)) val = 'YES';   // 2.59: never on a GDL door
       // 2.53: the jamb goes in as a number, so the jamb price lines count it
       if(k === 'jamb' && val !== '' && !isNaN(val)){ out.push([col + row, Number(val)]); return; }
+      // 2.76: mixed doors go to Access as the custom style; the office sets them up
+      if(k === 'doorStyle' && val !== '' && isMix(op, o)) val = MIX_STYLE;
       out.push([col + row, val === '' ? '' : String(val)]);
     });
     /* 2.10, Andrew 18 Nov: a door the supplier size check calls special
@@ -4117,7 +4303,9 @@ function sheetInputs(job){
        Cost. A typed number wins over the price list and the size check;
        blank goes back to the workbook. */
     const typed = k => { const v = o.v[k]; return v === '' || v == null || isNaN(v) ? null : Number(v); };
-    out.push(['R' + row, typed('msrpTyped') != null ? typed('msrpTyped') : z.status === 'so' && !z.keepPrice ? 'S/O' : null]);
+    /* 2.76: a mixed door's MSRP is the average of its locations' prices,
+       which only the calculator can work out (mixCells puts it in after) */
+    out.push(['R' + row, typed('msrpTyped') != null ? typed('msrpTyped') : isMix(op, o) ? null : z.status === 'so' && !z.keepPrice ? 'S/O' : null]);
     out.push(['U' + row, typed('handleTyped')]);
   });
 
@@ -4170,6 +4358,8 @@ function fillSheet(xml, job){
     if(v === '') xml = clearCell(xml, ref);
     else xml = setCell(xml, ref, v, typeof v === 'number');
   });
+  // 2.76: a mixed door's Door MSRP, the average worked out in the calculator
+  mixCells(job).forEach(([ref, v]) => { xml = setCell(xml, ref, v, typeof v === 'number'); });
   if(xml.indexOf('COUNTIF(H9:H27, &quot;4 5/8&quot;)') >= 0 || xml.indexOf('COUNTIF(H9:H27, "4 5/8")') >= 0)
     Object.keys(JAMB_FORMULAS).forEach(ref => { xml = setFormula(xml, ref, JAMB_FORMULAS[ref]); });
   // 2.61: a third track adds to a GDL door's price (S = R + AJ)
@@ -4215,6 +4405,7 @@ async function download(job){
   }
   toast('Building the workbook...');
   try{
+    if(hasMix(job)){ await getCalc(); calcJob(job); }   // 2.76: the mixed doors' prices
     const { unzipSync, zipSync, strToU8, strFromU8 } = getZipLib();
     const zip = unzipSync(templateBytes());
     const key = 'xl/worksheets/sheet3.xml';
@@ -4802,6 +4993,16 @@ function calcJob(job){
       hf.setCellContents(cellAt(ref), [[c]]);
     });
   });
+  // 2.76: each location of a mixed door priced, the average in its Door MSRP, its finishing in G
+  calc.gOrig = calc.gOrig || {}; calc.gSet = calc.gSet || {};
+  Object.keys(calc.gSet).forEach(ref => { hf.setCellContents(cellAt(ref), [[calc.gOrig[ref]]]); delete calc.gSet[ref]; });
+  reviewLines(job).slice(0, PAGE_ROWS.length).forEach(({op, o}, i) => {
+    if(!isMix(op, o)) return;
+    const row = PAGE_ROWS[i], m = mixPrice(op, o, row);
+    if(m.finish){ const g = 'G' + row; if(calc.gOrig[g] === undefined) calc.gOrig[g] = hf.getCellSerialized(cellAt(g));
+      hf.setCellContents(cellAt(g), [["'" + m.finish]]); calc.gSet[g] = 1; }
+    if(msrpTypedOf(o) == null) hf.setCellContents(cellAt('R' + row), [[typeof m.avg === 'number' ? m.avg : "'S/O"]]);
+  });
 }
 const cv = ref => { const v = calc.hf.getCellValue(cellAt(ref));
   return (v && typeof v === 'object') ? (v.value || '#ERROR!') : v; };
@@ -4978,6 +5179,7 @@ function reviewEditor(col, op, o){
   const shown = (col.k === 'reRail' && needsReRail(op)) ? 'YES' : val;
   // 2.45: the door there now, small and red under the door type
   // 2.59: a GDL door is a GDL bypass or bifold, in a GDL style for it
+  if(col.k === 'doorStyle' && isMix(op, o)) return '<span class="rv-fixed" title="Each location\'s style is under this door">Mix Door Types</span>';   // 2.76
   if(col.k === 'doorStyle' && isGdl(o)) return reviewSelect(col.list, shown, at, gdlStyles(o.v.doorType));
   if(col.k === 'doorType')
     return reviewSelect(col.list, shown, at, isGdl(o) ? GDL_TYPES : null) + (op.existingType ? '<span class="rv-now">Now: ' + esc(op.existingType) + '</span>' : '');
@@ -5102,6 +5304,8 @@ function renderReview(){
          '<tr class="rv-l2' + flags + '"' + doorVars(op) + '>' + L2.map((c, k) => cell(c, S2[k])).join('') + '</tr>' +
          '<tr class="rv-l3' + flags + (lineNote(op) ? '' : ' empty') + '"' + doorVars(op) + '><td colspan="' + span + '">' +
            (specialText(op) ? '<p class="rv-special">' + esc(specialText(op)) + '</p>' : '') +
+           mixFields(op, o, true) + (mixText(op, o) ? '<p class="rv-special mix-print">' + esc(mixText(op, o)) + '</p>' : '') +   // 2.76
+           pullFields(op, o) + (midPullText(op, o) ? '<p class="rv-special mix-print">' + esc(midPullText(op, o)) + '</p>' : '') +
            noteBox('data-opnote="' + op.id + '"', op.note, 'Note for door ' + op.number + ' (prints in red)') +
            '<div class="note-print">' + esc(noteOf(op) ? 'Note: ' + noteOf(op) : '') + '</div></td></tr>';
   });
@@ -7056,6 +7260,7 @@ function renderJob(){
               s.fields.forEach(f => {
                 if(f.k === 'handleStyle' && noHandleStyle(o.v.doorType)) return;   // 2.46
                 if(isGdl(o) && GDL_OFF.indexOf(f.k) >= 0) return;                    // 2.59: not on a GDL door
+                if(f.k === 'doorStyle' && isMix(op, o)) return;                      // 2.76: each location has its own
                 h += '<div class="field"><label>' + f.label +
                      (f.req ? ' <span style="color:var(--brass)">required</span>' : '') + '</label>';
                 if(f.chips){
@@ -7072,6 +7277,8 @@ function renderJob(){
                 h += '</div>';
               });
               if(s.id === 'build') h += gdlFields(o, op.id, true);           // 2.59
+              if(s.id === 'style') h += mixFields(op, o, false);             // 2.76
+              if(s.id === 'hardware') h += pullFields(op, o);                // 2.76
               h += '</div>';
             }
             h += '</div>';
@@ -7713,6 +7920,17 @@ document.addEventListener('change', async e => {
     if(row) row.classList.toggle('empty', tgt === job ? !noteOf(tgt) : !lineNote(tgt));
     return persistBg();
   }
+  // 2.76: double middle door finger pulls, on the Edit screen and the review
+  if(d.pull){ const op = job.openings.find(x => x.id === d.op), o = op && op.options.find(x => x.id === d.o);
+    if(!op || !o) return;
+    if(t.checked) o.v.midPulls = true; else delete o.v.midPulls;
+    render(); return persistBg(); }
+  // 2.76: Mix Door Types, on the Edit screen and the review
+  if(d.mix){ const op = job.openings.find(x => x.id === d.op), o = op && op.options.find(x => x.id === d.o);
+    if(!op || !o) return;
+    mixSet(job, op, o, d.mix, t.type === 'checkbox' ? t.checked : t.value);
+    if(calc && state.view === 'review') calcJob(job);
+    render(); return persistBg(); }
   if(d.rv || d.rvjob || d.rvfee || d.rvmat || d.rvprice) return reviewChange(t, d);
   if(d.inhome !== undefined){
     job.inHome = t.checked;
@@ -7896,6 +8114,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.75 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.76 · 26 Nov 2026</div>
 </body>
 </html>
