@@ -58,3 +58,10 @@ counts, and order requests. Administrators and manufacturing only,
 through can_use_paint(). The schedule is written only by the paint-sync
 edge function. Independent of the login files. `tests/paint.sh` tests
 it locally.
+
+## sales-map.sql (26 Nov 2026)
+
+The Sales Map on the tools site: `sales_map_customers`, `sales_map_showrooms`,
+`sales_map_runs`, read by administrators only through `can_see_sales_map()`,
+written only by `sales_map_load()` from the `sales-map-sync` edge function.
+Test: `sql/tests/sales-map.sh` and `sql/tests/sales-map.sh after`.
