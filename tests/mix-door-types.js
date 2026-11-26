@@ -110,6 +110,29 @@ print(json.dumps(out, default=str))`;
   check('Door Total carries it forward (price x 3)', Math.abs(r1.T - r1.S * 3) < 0.005 && r1.C === 3, r1);
   check('each location shows its own price on the review', r1.shown.length === 3 && r1.shown[1] === await page.evaluate(v => money(v), one.Livingston) && r1.shown[0] === await page.evaluate(v => money(v), one.Columbia), r1.shown);
 
+  // 2.76.2: a product type per location; a glass door only comes solid
+  const pr = await page.evaluate(() => ({opts:[...document.querySelectorAll('select[data-mix="product:1"]')].map(s => [...s.options].map(o => o.value).filter(Boolean).join('|')),
+    mix:state.job.openings[0].options[0].v.mix.map(m => m.product)}));
+  check('each bypass location has a product type, starting as the door\'s, 1.75 not offered beside hollow', pr.mix.every(p => p === '1.375 Hollow') && pr.opts[0] === '1.375 Hollow|1.375 Solid|1.375 Stile and Rail|1.375 Glass', pr);
+  await page.selectOption(sel(ids[0], 'style:2'), '1 Lite Mirror Double Sided'); await page.waitForTimeout(400);
+  const gl1 = await page.evaluate(() => ({R:cv('R9'), p:mixCache[state.job.openings[0].options[0].id].prices}));
+  check('a double sided mirror on hollow is S/O (no hollow price)', gl1.R === 'S/O' && gl1.p[2] === 'S/O', gl1);
+  await page.selectOption(sel(ids[0], 'product:2'), '1.375 Glass'); await page.waitForTimeout(400);
+  const gl2 = await page.evaluate(() => ({R:cv('R9'), p:mixCache[state.job.openings[0].options[0].id].prices, D:cv('D9')}));
+  const avgG = Math.round((one.Columbia + one.Livingston + 565) / 3 * 100) / 100;
+  check('as 1.375 Glass it prices $565 and the MSRP averages it in; Product Type cell stays location A\'s', gl2.p[2] === 565 && gl2.R === avgG && gl2.D === '1.375 Hollow', [gl2, avgG]);
+  const thick = await page.evaluate(() => { const j = state.job, op = j.openings[0], o = op.options[0];
+    mixSet(j, op, o, 'product:0', '1.75 Thick'); const a = o.v.mix.map(m => m.product), pt = o.v.productType;
+    mixSet(j, op, o, 'product:0', '1.375 Hollow'); const b = o.v.mix.map(m => m.product);
+    o.v.productType = '1.375 Solid'; syncMix(j); const c = o.v.mix[0].product; o.v.productType = '1.375 Hollow'; syncMix(j);
+    mixSet(j, op, o, 'product:2', '1.375 Glass'); calcJob(j); return {a, pt, b, c}; });
+  check('A on 1.75 Thick puts every location on 1.75; back to hollow, they come back; the opening\'s product moves A', thick.a.join() === '1.75 Thick,1.75 Thick,1.75 Thick' && thick.pt === '1.75 Thick' &&
+    thick.b.join() === '1.375 Hollow,1.375 Hollow,1.375 Hollow' && thick.c === '1.375 Solid', thick);
+  // back to the three panel doors for the checks below
+  await page.selectOption(sel(ids[0], 'product:2'), '1.375 Hollow'); await page.waitForTimeout(300);
+  await page.selectOption(sel(ids[0], 'style:2'), 'Columbia'); await page.waitForTimeout(400);
+  check('back to Columbia hollow, the average is as before', await page.evaluate(() => cv('R9')) === avg);
+
   // GDL: style and insert per location, price unchanged
   await page.locator(tick(ids[1])).scrollIntoViewIfNeeded(); await page.tap(tick(ids[1])); await page.waitForTimeout(400);
   const gOpts = await page.evaluate(n => [...document.querySelectorAll('select[data-mix="style:1"][data-op="' + n + '"] option')].map(o => o.value).filter(Boolean), ids[1]);
@@ -120,10 +143,12 @@ print(json.dumps(out, default=str))`;
   const g = await page.evaluate(() => ({v:state.job.openings[1].options[0].v, R:cv('R10'), F:cv('F10'), C:cv('C10'), prices:document.querySelectorAll('tr.rv-l3 .mix-p').length}));
   check('GDL: A Style 3 Frosted Glass, B Style 5 White Lacobel', g.v.mix.length === 2 && g.v.mix[0].style === 'Glissade Square Style 3' && g.v.mix[0].insert === 'Frosted Glass' &&
     g.v.mix[1].style === 'Glissade Square Style 5' && g.v.mix[1].insert === 'White Lacobel', g.v);
+  check('GDL: no product picker, every location GDL', await page.evaluate(n => document.querySelectorAll('select[data-mix^="product"][data-op="' + n + '"]').length, ids[1]) === 0 &&
+    g.v.mix.every(m => m.product === 'GDL'), g.v.mix);
   check('GDL: set price unchanged, quantity 1, style Custom', g.R === one.gdl && g.C === 1 && g.F === 'Custom - See Notes', [g.R, one.gdl, g.C, g.F]);
   check('nothing missing on the order', await page.evaluate(() => missing(state.job).length) === 0, await page.evaluate(() => missing(state.job)));
   check('the note under the doors names each location', await page.evaluate(() => [lineNote(state.job.openings[0]), lineNote(state.job.openings[1])]).then(x =>
-    x[0] === 'Mix Door Types: A Columbia; B Livingston; C Columbia.  No middle door finger pulls.' && x[1] === 'Mix Door Types: A Glissade Square Style 3, Frosted Glass; B Glissade Square Style 5, White Lacobel.'),
+    x[0] === 'Mix Door Types: A Columbia, 1.375 Hollow; B Livingston, 1.375 Hollow; C Columbia, 1.375 Hollow.  No middle door finger pulls.' && x[1] === 'Mix Door Types: A Glissade Square Style 3, Frosted Glass; B Glissade Square Style 5, White Lacobel.'),
     await page.evaluate(() => [lineNote(state.job.openings[0]), lineNote(state.job.openings[1])]));
   await page.locator('tr.rv-l3 .mix-f').first().scrollIntoViewIfNeeded();
   await page.screenshot({path: path.join(tmp, 'mix-review-phone.png')});
@@ -149,7 +174,7 @@ print(json.dumps(out, default=str))`;
   if(process.env.PDF) fs.writeFileSync(process.env.PDF, Buffer.from(bytes));
   let txt = ''; try{ txt = execFileSync('pdftotext', ['-layout', path.join(tmp, 'c.pdf'), '-']).toString(); }catch(e){ txt = 'no pdftotext'; }
   check('contract PDF: style column says Mix Door Types and the locations are listed',
-    /Mix Door Types: A Columbia; B Livingston; C Columbia\./.test(txt) && /Mix Door Types: A Glissade Square Style 3, Frosted Glass; B Glissade Square Style 5,/.test(txt.replace(/\s+/g, ' ')) &&
+    /Mix Door Types: A Columbia, 1.375 Hollow; B Livingston, 1.375 Hollow; C Columbia, 1\.375 Hollow\./.test(txt.replace(/\s+/g, ' ')) && /Mix Door Types: A Glissade Square Style 3, Frosted Glass; B Glissade Square Style 5,/.test(txt.replace(/\s+/g, ' ')) &&
     (txt.match(/Mix Door Types/g) || []).length >= 4, txt.split('\n').filter(l => /Mix|Columbia|Glissade/.test(l)));
 
   // the door selections page has each style

@@ -230,13 +230,15 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .rv-box input.rv-boxtext{width:100%;min-width:80px;text-align:left}
 .rv-box input.rv-boxin:not(.rv-boxtext){width:58px!important;max-width:58px}
 /* 2.76: Mix Door Types */
-.mix-f{margin:6px 0 4px}
+.mix-f{margin:6px 0 4px;max-width:calc(100vw - 48px)}
+.mix-f .hint{white-space:normal}
 .mix-tick{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px;cursor:pointer}
 .mix-tick input{width:20px;height:20px}
 .mix-rows{display:grid;gap:6px;margin:6px 0 2px}
 .mix-row{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .mix-row b{min-width:18px;color:var(--brass)}
 .mix-row select{flex:1 1 150px;min-width:0;max-width:280px}
+.mix-row select.mix-prod{flex:0 1 130px}
 .mix-p{font-size:13px;white-space:nowrap}
 .mix-print{display:none}
 @media print{.mix-f{display:none!important}.mix-print{display:block!important;font-size:7.5px}}
@@ -3252,6 +3254,19 @@ function mixStyles(o, i){
   const line = /^Glissade \w+/.exec(a);
   return all.filter(n => line ? n.indexOf(line[0]) === 0 : styleFam(n) === styleFam(a));
 }
+/* 2.76.2, Andrew 26 Nov: each location has its own product type too (it sets
+   the core, hollow or solid, so the price and the weight; a glass or mirror
+   door only comes solid). On GDL every location is GDL. On a plain bypass
+   1.75 Thick cannot be mixed with the others: location A on 1.75 puts every
+   location on 1.75, otherwise 1.75 is not offered. Location A's product is
+   the opening's own and goes in the workbook's Product Type cell. */
+const MIX_THICK = '1.75 Thick';
+function mixProducts(o, i){
+  if(isGdl(o)) return ['GDL'];
+  const all = (LISTS.productType || []).filter(p => p !== 'GDL'), a = ((o.v.mix || [])[0] || {}).product || '';
+  if(!i) return all;
+  return a === MIX_THICK ? [MIX_THICK] : all.filter(p => p !== MIX_THICK);
+}
 function syncMix(job){
   ((job && job.openings) || []).forEach(op => op.options.forEach(o => {
     const v = o.v;
@@ -3259,13 +3274,21 @@ function syncMix(job){
     if(!canMix(op, o)) return;                      // kept as it was while the type or count is off
     const n = Number(op.qty), gdl = isGdl(o);
     v.mix = (Array.isArray(v.mix) ? v.mix : []).slice(0, n);
-    while(v.mix.length < n) v.mix.push({style:(v.mix[0] || {}).style || v.doorStyle || '', insert:gdl ? ((v.mix[0] || {}).insert || v.insertColour || '') : ''});
+    // the opening's own product changed (its chips or the review's Product): location A follows
+    if(o.mixPT !== undefined && v.productType !== o.mixPT && v.mix[0]) v.mix[0].product = v.productType;
+    while(v.mix.length < n) v.mix.push({style:(v.mix[0] || {}).style || v.doorStyle || '', product:(v.mix[0] || {}).product || v.productType || '',
+      insert:gdl ? ((v.mix[0] || {}).insert || v.insertColour || '') : ''});
     v.mix.forEach((m, i) => {
+      const ps = mixProducts(o, i);
+      if(ps.length === 1) m.product = ps[0];                       // GDL, or every door 1.75
+      else if(!m.product || ps.indexOf(m.product) < 0) m.product = i ? (ps.indexOf(v.mix[0].product) >= 0 ? v.mix[0].product : '') : (ps.indexOf(v.productType) >= 0 ? v.productType : '');
       if(m.style && mixStyles(o, i).indexOf(m.style) < 0) m.style = '';
       if(!gdl) m.insert = '';
       else if(m.insert && GDL_INSERTS.indexOf(m.insert) < 0) m.insert = '';
     });
     v.doorStyle = v.mix[0].style || '';
+    if(v.mix[0].product) v.productType = v.mix[0].product;
+    o.mixPT = v.productType;
     if(gdl) v.insertColour = v.mix[0].insert || '';
   }));
 }
@@ -3274,11 +3297,11 @@ function mixSet(job, op, o, k, val){
   const v = o.v;
   if(k === 'on'){
     if(val){ v.mixTypes = true; v.mix = []; }
-    else { delete v.mixTypes; delete v.mix; }
+    else { delete v.mixTypes; delete v.mix; delete o.mixPT; }
   } else {
     const [f, i] = k.split(':');
     if(!isMix(op, o) || !v.mix[+i]) return;
-    v.mix[+i][f === 'insert' ? 'insert' : 'style'] = val;
+    v.mix[+i][f === 'insert' ? 'insert' : f === 'product' ? 'product' : 'style'] = val;
   }
   syncMix(job);
 }
@@ -3286,6 +3309,7 @@ function mixSet(job, op, o, k, val){
 function mixText(op, o){
   if(!isMix(op, o)) return '';
   return 'Mix Door Types: ' + o.v.mix.map((m, i) => MIX_LETTERS[i] + ' ' + (m.style ? styleName(m.style) : '(style to pick)') +
+    (isGdl(o) ? '' : ', ' + (m.product || '(product to pick)')) +
     (isGdl(o) ? ', ' + (m.insert || '(insert to pick)') : '')).join('; ') + '.';
 }
 /* 2.76, Andrew 26 Nov: a three door bypass (not GDL) has a tick, Install
@@ -3327,7 +3351,7 @@ function pullFields(op, o){
     '<p class="hint">' + esc(midPullText(op, o)) + (o.v.midPulls ? ' Added to the Finger Pull line of the Hardware box.' : '') + '</p></div>';
 }
 const opMixText = op => op.options.filter(o => o.include).map(o => mixText(op, o)).filter(Boolean).join('  ');
-const mixFp = job => job.openings.map(op => op.options.filter(o => o.include && isMix(op, o)).map(o => [op.number, o.v.mix.map(m => [m.style, m.insert || ''])]));
+const mixFp = job => job.openings.map(op => op.options.filter(o => o.include && isMix(op, o)).map(o => [op.number, o.v.mix.map(m => [m.style, m.insert || '', m.product || ''])]));
 const hasMidPulls = job => ((job && job.openings) || []).some(op => op.options.some(o => o.include && o.v.midPulls && canMidPull(op, o)));
 const pullFp = job => job.openings.map(op => op.options.filter(o => o.include && o.v.midPulls && canMidPull(op, o)).map(o => [op.number, midPullCounts(op, o)]));
 /* the price of each location, from the line's own Door MSRP formula with
@@ -3338,12 +3362,13 @@ const mixCache = {};
 function mixPrices(op, o, row){
   const f = String(calc.orig['R' + row] || '');
   return o.v.mix.map(m => {
-    if(!m.style || !/^=/.test(f)) return 'S/O';
-    const z = sizeCheck(op, Object.assign({}, o, {v:Object.assign({}, o.v, {doorStyle:m.style})}));
+    if(!m.style || !m.product || !/^=/.test(f)) return 'S/O';
+    const z = sizeCheck(op, Object.assign({}, o, {v:Object.assign({}, o.v, {doorStyle:m.style, productType:m.product})}));
     if(z.status === 'so' && !z.keepPrice) return 'S/O';
-    const lit = '"' + m.style.replace(/"/g, '""') + '"';
+    const lit = x => '"' + String(x).replace(/"/g, '""') + '"';
+    const put = (g, col, x) => g.replace(new RegExp('(^|[^!:$A-Z])\\$' + col + '(\\d+)(?!\\d)', 'g'), (s, b, n) => +n === row ? b + lit(x) : s);
     let r;
-    try{ r = calc.hf.calculateFormula(f.replace(/(^|[^!:$A-Z])\$F(\d+)(?!\d)/g, (s, b, n) => +n === row ? b + lit : s), calc.sid); }catch(e){ r = null; }
+    try{ r = calc.hf.calculateFormula(put(put(f, 'F', m.style), 'D', m.product), calc.sid); }catch(e){ r = null; }
     if(r && typeof r === 'object') r = r.value;
     return typeof r === 'number' && r > 0 ? r : 'S/O';
   });
@@ -3387,6 +3412,9 @@ function mixFields(op, o, onReview){
     '> Mix Door Types</label>';
   if(on){
     h += '<div class="mix-rows">' + o.v.mix.map((m, i) => '<div class="mix-row"><b>' + MIX_LETTERS[i] + '</b>' +
+      (gdl ? '' : '<select class="mix-prod" ' + at('product:' + i) + ' aria-label="Location ' + MIX_LETTERS[i] + ' product type">' +
+        (mixProducts(o, i).length > 1 ? '<option value=""></option>' : '') +
+        mixProducts(o, i).map(n => '<option' + (n === m.product ? ' selected' : '') + '>' + esc(n) + '</option>').join('') + '</select>') +
       '<select ' + at('style:' + i) + ' aria-label="Location ' + MIX_LETTERS[i] + ' style"><option value=""></option>' +
         mixStyles(o, i).map(n => '<option value="' + esc(n) + '"' + (n === m.style ? ' selected' : '') + '>' + esc(styleName(n)) + '</option>').join('') + '</select>' +
       (gdl ? '<select ' + at('insert:' + i) + ' aria-label="Location ' + MIX_LETTERS[i] + ' insert"><option value=""></option>' +
@@ -3394,7 +3422,7 @@ function mixFields(op, o, onReview){
       (!gdl && onReview && canSeePrices() && c && c.prices && c.prices.length === o.v.mix.length ? '<span class="mix-p">' + esc(money(c.prices[i])) + '</span>' : '') +
       '</div>').join('') + '</div>' +
       '<p class="hint">' + (gdl ? 'GDL: the set price stays the same. Each location has its style and glass insert.'
-        : 'Each location is priced on its own; the Door MSRP is their average.') +
+        : 'Each location has its own product type and style and is priced on its own; the Door MSRP is their average. 1.75 Thick cannot be mixed with the others.') +
       ' The workbook gets ' + MIX_STYLE + ' for the office to set up in Access.</p>';
   }
   return h + '</div>';
@@ -4105,6 +4133,7 @@ function missing(job){
     // 2.76: every location of a mixed door needs its style, and on GDL its insert
     on.filter(o => isMix(op, o)).forEach(o => o.v.mix.forEach((m, i) => {
       if(!m.style) out.push('Opening ' + op.number + ': Mix Door Types, style for location ' + MIX_LETTERS[i]);
+      if(!m.product) out.push('Opening ' + op.number + ': Mix Door Types, product type for location ' + MIX_LETTERS[i]);
       if(isGdl(o) && !m.insert) out.push('Opening ' + op.number + ': Mix Door Types, insert for location ' + MIX_LETTERS[i]);
     }));
     const r = qtyRule(op);
@@ -8151,6 +8180,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.76.1 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.76.2 · 26 Nov 2026</div>
 </body>
 </html>
