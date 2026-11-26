@@ -122,6 +122,15 @@ begin
          then 'and coalesce(p.active, true)' else '' end
     into act;
 
+  -- If email-verification.sql has already run, its rule has to survive
+  -- this file being run again, or running the files in a different order
+  -- would quietly switch verification off. email_ok() is always true
+  -- while the switch is off, so adding it changes nothing until then.
+  if exists (select 1 from pg_proc f join pg_namespace n on n.oid = f.pronamespace
+              where n.nspname = 'public' and f.proname = 'email_ok')
+  then act := act || ' and public.email_ok()';
+  end if;
+
   execute format($f$
     create or replace function public.is_team()
     returns boolean language sql stable security definer set search_path = public as $b$

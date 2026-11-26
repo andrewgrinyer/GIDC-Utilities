@@ -46,7 +46,9 @@
       var who = (window.GIDC_TOOL && window.GIDC_TOOL.who) || 'staff';
       if(GIDCAuth.mayOpen ? GIDCAuth.mayOpen(me, who)
                           : (GIDCAuth.isStaff ? GIDCAuth.isStaff(me) : !!me)){
-        dropHold(); bar(me.name); return;
+        dropHold(); bar(me.name);
+        if(GIDCAuth.verifyBanner) GIDCAuth.verifyBanner(me);
+        return;
       }
       /* Signed in, works here, but this one is not theirs. Their session
          stays: they are not in the wrong building, just the wrong room. */
@@ -56,7 +58,9 @@
           '<p><a href="/">Back to your tools</a></p></div>';
         return;
       }
-      if(me && me.role){
+      /* A dealer is recorded in dealer_role since two-sided-access.sql, and
+         in role before it. */
+      if(me && (me.dealer_role || me.role)){
         GIDCAuth.signOut();
         hold.innerHTML = '<div><b style="color:#17171A;font-size:17px">Not this way</b>' +
           '<p>' + GIDCAuth.NOT_STAFF + '</p>' +

@@ -71,9 +71,12 @@ edge functions for anything needing an admin key.
 
 | name | what it does | needs |
 |---|---|---|
-| `create-dealer-user` | makes, edits, repasswords and removes logins | service role |
+| `create-dealer-user` | makes logins by invitation, edits and removes them, sends password and address links; administrators only | service role, `RESEND_API_KEY` |
+| `account-link` | forgot my password, send me my address link, and confirm, the only thing that sets `email_verified_at`; JWT verification off | service role, `RESEND_API_KEY` |
 | `kpi-import` | the only door numbers come in through | `KPI_IMPORT_KEY` |
 | `send-goback` | emails a go back to the office | `RESEND_API_KEY` |
+| `send-contract` | measurement app 2.23: emails the signed contract PDF to the customer and the signed in sales associate (price roles only, job read as the caller) | `RESEND_API_KEY`, optional `CONTRACT_EMAIL_FROM`, `CONTRACT_EMAIL_BCC` |
+| `remote-sign` | measurement app 2.26: emails the customer a private signing link; customer opens, signs (server time and IP recorded), PDF stored in Storage signed-contracts and emailed. JWT verification OFF, checks the associate itself; customer by link secret (only its SHA-256 is stored in sign_requests) 2.28: actions pdf and supersede; a re-signed job becomes Rev 001, 002..., the replaced contract moves to job.contracts and a copy stamped SUPERSEDED is stored beside the original (`...-SUPERSEDED.pdf`), never overwriting it | service role, `RESEND_API_KEY`, optional `SIGN_PAGE_URL` |
 | `send-order-function` | emails a dealer order | `RESEND_API_KEY` |
 
 `kpi-import` writes all rows or none. One bad row rejects the batch with
@@ -111,6 +114,19 @@ get an invitation link and set their own, which verifies the address in
 the same act. Replaces the old flow where an administrator picked a
 password and handed it over.
 
+**Every emailed link opens one page.** `dealers.gidc.ca/account`, because
+it is the one address every login can reach; the tools site is behind
+Cloudflare Access. The link carries a token and the page spends it only
+when the person presses the button, so a mail scanner that opens links
+cannot use it up, and Supabase needs no redirect URLs. Confirm trusts a
+session only if it was started by a link in the last half hour.
+
+**Logins are made in one place.** The tools landing page, People and
+logins, for the team and for dealers. The dealer portal and the
+measurement app no longer manage logins. Team access is `role`, dealer
+access is `dealer_role` plus `dealer_id`, and a login may have either,
+both or neither.
+
 **Verification has its own record, not Supabase's flag.** Every existing
 login was created with `email_confirm: true`, so Supabase believes all
 nineteen addresses are verified. That belief records a box being ticked,
@@ -141,6 +157,22 @@ These cost the most to find and are invisible in the code.
 **`OrderNo` is not `OrderID`.** They sit two apart in this data. Aris is
 OrderNo 5067 and OrderID 5069; Cortes 4273 and 4275. `access_order_id`
 stores the **ID**. Getting this wrong links an order to the wrong job.
+
+**An estimate number can also be another customer's job number.**
+`Estimates.EstimateID` and `Orders.OrderNo` run through the same range,
+so 5067 is often one customer's estimate and a different customer's job.
+A sold customer's Access screen shows the job number, and typed into the
+measurement app's estimate box (2.67 to 2.72) it linked whoever had that
+as an estimate (Andrew, 26 Nov). Since 2.73 a number on its own searches
+only exact estimate and job numbers, each row says which it is, and the
+box links straight away only when the number is an estimate, nobody has
+it as a job number, and the surname is on the job. `sql/check-estimate-links.sql`
+lists jobs already linked this way.
+
+**`access_order_no` holds the No, `access_order_id` the ID.** Added 23
+October with `sql/dealer-order-number.sql`. People type the No, the job
+number on the Access screen; the database finds the ID from the staged
+Access rows and the sync follows the ID. See `docs/dealer-sync.md`.
 
 **Style names do not match between the price list and what dealers type.**
 The list says "Clear 1-Lite", dealers type "Clear 1 Lite". The portal
@@ -182,6 +214,19 @@ astragal. A double swing with a value above zero in the astragal field
 gets a T astragal. Doors with no price in the hollow section of the list
 only come in solid and are not charged for re railing.
 
+**Measurement app door opening sizes (2.31).** A job has `sizing: 2` and
+its openings carry `openW`/`openH` (the actual opening) only if it was
+started on 2.31 or later; `sized(op)` is just "has an openW key". Those
+openings get their door from `openPlan` (dealer portal deductions, reveal
+3/32 and floor gap 1/2 unless `job.reveal`/`job.floorGap`), the blank
+limited to the style's `SUPPLIER_LINES` sizes, and `syncPlans` writes the
+result into `op.width`/`op.height` and re-rail/re-stile (unless set by
+hand). Swing doors put the blank on the workbook (pair total on a double);
+other types put the measured opening width and the blank height. Older
+jobs are untouched. Andrew 18 Nov: 4 lite and 3 Panel Shaker (T-Shape) are
+Trimlite; bifolds 24, 30, 36, 48, 60, 72 for every line; bypass panel at
+most 36, opening at most 144.
+
 **PostgREST quirks.** A PATCH matching zero rows returns 200 with `[]`,
 not an error, which hid two silent failures. An RPC without
 `headers(true)` resolves to a zero argument function and 404s. Run
@@ -194,6 +239,7 @@ not an error, which hid two silent failures. An RPC without
 - Rotate the service role key pasted in a transcript in September.
 - Change the password that was posted in a transcript.
 - Turn off self signup in Supabase once logins are made on the tools site.
+- The login change goes live in one pass: `docs/login-rollout.md`.
 - The Apps Script hourly trigger: Google switched it off on 15 October and
   pasting new code does not restore it. Run `turnItOn`.
 - Two things may be writing `web_leads`: the sheet and the office import.
@@ -220,3 +266,83 @@ not an error, which hid two silent failures. An RPC without
   history of patches and whichever ran last is what is live.
 - Tests go in both directions: that the thing now works, and that
   everybody who had access yesterday still has exactly what they had.
+
+### Measurement app 2.52: jambs, swing direction, condo form
+- A Rough Opening is the only opening that "needs a jamb" (needsJamb). A swing door there needs op.swingDir (LO, LI, RI, RO: hinge side and in/out, looking into the room) and may have op.hingeMatch (matching hinges already in the home).
+- The Door Jamb Take-Off Work Sheet (jambPage for print, section 3b of contractPdf) lists only openings that need a jamb. Hinges by Andrew's rules (hingeSpec): 80/84 tall hollow 2, solid 3; 96 hollow 3, solid 4; 3" x 1/4" radius, 3 1/2" for doors thicker than 1 3/8; backset 1/4"; top hinge 7" down, bottom hinge 11" up (tops), others evenly between. hingeMatch keeps the worked out quantity and prints CONFIRM EXISTING HINGE SIZE AND RADIUS PRIOR TO STARTING WORK. The sheet is signed (sign field 'jambs').
+- job.condo adds the Condominium Installation Details & Agreement (condo-installation-agreement.pdf/.png, built by scripts/condo-form.js) as a job level JOB_DOCS entry (jobNeeds), signed like the other forms.
+
+### Measurement app 2.53: iPhone dock, jamb charge
+- The print wrapper table (table.pw) around the review grew to the review table's width (about 825px on a phone), so iPhone Safari zoomed the page out and the fixed bottom dock sat at the layout viewport bottom, mid screen. On screen table.pw is now table-layout:fixed, so the page stays the phone width and the review table scrolls inside .rv-scroll.
+- 2.54, jamb charge: the workbook's jamb lines (Pricing Sheet K52/K53) were COUNTIF(H9:H27, "4 5/8") and "6 5/8". The app wrote the jamb as text ("4.625"), which neither HyperFormula nor LibreOffice counts, so no jamb was charged on the review or in the file. Now the jamb is written as a number and JAMB_FORMULAS replace K52/K53 in both the calculator (getCalc) and the downloaded file (fillSheet, setFormula): 4 5/8 on its own line, every other jamb width on the 6 5/8 line (Andrew, 19 Nov: typed widths cost the same as 6 5/8). One jamb per contract line.
+
+### Measurement app 2.55: reviewed order confirm, estimated floor gap
+- Print, Sign, Send to Sign and Send Estimate first ask "Have you fully reviewed this order?" (confirmReviewed, REVIEW_ACTS; sure() takes goClass). Continuing confirms the order is complete and correct and that the salesperson is responsible for errors or omissions. Asked every time, before the action's own checks. Buttons renamed Send to Sign, Send Estimate (Andrew).
+- floorGap(op, o): swing doors on sized jobs, opening height less door height (typed door height, else the worked out finH), rounded to the eighth, at least 1/2" (MIN_FLOOR_GAP). Rough opening (we do the jamb) is always 1/2" (Andrew). Shown on the opening card (.gap-note) and under the height on the review (.rv-gap). Tests: tests/floor-gap.js; signing tests click through the question with reviewed().
+
+### Measurement app 2.56: notes on the contract
+- op.note (each door) and job.note (whole order), Andrew 19 Nov. Typed on the opening card (+ Note for this door, data-opnoteadd, then data-opnote; left column so a tablet still fits one opening), on the review (a third row per door, tr.rv-l3, and .rv-notes under the doors) and on the job screen (order note card). Change updates in place (no render) so the next tap is not lost.
+- Printed review: boxes hidden, text in small red (.note-print), empty rows hidden. Contract PDF: door note in red under its line (noteLines/noteH, once per opening), order note above the special order box and pricing (wrap helper keeps line breaks). Customer signing page shows them read only. Notes are part of signFp, so a note changed after signing needs signing again. Not written to the workbook.
+- The review dock wraps under the total on phones (max-width 600), five buttons did not fit.
+
+### Measurement app 2.57: quotes (options and revisions), change orders
+- Design approved by Andrew 19 Nov ("Yes, let's do this"); he did not answer the two questions, so both were built: options as well as revisions, and a change after signing is a change order needing a new signature.
+- One measurement per job. A quote is the door choices on top (QUOTE_OP: each opening's options, qty, doorW, doorH; QUOTE_JOB: materials, fees, docType). The active option lives in the job's own fields as before; others wait in job.qt.opts[k].data (switchOpt, newOpt, removeOpt, choicesOf, applyChoices). Openings, sizes, notes are shared.
+- Revisions per option: job.qt.opts[k].revs [{rev, at, fp (signFp), data, total, events[{kind estimate|send-sign|contract|revised, at, to}]}]. lockRev on Send Estimate, Send to Sign, signing; reviseQuote (Revise quote) locks and sets next. quoteRev = last rev if fp unchanged, else +1. revPdf remakes a locked revision's estimate from its data.
+- quoteRef = quoteNo (job.quoteNo or Q + id tail) + Option k (when more than one) + Rev n; printed on estimates (Estimate #), the contract PDF subtitle and the printed review. Quote bar (quoteBar) on the review, not printed.
+- Signing records signed.opt and signed.qrev; markSigned locks the contract revision and marks other options superseded. signedOk needs the active option to be the signed one. Download workbook warns on an option that is not the signed one.
+- revLabel is now "Change Order 001" (app and both edge functions' emails).
+- Opening has (cond) is required on sized openings (missing()), and Opening has, door opening width and height show "needed" until set. The door note button is "+ Add note".
+- 2.58: printing hid empty note rows with display:none, which broke the door number cell's rowspan (3) and shifted every later door. Empty note rows now stay with no height. Test in tests/order-notes.js.
+
+### Measurement app 2.59: the GDL line
+- Andrew 19 Nov: when Product is GDL the door is bypass or bifold only, and router and stop, re-rail, re-stile, handle type, handle style, HW colour and paint colour are not needed (GDL_OFF, emptied by syncGdl, hidden on the Edit screen, N/A on the review). Added instead, required: Frame colour and Insert colour (o.v.frameColour, o.v.insertColour).
+- Frame colours: Glissade (family GDL Aluminum) Black, White, Silver; wood line (family GDL Wood, which includes Economy (No Warranty), my reading) White, Black, Chocolate, Grey, Espresso (Andrew wrote Expresso). Inserts: Frosted Glass, White Lacobel, Black Lacobel, White Mirror Strip, Black Mirror Strip, Clear Mirror.
+- syncGdl (end of syncHandles): GDL turns Bypass into GDL ByPass and Bifold/Premium Bifold into GDL BiFold (the workbook prices GDL only under those types); picking GDL ByPass, GDL BiFold or a GDL style makes the product GDL; leaving GDL (o.gdlSeen) turns the type back and clears a GDL style, frame and insert, and puts back the job defaults in GDL_OFF fields. GDL styles per type: gdlStyles (Glissade Bifold only on GDL BiFold, other Glissades only on GDL ByPass, wood on both); the style box and review list are limited to them. syncPlans and sheetInputs never re-rail a GDL door.
+- Frame and insert are NOT written to the workbook or XML (no place for them). They show on the review (in the Handle Type and Handle Style cells, captions Frame/Insert), the contract PDF (Handle columns: "Frame: X", "Insert: Y"), the signing page, and the door selections page (doorPicks keys by style plus frame plus insert, p.sub caption). Part of signFp.
+- Picture sheet: glissade-style-1..9.jpg, the nine panel drawings of grinyer.ca "GDL Glissade Closet Door Set, Mix and Match", in gallery order taken as Style 1 to 9 (a guess, told to Andrew); used for Square, Swept and Bifold alike. Wood styles keep their room photos; Chuhai and Shochu have none on the site. Haru, Hinata, Hiroto are on the site and in the workbook but not in the app's style list.
+- Test: tests/gdl.js. tests/job-docs.js updated (its GDL BiFold line now a real GDL door).
+
+### Measurement app 2.60: install Yes or No, GDL pictures from the supplier sheets
+- Install (Andrew 19 Nov): YES or NO on every door, FREE only on a GDL door (installChoices, syncInstall at the end of syncHandles: blank, or FREE on a non GDL door, becomes YES). Edit and review lists limited the same way.
+- Glissade names (Andrew): Futura = Glissade Square, Moderna = Glissade Swept, Inspira = Glissade Bifold. Pictures now cropped from Andrew's numbered sheets, replacing the 2.59 gallery order guess: glissade-style-1..9.jpg (the bypass sheet #1 to #9, used for Square and Swept), glissade-bifold-style-1..9.jpg (the Inspira sheet; its #9 differs). Frame edge close ups glissade-edge-square/swept/bifold.jpg (gdlEdge) sit over the lower right of the door photo on the door selections page (print, contract PDF, signing page) with "Futura frame edge shown" and so on.
+
+### Measurement app 2.61: GDL priced per set, third track
+- Andrew 19 Nov: GDL is priced per set. The workbook's GDL prices are per opening ('Pricing - GDL MSRP': "Prices are per OPENING"), so a GDL line writes quantity 1 (C column, and DoorQuantity 1 in the XML) while op.qty stays the number of doors in the set, shown on the card ("Doors in the set"), the review (with "1 set") and the contract.
+- Door count (gdlPanels, GDL_PANELS) from the price list Panels column by opening width, rounded up like the price: Glissade bypass to 72: 2, 96: 2 or 3 (rep picks), 108: 3, 120 to 192: 4. Glissade bifold to 36: 2, 48 to 72: 4. Economy: 2. Wood line: no Panels column in the price list, so the Glissade counts are used (a guess, told to Andrew). qtyRule hands GDL to gdlQtyRule.
+- Override: "Override door count" on the card (op.qtyOverride), or any count off the price list on the review. The opening is then a SPECIAL CASE (gdlSpecial, specialText): red line on the review and the printed order (.rv-special), in the contract PDF note line (lineNote) and on the signing page. The workbook has no place for it. Width past the price list is also a special case.
+- A GDL line carries the opening size itself (lineSize returns openW/openH), not a worked out door, and the card shows "GDL set made to the W x H opening". Before 2.61 a 48" GDL bifold with 4 doors went to the workbook as 96 wide.
+- Third track (o.v.thirdTrack) on GDL ByPass in Glissade Square or Swept only (canThirdTrack). Cost = single top track 33.33 + single bottom track 7.98 per foot of opening width, rounded up to the foot (my reading of the price list's Track section: the set includes the double track). Written to AJ{row}; the S (Door Price) formula of every line becomes R + N(AJ) for GDL (trackFormula), in the calculator and the file. setCell adds a missing cell to its row (addCell). Shown on the card, the review (Third track YES/NO in the HW Colour cell, "+$x in door price"), the contract (HW column) and the door selections page.
+- Tests: tests/gdl-sets.js (LibreOffice recalculates the downloaded file when soffice is present).
+- 2.62 (Andrew 20 Nov): the third track is only offered on a GDL set of exactly 3 doors (canThirdTrack(o, op)); a set changed to another count drops it and its cost. The rates are 'Pricing - GDL MSRP' D30 (Grey single top track $33.33/ft) and D31 (Grey single bottom track $7.98/ft); the price list has no "third track" item, so this is a reading, asked of Andrew.
+
+### Measurement app 2.63: opening size read only on the review
+- Andrew 20 Nov: the opening's width and height are measured on the measurement screen only. The review shows them (and "orders as" for a range height) but never edits them, for every job, old (op.width/op.height) or new (openW/openH); reviewChange ignores width and height. "+ Add door" on the review adds the opening and opens it on the measurement screen; Review order brings the review back.
+
+### Measurement app 2.64: closet organizer measurements
+- Andrew 20 Nov: closet organizers are measured on their own screen, reached from the job by the Doors | Closets switch (closetSwitch, state.view 'closets', renderClosets). Measurements only: kept as notes for designing later in Grinyer's closet software. Not priced, not in the workbook, XML, contract or signFp (2.70 puts the closet order on the contract, below).
+- job.closets [{id, number, location (same location list as doors), shape reach|walk|open|custom, pts (custom only, grid dots), free (angled walls on), drawn, dims {A, B, ..., Door}, ceiling, note, marks [{id, type, wall, from, size, off, tall}]}], saved with the job.
+- Standards (CL_SHAPES, Andrew confirmed): Reach in A to E (his paper sheet), Walk in A to E plus the door opening, Three walls A to C with no returns. Draw your own: tap the corners on a 16 x 12 grid; straight walls snap across or up and down and a tap the same way lengthens the wall; Angled walls on draws to the dot tapped (Andrew asked for angled walls). Each turn is a new lettered wall.
+- Every size is typed on the big number pad (openClosetPad, pad.closet, closetPadDone), never the door size picker (Andrew). Done on a blank size moves on to the next blank wall, then the ceiling.
+- Windows and obstructions (CL_MARKS): wall, from corner (measured from the corner the wall starts at, or the open end for the first wall, clStartOf), width, off floor, height; drawn as a numbered blue bar on the wall.
+- Print closets prints the Closet Measurements sheet (closetPrint): letterhead, customer, address, phone, email, date, salesperson, then each drawn closet with sizes, ceiling, marks and notes. Test: tests/closets.js (iPhone 13).
+- 2.64.1 (Andrew 20 Nov, "simply drag your finger"): Draw your own is drawn by dragging (pointer events on the grid, touch-action none, live red line). On lifting, the stroke is simplified (clSimplify, Douglas Peucker, 0.6 grid straight or 0.5 angled), corners go to the nearest dot and closetAddPoint squares and joins lines, so each turn is one wall. A new drag carries on from the end; a tap still adds a corner. The closet click handler stops the event (stopImmediatePropagation) so the main handler does not close its are-you-sure panel.
+- 2.64.2 (Andrew 20 Nov, "we could have an order that doesn't have any doors"): a job may be closets only. The first closet added to a job whose openings are all blank (blankOpening: no location, door there now, sizes, opening has or note) takes those openings off. With no openings the job screen says so and its dock offers Closets instead of Review and Download; missing() asks for no door. The job list shows openings and closets (jobCounts), from job.closetCount written by saveJob and read as data->>closetCount.
+- 2.64.3 (Andrew 20 Nov, "this still autoloads the first door"): New job starts with no openings (the New job button empties what newJob() makes; newJob() itself still makes one opening, which tests and imports rely on). The empty job screen offers Add a door opening and Add a closet (data-cl newcloset: Closets screen with the first closet open).
+- 2.64.4 (Andrew 20 Nov, "draw straight and angled lines freehand"): the Straight / Angled walls switch is gone (c.free no longer read). Every line, tapped or dragged, is squared up when within CL_SQUARE (20) degrees of across or up and down, and otherwise kept at its angle to the nearest dot; a line carrying on the same way as the last wall lengthens it. Strokes are simplified at 0.55 of a grid square.
+- 2.64.5 (Andrew 20 Nov): the closet number pad closes after every size (no moving on to the next empty wall, and Done drawing no longer opens it); its heading (Wall C, Ceiling height) is large and red (.pad-cl).
+
+### Measurement app 2.70: the closet order on the contract (Andrew 26 Nov)
+- Closets are now sold on the same order as doors (or alone). On the Closets screen a Closet order card (closetOrderCard): selling price before tax for all closets (job.closetPrice, price roles only), tear out choice (job.closetTearOut patch|paint, CL_TEAR), Condo building (the same job.condo as the doors side) and ONE closet design PDF per job holding every closet (job.closetFile {name, size, pages, path | local}). Each closet gets the paper closet contract's details (closetDetails, c.det, CL_DETAIL: finish, pole finish, thickness, material depth, accessories, backing, notched, adjustment holes, drawer guides, drawer style), new closets start with CL_DEF (3/4, no backing, notched, holes, full guides).
+- The price is the workbook's Organizer line: sheetInputs writes U46 (in INPUT_REFS); the sheet's own subtotal, HST and totals carry it. QUOTE_CATS already listed Closet / Organizer, so the estimate shows it.
+- missing() asks for the price, the tear out choice and the design PDF when a job has closets. Review, Sign, Send to Sign, Send Estimate and Download work with closets and no doors; Review order is on the Closets dock and on a closets only job.
+- Contract PDF: a closets only order page says so (no door table); after the jamb sheet come the Closet Organizers page(s) (order summary, each closet's drawing as a PNG from closetSvg print mode, sizes, details, marks, notes, signed once: field 'closets'), then every page of the design PDF, then the forms. signFp includes clFp (closets, price, tear out, design).
+- Forms (JOB_DOCS, signed like the door forms): closetpatch / closetpaint (Closet Installation Details: No Backing, Baseboard Notch, Adjustment Holes, Round Chrome Rods photos, the choice ticked, the rough patch photo only on patch; Andrew: the No Backing photo always stays) and condocloset (Condominium Closet Installation: Standard Wall Spaces, 1" each side, condo + closets; the condo agreement comes too). Made by scripts/closet-forms.js from scripts/closet-forms/ photos.
+- The design PDF is stored in the private signed-contracts bucket at designs/<job>/<random>.pdf through remote-sign actions design-up and design (associate) and closet (customer link, the path on the order as sent). Without Supabase it is kept on the device (localStorage gidc:design:<key>). designBytes() fetches it for the contract and for printing (pdf.js pictures in .print-designs).
+- Printed review: the Closet Organizers sheet with a signature line (closetPrint(job, true)) and the design pages. Test: tests/closet-contract.js (iPhone size).
+- 2.71 (Andrew 26 Nov): the app's own closet drawings are for sales reference only. The contract's Closet Organizers page and the printed order show each closet's location and paper contract details only: no drawing, wall sizes, obstructions or notes. The uploaded design PDF is still attached. Print closets on the Closets screen still prints the measurement sheet.
+- 2.72 (Andrew 26 Nov): signing shows each of the nine terms one at a time to read (signFields kind 'read', ids read-1 to read-9: the term's text and its place lit on the terms page, no pad, Next moves on) and the customer signs once at the bottom of the terms page. No term initials any more; a contract initialled before 2.72 still shows its initials on the PDF and print (drawn only when that ini-N mark exists). The special order initial on the order page (ini-so) stays. The closet design PDF can also be dragged onto the Closets screen (document dragover/drop; the Closet order box lights up; a file dropped elsewhere in the app is ignored).
+
+### Measurement app 2.65: job list search and filters
+- Andrew 20 Nov: "a filter and search feature" (read as the job list, the screen the app opens on). A search box on top (jobMatches: every word must be in the customer, address, city, phone, email, quote number or salesperson; digits typed match the phone with its punctuation taken out). Typing redraws only the list (refreshJobList, #joblist) so the keyboard stays up. Kind filter: Has doors, Has closets, Closets only. On a phone (600 wide or less) the filters sit behind a Filters button that shows how many are set; on a wider screen they show as before.
+- The Supabase list reads address, city, phone, email and quoteNo out of the job data (data->>...), so jobs saved before 2.65 are searchable straight away. Rows show the address and phone. Test: tests/job-search.js.

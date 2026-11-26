@@ -52,7 +52,8 @@ h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:
 #whoami.show{display:flex}
 /* People and logins. Employee accounts are managed here now, on the page
    everyone already starts from, rather than inside the measurement app. */
-#people{display:none;max-width:980px;margin:0 auto 28px;background:var(--card);
+#people{display:none;width:min(1120px, calc(100vw - 32px));position:relative;left:50%;
+  transform:translateX(-50%);margin:0 0 28px;background:var(--card);
   border:1px solid var(--rule);border-radius:14px;padding:20px 22px}
 #people.show{display:block}
 #people h2{margin:0 0 4px;font-size:19px}
@@ -76,6 +77,27 @@ h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:
 #people .note{margin:14px 0 0;font-size:13px;color:var(--muted)}
 #people .bad{color:#A11}
 #people .ok{color:#2F6B3A}
+#people .verify{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin:0 0 16px;
+  padding:10px 12px;border:1px solid var(--rule);border-radius:10px;font-size:14px}
+#people .verify .switch{margin-left:auto}
+#people .sub{color:var(--muted);font-size:13px}
+#people .scroll{overflow-x:auto}
+#people td.who b{white-space:nowrap}
+#people td.who .mail{display:block;color:var(--muted);font-size:13px;max-width:280px;
+  overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#people td.who input{display:block;margin:2px 0;width:240px}
+#people .dealer{display:flex;gap:6px;align-items:center}
+#people .dealer select[data-dealerof]{max-width:300px}
+#people td.acts{white-space:nowrap;width:1%}
+#people td.acts .mini{margin-left:4px}
+#people details.more{display:inline-block;position:relative}
+#people details.more summary{list-style:none;display:inline-block;cursor:pointer}
+#people details.more summary::-webkit-details-marker{display:none}
+#people details.more .menu{position:absolute;right:0;top:calc(100% + 4px);z-index:5;
+  display:flex;flex-direction:column;gap:4px;padding:6px;background:var(--card);
+  border:1px solid var(--rule);border-radius:10px;box-shadow:0 6px 20px rgba(0,0,0,.08)}
+#people details.more .menu .mini{margin:0;text-align:left;white-space:nowrap}
+#people select.needs{border-color:#C80000}
 #whoami button{margin-left:auto;border:1px solid var(--rule);background:var(--card);
   border-radius:8px;padding:7px 12px;font:inherit;font-size:13px;color:var(--muted);cursor:pointer}
 #whoami button:hover{border-color:var(--brass-line);color:var(--brass-line)}
@@ -156,6 +178,8 @@ a.tile:active{transform:translateY(0)}
     <input id="si-p" type="password" autocomplete="current-password">
     <button id="si-go">Sign in</button>
     <div class="err" id="si-err"></div>
+    <p class="sub" style="margin-top:14px"><a href="https://dealers.gidc.ca/account">Forgotten
+       your password?</a></p>
   </div>
   <p class="note">Internal use only. If a tool will not open, or you need an account on one,
      speak to Andrew.</p>
@@ -312,48 +336,83 @@ function showSignedIn(me){
   w.classList.add('show');
   $('si-out').onclick = function(){ GIDCAuth.signOut(); location.reload(); };
   if($('si-people')) $('si-people').onclick = togglePeople;
+  GIDCAuth.verifyBanner(me);
 }
 
 /* ---- people and logins --------------------------------------------------
-   The same accounts the whole site uses, managed here rather than inside the
-   measurement app. Making a login, changing a password and removing one all
-   need a key that can administer accounts, and that key must never sit in a
-   page, so all three go through the create-dealer-user function in Supabase.
-   Nothing here can be done by anyone who is not an administrator: the
-   function asks the database who you are rather than taking the page's word
-   for it. */
-var PEOPLE = {open:false, rows:[], pwFor:null, busy:false};
-var PW_MIN = 10;
+   The one screen where logins are made and changed, for the whole company:
+   the team, and every dealer. The dealer portal and the measurement app no
+   longer manage logins; they send people here.
+
+   Each login has two kinds of access, either, both or neither:
+     Team access    role         admin, user, sales, manufacturing, installer
+     Dealer access  dealer_role  dealer, dealer_admin, for one dealer
+   That is two-sided-access.sql, and this screen is its other half.
+
+   Nobody here chooses anybody's password. A new login gets an invitation by
+   email and the person sets their own. Send password link does the same for
+   somebody who has forgotten theirs. Both prove the address in the same act.
+
+   Making a login, sending a link and removing one all need a key that can
+   administer accounts, and that key must never sit in a page, so they go
+   through the create-dealer-user function in Supabase. Changing what
+   somebody may do is written straight to profiles, which only an
+   administrator is allowed to do. Nothing here can be done by anyone who is
+   not an administrator: the database decides that, not this page. */
+var PEOPLE = {open:false, rows:[], dealers:[], editing:null, pending:{}, verify:null};
+
+/* The word stored is on the left, what a person reads is on the right. The
+   stored word never changes, because every login already carries one. */
+var TEAM_LABEL = {admin:'Administrator', user:'Staff', sales:'Sales',
+  manufacturing:'Manufacturing', installer:'Installer'};
+var TEAM_PICK = ['user', 'sales', 'manufacturing', 'installer', 'admin'];
+var DEALER_LABEL = {dealer:'Dealer', dealer_admin:'Dealer administrator'};
+var DEALER_PICK = ['dealer', 'dealer_admin'];
+/* Also on the screen for anybody who reads it later: a dealer
+   administrator follows the dealer's orders and sees no prices; a dealer
+   orders and sees the price list. */
+
+function options(pick, labels, current, none){
+  return '<option value="">' + esc(none) + '</option>' + pick.map(function(r){
+    return '<option value="' + r + '"' + (current === r ? ' selected' : '') + '>' +
+           esc(labels[r]) + '</option>';
+  }).join('');
+}
+function dealerOptions(current){
+  return '<option value="">Which dealer?</option>' + PEOPLE.dealers.map(function(d){
+    return '<option value="' + esc(d.id) + '"' + (current === d.id ? ' selected' : '') + '>' +
+           esc(d.name) + (d.active === false ? ' (off)' : '') + '</option>';
+  }).join('');
+}
 
 function togglePeople(){
   PEOPLE.open = !PEOPLE.open;
   $('people').classList.toggle('show', PEOPLE.open);
   $('grid').classList.toggle('show', !PEOPLE.open);
-  if(PEOPLE.open) loadPeople();
+  if(PEOPLE.open){ PEOPLE.msg = null; loadPeople(); }
+}
+function getJSON(path){
+  return GIDCAuth.api(path, {headers: GIDCAuth.headers()})
+    .then(function(r){ if(!r.ok) throw new Error(String(r.status)); return r.json(); });
 }
 function loadPeople(){
-  drawPeople('Loading\u2026');
-  /* Whether someone is still with you lives on profiles, and the list of
-     people comes from the portal_users view, which does not carry it. Rather
-     than rebuild the view, the two are read side by side and matched up. If
-     the active column is not there yet, nobody is shown as stood down and the
-     button does not appear, so this screen keeps working either way. */
+  drawPeople('Loading…');
+  /* The verification switch arrives with email-verification.sql. Until that
+     has run there is no switch to read, and the screen simply leaves the
+     verification parts out rather than failing. */
   Promise.all([
-    GIDCAuth.api('/rest/v1/portal_users?select=*&order=name', {headers: GIDCAuth.headers()})
-      .then(function(r){ if(!r.ok) throw new Error('Could not read the list of people');
-                         return r.json(); }),
-    GIDCAuth.api('/rest/v1/profiles?select=id,active', {headers: GIDCAuth.headers()})
-      .then(function(r){ return r.ok ? r.json() : null; })
+    getJSON('/rest/v1/portal_users?select=*&order=name')
+      .catch(function(){ throw new Error('Could not read the list of people'); }),
+    getJSON('/rest/v1/dealers?select=id,name,active&order=name').catch(function(){ return []; }),
+    getJSON('/rest/v1/app_settings?select=value&key=eq.require_verified_email')
+      .then(function(rows){ return rows.length ? rows[0].value === 'true' : null; })
       .catch(function(){ return null; })
   ]).then(function(got){
-    var rows = got[0], act = got[1];
-    PEOPLE.hasActive = !!act;
-    if(act){
-      var by = {};
-      act.forEach(function(a){ by[a.id] = a.active; });
-      rows.forEach(function(u){ u.active = by[u.id] !== false; });
-    }
-    PEOPLE.rows = rows; drawPeople();
+    PEOPLE.rows = got[0]; PEOPLE.dealers = got[1]; PEOPLE.verify = got[2];
+    /* dealer_role arrives with two-sided-access.sql. A list without it is
+       the old shape, which this screen cannot change safely. */
+    PEOPLE.twoSided = !PEOPLE.rows.length || 'dealer_role' in PEOPLE.rows[0];
+    drawPeople();
   }).catch(function(e){ drawPeople(null, e.message); });
 }
 function userAction(body, what){
@@ -370,125 +429,168 @@ function userAction(body, what){
           throw new Error('The create-dealer-user function is not deployed yet.');
         if(!r.ok){
           var msg = j.error || ('Could not ' + what);
-          /* The first version of this function only knew how to create a login.
-             If that one is still deployed it ignores the action and falls
-             through to its create path, so a Remove comes back complaining
-             about an email address. Say what is actually wrong. */
-          if(body.action && /email address|Give the person a name|at least 10 characters/i.test(msg))
-            msg = 'The create-dealer-user function in Supabase is the older version, ' +
-                  'which can only create logins. Paste the newer index.ts over it and ' +
-                  'deploy again, then Password and Remove will work.';
+          /* An older version of the function still deployed asks for a
+             password, which this screen never sends. Say what is wrong. */
+          if(/at least 10 characters/i.test(msg))
+            msg = 'The create-dealer-user function in Supabase is an older version. ' +
+                  'Paste the newer index.ts over it and deploy again.';
           throw new Error(msg);
         }
         return j;
       });
     });
 }
-function madePassword(){
-  var a = 'ABCDEFGHJKLMNPQRSTUVWXYZ', b = 'abcdefghijkmnpqrstuvwxyz', n = '23456789';
-  var pick = function(set){ return set[Math.floor(Math.random() * set.length)]; };
-  var pw = '';
-  for(var i = 0; i < 4; i++) pw += pick(a) + pick(b) + pick(b) + pick(n);
-  return pw;
-}
-/* The word stored is on the left, what a person reads is on the right. The
-   stored word never changes, because every login already carries one. */
-var ROLE_LABEL = {admin:'Administrator', user:'Staff', sales:'Sales',
-  manufacturing:'Manufacturing', installer:'Installer',
-  dealer:'Dealer', dealer_admin:'Dealer administrator'};
-/* The groups an administrator can put somebody in from this screen. Dealer
-   logins are not here: they belong to a dealer and are made on the portal,
-   where there is something to attach them to. */
-var ROLE_PICK = ['user', 'sales', 'manufacturing', 'installer', 'admin'];
-function roleOptions(current){
-  return ROLE_PICK.map(function(r){
-    return '<option value="' + r + '"' + (current === r ? ' selected' : '') + '>' +
-           esc(ROLE_LABEL[r]) + '</option>';
-  }).join('');
+function patchProfile(id, change){
+  var h = GIDCAuth.headers(true); h.Prefer = 'return=representation';
+  return GIDCAuth.api('/rest/v1/profiles?id=eq.' + encodeURIComponent(id),
+      {method:'PATCH', headers:h, body: JSON.stringify(change)})
+    .then(function(r){
+      return r.json().catch(function(){ return {}; }).then(function(j){
+        if(!r.ok) throw new Error(j.message || 'Only an administrator can change an account');
+        /* A PATCH the rules quietly refuse matches no rows and still says
+           200, so an empty answer is a refusal. */
+        if(!j.length) throw new Error('The database would not allow that change');
+        return j[0];
+      });
+    });
 }
 
 function drawPeople(loading, err){
   var h = '<h2>People and logins</h2>' +
-    '<p class="sub">Every login on this site and the dealer portal. ' +
+    '<p class="sub">Every login for this site, the dealer portal and the measurement app. ' +
     'Only an administrator can see this.</p>';
   if(loading){ $('people').innerHTML = h + '<p class="sub">' + esc(loading) + '</p>'; return; }
   if(err){ $('people').innerHTML = h + '<p class="bad">' + esc(err) + '</p>'; return; }
+  if(!PEOPLE.twoSided){
+    $('people').innerHTML = h + '<p class="bad">Run two-sided-access.sql in Supabase first. ' +
+      'This screen gives team and dealer access separately and needs the column it adds.</p>';
+    return;
+  }
 
-  h += '<table><thead><tr><th>Name</th><th>Email</th><th>Account</th><th></th></tr></thead><tbody>';
-  if(!PEOPLE.rows.length) h += '<tr><td colspan="4">Nobody yet.</td></tr>';
+  /* where verification stands, and the switch */
+  var counted = PEOPLE.rows.filter(function(u){ return u.role || u.dealer_role; });
+  var proven = counted.filter(function(u){ return u.email_verified; }).length;
+  if(PEOPLE.verify !== null){
+    var meRow = PEOPLE.rows.filter(function(u){ return ME && u.id === ME.id; })[0] || {};
+    h += '<div class="verify"><b>' + proven + ' of ' + counted.length + '</b> have confirmed ' +
+      'their email address. ' +
+      (proven < counted.length
+        ? '<button class="mini" data-verifyall="1">Send the check to the other ' +
+          (counted.length - proven) + '</button> '
+        : '') +
+      '<span class="switch">Require a confirmed address: <b>' +
+        (PEOPLE.verify ? 'on' : 'off') + '</b> ' +
+      (PEOPLE.verify
+        ? '<button class="mini" data-require="0">Turn off</button>'
+        : (meRow.email_verified
+            ? '<button class="mini" data-require="1">Turn on</button>'
+            : '<span class="sub">confirm your own address before you can turn it on</span>')) +
+      '</span></div>';
+  }
+
+  /* One line per person: name with the address under it, then the two
+     kinds of access, then two buttons and a More menu for the rest. Wider
+     than the tiles above it, because a dealer's name is long. */
+  h += '<div class="scroll"><table><thead><tr><th>Person</th><th>Team access</th>' +
+    '<th>Dealer access</th>' + (PEOPLE.verify !== null ? '<th>Address</th>' : '') +
+    '<th></th></tr></thead><tbody>';
+  if(!PEOPLE.rows.length) h += '<tr><td colspan="5">Nobody yet.</td></tr>';
   PEOPLE.rows.forEach(function(u){
     var self = ME && u.id === ME.id;
-    /* A dealer login belongs to a dealer, so its group is not something to
-       change from here: doing so would cut it loose from the dealer. Shown
-       as words rather than as a dropdown. */
-    var dealer = u.role === 'dealer' || u.role === 'dealer_admin';
-    h += '<tr><td><b>' + esc(u.name || '\u2014') + '</b>' +
-      (u.active === false ? ' <span class="sub">stood down</span>' : '') + '</td>' +
-      '<td>' + esc(u.email || '\u2014') + '</td><td>' +
-      (self || dealer
-        ? esc(ROLE_LABEL[u.role] || u.role) +
-          (dealer ? ' \u2014 ' + esc(u.dealer_name || 'no dealer') : '') +
-          (self ? ' <span class="sub">(you)</span>' : '')
-        : '<select data-role="' + esc(u.id) + '">' + roleOptions(u.role) + '</select>') +
-      '</td><td class="acts">' +
-      (self ? '<span class="sub">that is you</span>'
-        : (PEOPLE.pwFor === u.id
-            ? '<input id="pw-new" type="text" placeholder="new password" style="width:160px">' +
-              '<button class="mini" data-pwmake="1">Make one</button>' +
-              '<button class="mini go" data-pwsave="' + esc(u.id) + '">Save</button>' +
-              '<button class="mini" data-pwcancel="1">Cancel</button>'
-            : '<button class="mini" data-pwfor="' + esc(u.id) + '">Password</button>' +
-              (PEOPLE.hasActive
-                ? '<button class="mini" data-active="' + esc(u.id) + '" data-to="' +
-                  (u.active === false ? '1' : '0') + '">' +
-                  (u.active === false ? 'Bring back' : 'Stand down') + '</button>'
-                : '') +
-              '<button class="mini bad" data-rm="' + esc(u.id) + '">Remove</button>')) +
+    var editing = PEOPLE.editing === u.id;
+    var want = PEOPLE.pending[u.id] || u.dealer_role || '';
+    var needsDealer = want && !u.dealer_id;
+    h += '<tr>' +
+      (editing
+        ? '<td class="who"><input id="eu-name" type="text" value="' + esc(u.name || '') + '">' +
+          '<input id="eu-email" type="email" autocapitalize="none" value="' +
+            esc(u.email || '') + '"></td>'
+        : '<td class="who"><b>' + esc(u.name || '—') + '</b>' +
+          (self ? ' <span class="sub">(you)</span>' : '') +
+          (u.active === false ? ' <span class="sub">stood down</span>' : '') +
+          '<span class="mail">' + esc(u.email || '—') + '</span></td>') +
+      /* Your own team access is not yours to change here: one slip and the
+         last administrator is gone. */
+      '<td>' + (self ? esc(TEAM_LABEL[u.role] || u.role || 'None')
+        : '<select data-team="' + esc(u.id) + '">' +
+          options(TEAM_PICK, TEAM_LABEL, u.role || '', 'None') + '</select>') + '</td>' +
+      '<td><div class="dealer"><select data-dealerrole="' + esc(u.id) + '">' +
+        options(DEALER_PICK, DEALER_LABEL, want, 'None') + '</select>' +
+        (want ? '<select class="' + (needsDealer ? 'needs' : '') + '" data-dealerof="' +
+                esc(u.id) + '">' + dealerOptions(u.dealer_id || '') + '</select>' : '') +
+      '</div></td>' +
+      (PEOPLE.verify !== null
+        ? '<td>' + (u.email_verified ? '<span class="ok">Confirmed</span>'
+                                     : '<span class="sub">Not yet</span>') + '</td>'
+        : '') +
+      '<td class="acts">' +
+      (editing
+        ? '<button class="mini go" data-usave="' + esc(u.id) + '">Save</button>' +
+          '<button class="mini" data-ucancel="1">Cancel</button>'
+        : '<button class="mini" data-uedit="' + esc(u.id) + '">Edit</button>' +
+          '<button class="mini" data-reset="' + esc(u.id) + '" title="Emails them a link ' +
+            'to choose a password">Password link</button>' +
+          (self && !(PEOPLE.verify !== null && !u.email_verified) ? '' :
+            '<details class="more"><summary class="mini">More</summary><div class="menu">' +
+            (PEOPLE.verify !== null && !u.email_verified
+              ? '<button class="mini" data-verify="' + esc(u.id) + '" title="Emails them a ' +
+                'link that confirms their address">Send address check</button>'
+              : '') +
+            (self ? '' :
+              '<button class="mini" data-active="' + esc(u.id) + '" data-to="' +
+                (u.active === false ? '1' : '0') + '">' +
+                (u.active === false ? 'Bring back' : 'Stand down') + '</button>' +
+              '<button class="mini bad" data-rm="' + esc(u.id) + '">Remove</button>') +
+            '</div></details>')) +
       '</td></tr>';
   });
-  h += '</tbody></table>';
+  h += '</tbody></table></div>';
 
   h += '<div class="add"><div class="row">' +
     '<div><label>Full name</label><input id="nu-name" type="text" placeholder="Sanchita Kaur"></div>' +
     '<div><label>Email</label><input id="nu-email" type="email" autocapitalize="none"></div>' +
-    '<div><label>Password</label><input id="nu-pw" type="text" placeholder="at least 10 characters"></div>' +
-    '<div><button class="mini" data-genpw="1">Make one</button></div>' +
-    '<div><label>Account</label><select id="nu-role">' + roleOptions('user') + '</select></div>' +
-    '<div><button class="mini go" data-add="1">Add the login</button></div>' +
-    '</div><p class="note" id="nu-msg"></p>' +
-    '<p class="note">A dealer login belongs to a dealer, so those are made on the ' +
-    'dealer portal where you can pick which one. They are listed here so you can ' +
-    'see everybody in one place, and their password and removal work from here too.</p>' +
+    '<div><label>Team access</label><select id="nu-team">' +
+      options(TEAM_PICK, TEAM_LABEL, 'user', 'None') + '</select></div>' +
+    '<div><label>Dealer access</label><select id="nu-dealerrole">' +
+      options(DEALER_PICK, DEALER_LABEL, '', 'None') + '</select></div>' +
+    '<div><label>For which dealer</label><select id="nu-dealer">' + dealerOptions('') +
+      '</select></div>' +
+    '<div><button class="mini go" data-add="1">Send the invitation</button></div>' +
+    '</div><p class="note ' + (PEOPLE.msg && PEOPLE.msg.good ? 'ok' : 'bad') + '" id="nu-msg">' +
+      esc(PEOPLE.msg ? PEOPLE.msg.text : '') + '</p>' +
+    '<p class="note">They get an email with a link to choose their own password, and ' +
+    'following it confirms their address. The link works once and runs out after a while; ' +
+    'Password link on their row sends a fresh one. Team access opens this site and the ' +
+    'measurement app. Dealer access opens the dealer portal for that one dealer: a Dealer ' +
+    'orders and sees prices, a Dealer administrator follows orders and sees no prices. ' +
+    'Removing a login leaves that dealer’s orders alone.</p>' +
     '</div>';
   $('people').innerHTML = h;
 }
 
+/* Kept as well as shown, because most actions reload the list straight
+   after, and the reload draws the screen again from nothing. */
 function peopleMsg(text, good){
+  PEOPLE.msg = {text: text || '', good: !!good};
   var el = $('nu-msg');
-  if(el){ el.textContent = text || ''; el.className = 'note ' + (good ? 'ok' : 'bad'); }
+  if(el){ el.textContent = PEOPLE.msg.text; el.className = 'note ' + (good ? 'ok' : 'bad'); }
 }
+function rowOf(id){ return PEOPLE.rows.filter(function(x){ return x.id === id; })[0] || {}; }
 
 document.addEventListener('click', function(e){
-  var t = e.target.closest && e.target.closest('[data-pwfor],[data-pwcancel],[data-pwmake],' +
-          '[data-pwsave],[data-rm],[data-genpw],[data-add],[data-role],[data-active]');
+  var t = e.target.closest && e.target.closest('[data-reset],[data-verify],[data-verifyall],' +
+          '[data-require],[data-uedit],[data-ucancel],[data-usave],[data-rm],[data-add],[data-active]');
   if(!t || !PEOPLE.open) return;
   var d = t.dataset;
+  function busy(label){ t.disabled = true; t.textContent = label; }
 
   /* Standing somebody down leaves the login and everything they signed in
-     place, and stops them getting in. Written straight to profiles, which
-     only an administrator is allowed to do. */
+     place, and stops them getting in. */
   if(d.active !== undefined){
     var on = d.to === '1';
-    var hh = GIDCAuth.headers(true); hh.Prefer = 'return=representation';
-    t.disabled = true; t.textContent = 'Saving…';
-    GIDCAuth.api('/rest/v1/profiles?id=eq.' + encodeURIComponent(d.active),
-        {method:'PATCH', headers:hh, body: JSON.stringify({active: on})})
-      .then(function(r){
-        if(!r.ok) throw new Error('Only an administrator can change an account');
-        return r.json();
-      })
-      .then(function(rows){
-        if(!rows.length) throw new Error('The database would not allow that change');
+    busy('Saving…');
+    patchProfile(d.active, {active: on})
+      .then(function(){
         loadPeople();
         peopleMsg(on ? 'Back on. They can sign in again.'
                      : 'Stood down. They cannot sign in, and their name stops ' +
@@ -498,30 +600,84 @@ document.addEventListener('click', function(e){
     return;
   }
 
-  if(d.pwfor !== undefined){ PEOPLE.pwFor = d.pwfor; return drawPeople(); }
-  if(d.pwcancel !== undefined){ PEOPLE.pwFor = null; return drawPeople(); }
-  if(d.pwmake !== undefined){ $('pw-new').value = madePassword(); return; }
-  if(d.genpw !== undefined){ $('nu-pw').value = madePassword(); return; }
-
-  if(d.pwsave !== undefined){
-    var pw = $('pw-new').value;
-    if(pw.length < PW_MIN)
-      return peopleMsg('The password needs ' + PW_MIN + ' characters. That one has ' + pw.length + '.');
-    t.disabled = true; t.textContent = 'Saving\u2026';
-    userAction({action:'password', id:d.pwsave, password:pw}, 'change that password')
-      .then(function(){
-        PEOPLE.pwFor = null; drawPeople();
-        peopleMsg('New password set. Tell them what it is, nobody is emailed.', true);
+  if(d.uedit !== undefined){ PEOPLE.editing = d.uedit; return drawPeople(); }
+  if(d.ucancel !== undefined){ PEOPLE.editing = null; return drawPeople(); }
+  if(d.usave !== undefined){
+    busy('Saving…');
+    userAction({action:'update', id:d.usave, name:$('eu-name').value.trim(),
+                email:$('eu-email').value.trim()}, 'save that')
+      .then(function(j){
+        PEOPLE.editing = null; loadPeople();
+        peopleMsg(j.email_changed
+          ? 'Saved. The new address needs confirming' +
+            (j.verify_sent ? ', and a link has gone to it.' : '. Use Send address check.')
+          : 'Saved.', true);
       })
       .catch(function(err){ t.disabled = false; t.textContent = 'Save'; peopleMsg(err.message); });
     return;
   }
 
+  if(d.reset !== undefined){
+    var r = rowOf(d.reset);
+    busy('Sending…');
+    userAction({action:'reset', id:d.reset}, 'send that link')
+      .then(function(){ drawPeople(); peopleMsg('A link to choose a password has gone to ' +
+        (r.email || 'them') + '.', true); })
+      .catch(function(err){ drawPeople(); peopleMsg(err.message); });
+    return;
+  }
+  if(d.verify !== undefined){
+    var v = rowOf(d.verify);
+    busy('Sending…');
+    userAction({action:'verify', id:d.verify}, 'send that check')
+      .then(function(){ drawPeople(); peopleMsg('A link to confirm the address has gone to ' +
+        (v.email || 'them') + '.', true); })
+      .catch(function(err){ drawPeople(); peopleMsg(err.message); });
+    return;
+  }
+  if(d.verifyall !== undefined){
+    if(!confirm('Email a link to everybody who has not confirmed their address yet?\n\n' +
+                'It asks them to press one button. Nothing else changes for them.')) return;
+    busy('Sending…');
+    userAction({action:'verify', all:'true'}, 'send those')
+      .then(function(j){ loadPeople();
+        peopleMsg('Sent ' + j.sent + '.' + (j.failed && j.failed.length
+          ? ' These would not send: ' + j.failed.join(', ') + '.' : ''), !(j.failed || []).length); })
+      .catch(function(err){ drawPeople(); peopleMsg(err.message); });
+    return;
+  }
+  /* The switch. The database refuses to turn it on for anybody who has not
+     confirmed their own address, so the person turning it on can never be
+     the one left outside. The way back, if it is ever needed, is one line in
+     the Supabase SQL editor, written in email-verification.sql. */
+  if(d.require !== undefined){
+    var turnOn = d.require === '1';
+    var left = PEOPLE.rows.filter(function(u){
+      return (u.role || u.dealer_role) && !u.email_verified; }).length;
+    if(turnOn && !confirm('Require a confirmed address?\n\n' + left + ' login' +
+        (left === 1 ? '' : 's') + ' without one will be able to sign in but will see nothing ' +
+        'until they press the link in their email. They get a banner telling them so, ' +
+        'with a button to send it again.')) return;
+    busy('Saving…');
+    var hh = GIDCAuth.headers(true); hh.Prefer = 'return=representation';
+    GIDCAuth.api('/rest/v1/app_settings?key=eq.require_verified_email',
+        {method:'PATCH', headers:hh, body: JSON.stringify({value: turnOn ? 'true' : 'false',
+          changed_at: new Date().toISOString(), changed_by: ME && ME.id})})
+      .then(function(r){ return r.json().catch(function(){ return []; })
+        .then(function(j){ if(!r.ok || !j.length) throw new Error(
+          'The database would not change the switch. Confirm your own address first.'); }); })
+      .then(function(){ loadPeople(); peopleMsg(turnOn
+        ? 'On. A login without a confirmed address now sees nothing until it confirms.'
+        : 'Off. Nobody is held back for their address.', true); })
+      .catch(function(err){ drawPeople(); peopleMsg(err.message); });
+    return;
+  }
+
   if(d.rm !== undefined){
-    var who = PEOPLE.rows.filter(function(x){ return x.id === d.rm; })[0] || {};
+    var who = rowOf(d.rm);
     if(!confirm('Remove the login for ' + (who.name || 'this person') +
         ' (' + (who.email || '') + ')?\n\nThey will not be able to sign in again.')) return;
-    t.disabled = true; t.textContent = 'Removing\u2026';
+    busy('Removing…');
     userAction({action:'delete', id:d.rm}, 'remove that login')
       .then(function(){ loadPeople(); peopleMsg((who.name || 'That login') +
         ' can no longer sign in.', true); })
@@ -531,32 +687,45 @@ document.addEventListener('click', function(e){
 
   if(d.add !== undefined){
     var name = $('nu-name').value.trim(), email = $('nu-email').value.trim();
-    var pw2 = $('nu-pw').value, role = $('nu-role').value;
+    var team = $('nu-team').value, drole = $('nu-dealerrole').value, dealer = $('nu-dealer').value;
     if(name.length < 2) return peopleMsg('Give the person a name');
     if(!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return peopleMsg('That is not an email address');
-    if(pw2.length < PW_MIN)
-      return peopleMsg('The password needs ' + PW_MIN + ' characters. That one has ' + pw2.length + '.');
-    t.disabled = true; t.textContent = 'Adding\u2026';
-    userAction({name:name, email:email, password:pw2, role:role}, 'create that login')
-      .then(function(){ loadPeople();
-        peopleMsg(name + ' can sign in now with that password.', true); })
-      .catch(function(err){ t.disabled = false; t.textContent = 'Add the login'; peopleMsg(err.message); });
+    if(!team && !drole) return peopleMsg('Give them team access, dealer access, or both');
+    if(drole && !dealer) return peopleMsg('Choose which dealer their dealer access is for');
+    busy('Sending…');
+    userAction({action:'create', name:name, email:email, role:team, dealer_role:drole,
+                dealer_id: drole ? dealer : ''}, 'create that login')
+      .then(function(j){ loadPeople();
+        peopleMsg(j.warning || ('An invitation has gone to ' + email +
+          '. They choose their own password from it.'), !j.warning); })
+      .catch(function(err){ t.disabled = false; t.textContent = 'Send the invitation';
+                            peopleMsg(err.message); });
     return;
   }
 });
 
 document.addEventListener('change', function(e){
-  var t = e.target;
-  if(!PEOPLE.open || !t.dataset || t.dataset.role === undefined) return;
-  /* An administrator may write this straight to the database, so this one
-     needs no function. Staff are never tied to a dealer. */
-  var h = GIDCAuth.headers(true); h.Prefer = 'return=representation';
-  GIDCAuth.api('/rest/v1/profiles?id=eq.' + encodeURIComponent(t.dataset.role),
-      {method:'PATCH', headers:h, body: JSON.stringify({role:t.value, dealer_id:null})})
-    .then(function(r){
-      if(!r.ok) throw new Error('Only an administrator can change an account');
-      loadPeople(); peopleMsg('Saved.', true);
-    })
+  var t = e.target, d = t.dataset || {};
+  if(!PEOPLE.open) return;
+  var id = d.team || d.dealerrole || d.dealerof;
+  if(!id) return;
+  var u = rowOf(id), change;
+
+  if(d.team !== undefined) change = {role: t.value || null};
+  if(d.dealerrole !== undefined){
+    if(!t.value){ delete PEOPLE.pending[id]; change = {dealer_role: null, dealer_id: null}; }
+    else if(u.dealer_id) change = {dealer_role: t.value};
+    /* Dealer access has to say which dealer, so it waits for that before
+       anything is saved. */
+    else { PEOPLE.pending[id] = t.value; drawPeople();
+           return peopleMsg('Now choose which dealer.', true); }
+  }
+  if(d.dealerof !== undefined){
+    if(!t.value) return;
+    change = {dealer_role: PEOPLE.pending[id] || u.dealer_role, dealer_id: t.value};
+  }
+  patchProfile(id, change)
+    .then(function(){ delete PEOPLE.pending[id]; loadPeople(); peopleMsg('Saved.', true); })
     .catch(function(err){ peopleMsg(err.message); loadPeople(); });
 });
 function showSignIn(){
@@ -578,8 +747,7 @@ function attempt(){
          installer does belong, with one tile. */
       if(!GIDCAuth.isStaff(me) && !GIDCAuth.isInstaller(me)){
         GIDCAuth.signOut();
-        throw new Error(me.role ? GIDCAuth.NOT_STAFF
-          : 'That login is not set up for this site. Ask an administrator.');
+        throw new Error(GIDCAuth.whyNot(me));
       }
       showSignedIn(me);
     })
@@ -600,13 +768,12 @@ GIDCAuth.whoami().then(function(me){
   if(me){
     GIDCAuth.signOut();
     var err = $('si-err');
-    err.textContent = me.role ? GIDCAuth.NOT_STAFF
-      : 'That login is not set up for this site. Ask an administrator.';
+    err.textContent = GIDCAuth.whyNot(me);
     err.classList.add('show');
   }
   showSignIn();
 });
 </script>
-<div class="gidc-build">Tools 2.9 · 20 Oct 2026</div>
+<div class="gidc-build">Tools 3.0 · 23 Oct 2026</div>
 </body>
 </html>
