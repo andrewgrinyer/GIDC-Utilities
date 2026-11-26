@@ -6186,11 +6186,15 @@ function renderClosets(){
   $('#app').innerHTML = h;
   const todo = list.reduce((n, c) => n + (clMissing(c).length ? 1 : 0), 0);
   $('#dock').innerHTML = '<div class="count">' + (list.length
-      ? list.length + ' closet' + (list.length === 1 ? '' : 's') + (todo ? ' · ' + todo + ' still need sizes' : ' · all measured')
+      ? list.length + ' closet' + (list.length === 1 ? '' : 's') + (todo ? ' · ' + todo + ' need sizes' : ' · all measured')
       : 'No closets yet') + '</div>' +
     '<button class="btn" data-cl="doors">Doors</button>' +
-    '<button class="btn" data-cl="print"' + (list.some(c => clPts(c).length > 1) ? '' : ' disabled') + '>Print closets</button>' +
-    (list.length ? '<button class="btn btn-primary" data-review="1">Review order</button>' : '');
+    '<button class="btn" data-cl="print"' + (list.some(c => clPts(c).length > 1) ? '' : ' disabled') + '>Print</button>' +
+    (list.length ? '<button class="btn btn-primary" data-review="1">Review</button>' : '');   // 2.70: short, the dock is one line on a phone
+  if(state.scrollDraw){
+    const el = document.querySelector('#cl-' + state.scrollDraw + ' .cl-draw'); state.scrollDraw = null;
+    if(el) el.scrollIntoView({block:'center'});
+  }
   if(state.scrollTo){
     const target = state.scrollTo; state.scrollTo = null;
     requestAnimationFrame(() => { const el = document.getElementById('cl-' + target);
@@ -6252,6 +6256,7 @@ document.addEventListener('click', async e => {
     if(had && !await sure({title:'Change the drawing?', what:'The wall sizes on this closet are cleared.',
         why:'The ceiling height, location and notes stay.', final:'You can type the sizes again.', go:'Change', goClass:'btn-primary'})) return;
     c.shape = d.k; c.dims = {}; c.pts = []; c.drawn = false;
+    state.scrollDraw = c.id;          // 2.70: the drawing in the middle of the screen, clear of the dock
     render(); return persistBg();
   }
   if(act === 'undo'){ const p = c.pts || []; if(p.length){ p.pop(); if(c.dims) delete c.dims[clLetter(p.length - 1)]; } render(); return persistBg(); }
