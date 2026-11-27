@@ -986,6 +986,10 @@ table.rv-two tr.rv-l3 .note-in{min-height:30px;font-size:12px;padding:4px 6px}
   body.reviewing .print-designs{display:block!important}
   .print-design{break-before:page;page:form;text-align:center}
   .print-design img{max-width:100%;max-height:10.3in}
+  .print-design{position:relative}
+  .pd-ini{position:absolute;right:.3in;bottom:.15in;width:1.1in;background:#fff;border-bottom:1px solid #000;text-align:left}
+  .pd-ini svg{display:block;width:100%;height:.35in}
+  .pd-ini span{position:absolute;top:100%;left:0;font-size:7px;color:#6B6B6B}
   .print-design.wide img{max-height:7.8in}
 }
 
@@ -1638,6 +1642,10 @@ function signFields(job){
   if(nc) f.push({id:'closets', kind:'sign', title:'Sign the closet organizer order',
     note:nc + ' closet' + (nc === 1 ? '' : 's') + ', ' + (CL_TEAR[job.closetTearOut] || 'tear out not chosen') +
       (job.closetFile ? ', and the closet design (' + clPages(job.closetFile) + ')' : '') + '.'});
+  /* 2.79, Andrew 27 Nov: every page of the closet drawings comes across the
+     screen to review, then one initial goes on them all */
+  if(nc && job.closetFile) f.push({id:'ini-design', kind:'initial', title:'Review and initial the closet drawings',
+    note:'Look over every page of the closet design (' + clPages(job.closetFile) + '). Your initial goes on each page.'});
   jobDocs(job).forEach(d => f.push({id:'form-' + d.id, kind:'sign', title:'Sign the ' + d.title, note:docFor(d) + '.'}));
   return f;
 }
@@ -1739,6 +1747,8 @@ function openSignPad(job, done){
     el.classList.toggle('big', big);
     draw();
     const s = el.querySelector('.sp-spot.on');
+    // 2.79: the closet drawings are read from the first page down; the initial box is on the last
+    if(s && f.id === 'ini-design'){ el.scrollTop = 0; return; }
     if(s) requestAnimationFrame(() => {
       const r = s.getBoundingClientRect(), b = el.getBoundingClientRect();
       el.scrollTop += (r.top - b.top) - (b.height - r.height) / 2;
@@ -2292,10 +2302,18 @@ async function contractPdf(job, opts){
     if(job.closetFile){
       const src = await PDFDocument.load(await designBytes(job), {ignoreEncryption:true});
       const idx = src.getPageIndices();
-      const copied = await pdf.copyPages(src, idx);
+      const copied = await pdf.copyPages(src, idx), first = pdf.getPageCount();
+      const ini = signed('ini-design');
       copied.forEach((cp, n) => { pdf.addPage(cp);
         const cw = cp.getWidth();
-        text(cp, fitText('Closet design, page ' + (n + 1) + ' of ' + idx.length + '  -  ' + (job.customer || '') + '  -  part of this order', F, 6.5, cw - 40),
+        // 2.79: one initial, on every page of the drawings, bottom right
+        const ix = cw - 28 - 84, iy = 14;
+        cp.drawRectangle({x:ix - 4, y:iy - 4, width:92, height:34, color:WHITE, opacity:0.9});
+        cp.drawLine({start:{x:ix, y:iy}, end:{x:ix + 84, y:iy}, thickness:0.7, color:INK});
+        text(cp, 'Customer initial', ix, iy - 0.5 - 7, {size:6, color:GREY});
+        mark(cp, ini, ix + 2, iy + 1, 80, 24);
+        if(n === copied.length - 1) spot(cp, 'ini-design', ix - 3, iy - 3, 90, 30, first);
+        text(cp, fitText('Closet design, page ' + (n + 1) + ' of ' + idx.length + '  -  ' + (job.customer || '') + '  -  part of this order', F, 6.5, cw - 260),
           cw / 2, 6, {size:6.5, color:GREY, center:true});
         if(rnote) text(cp, fitText(rnote, F, 6.5, 400), cw - 20, cp.getHeight() - 12, {size:6.5, color:RED, right:true}); });
     }
@@ -7732,7 +7750,8 @@ document.addEventListener('click', async e => {
           const c = document.createElement('canvas'); c.width = Math.round(vp.width); c.height = Math.round(vp.height);
           const x = c.getContext('2d'); x.fillStyle = '#fff'; x.fillRect(0, 0, c.width, c.height);
           await pg.render({canvasContext:x, viewport:vp}).promise;
-          out += '<div class="print-design' + (v1.width > v1.height ? ' wide' : '') + '"><img src="' + c.toDataURL('image/jpeg', 0.88) + '" alt=""></div>';
+          out += '<div class="print-design' + (v1.width > v1.height ? ' wide' : '') + '"><img src="' + c.toDataURL('image/jpeg', 0.88) + '" alt="">' +
+            (markOf(job, 'ini-design') ? '<div class="pd-ini">' + markSvg(markOf(job, 'ini-design'), 'ini-mark') + '<span>Customer initial</span></div>' : '') + '</div>';
         }
         pd.innerHTML = out; pd.dataset.done = '1';
       }catch(err){ toast('The closet design will not print: ' + (err.message || err)); }
@@ -8288,6 +8307,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.78 · 27 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.79 · 27 Nov 2026</div>
 </body>
 </html>

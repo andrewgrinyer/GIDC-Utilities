@@ -104,17 +104,21 @@ const pdfText = bytes => {
   check('Sign and Send Estimate work with no doors', tot.sign && tot.send, tot);
   check('the review shows the closets box', /1 closet/.test(tot.box || '') && /Rough Patch/.test(tot.box || ''), tot.box);
   const fields = await page.evaluate(() => signFields(state.job).map(f => f.id));
-  check('fields: contract, terms, closets and the rough patch form', ['contract', 'terms', 'closets', 'form-closetpatch'].every(f => fields.includes(f)) &&
+  check('fields: contract, terms, closets, the drawings initial and the rough patch form', ['contract', 'terms', 'closets', 'ini-design', 'form-closetpatch'].every(f => fields.includes(f)) &&
     !fields.includes('doors') && !fields.includes('form-closetpaint'), fields);
 
   // 3. sign in person
   await page.click('[data-sign]'); await page.waitForTimeout(200); await reviewed(page);
   await page.click('[data-sp="start"]');
-  let seenCloset = null;
+  let seenCloset = null, designSeen = null;
   for(let k = 0; k < fields.length; k++){
     const c = await page.$('.signpad canvas');
     if(!c && await page.$('.signpad .sp-read')){ await page.click('[data-sp="next"]'); await page.waitForTimeout(40); continue; }   // 2.72: a term to read
     if(!c) break;
+    if(fields[k] === 'ini-design'){        // 2.79: every drawing page on screen, one initial
+      await page.waitForSelector('.sp-spot.on', {timeout:20000}).catch(() => {});
+      designSeen = await page.evaluate(() => ({pages:document.querySelectorAll('.sp-page img').length, top:document.querySelector('.sp-doc').scrollTop}));
+    }
     if(fields[k] === 'closets' || fields[k] === 'form-closetpatch'){
       await page.waitForSelector('.sp-spot.on', {timeout:20000}).catch(() => {});
       const v = await page.evaluate(() => document.querySelectorAll('.sp-page img').length);
@@ -127,6 +131,7 @@ const pdfText = bytes => {
     await page.click('[data-sp="next"]'); await page.waitForTimeout(60);
   }
   check('the closet page and the closet form show while signing', seenCloset === 2, seenCloset);
+  check('the drawings initial shows both design pages, from the top', designSeen && designSeen.pages === 2 && designSeen.top === 0, designSeen);
   await page.waitForTimeout(2500);
   const s = await page.evaluate(() => ({ok:signedOk(state.job), n:Object.keys(state.job.signed.marks).length}));
   check('every field signed', s.ok && s.n === fields.filter(f => !/^read-/.test(f)).length, s);
@@ -143,6 +148,7 @@ const pdfText = bytes => {
     // 2.71, Andrew: the app's drawings, sizes, marks and notes are sales reference only
     check('PDF leaves out the measurement drawing, sizes, marks and notes', !['Ceiling height', 'Sizes:', 'Window on wall C', 'Bulkhead over the door']
       .some(w => txt.includes(w)), txt.slice(0, 1500));
+    check('the initial box is on every design page', (txt.match(/Customer initial/g) || []).length === 2, (txt.match(/Customer initial/g) || []).length);
     check('PDF has both design pages', txt.includes('Test closet design page 1') && txt.includes('Test closet design page 2') && txt.includes('Closet design, page 2 of 2'));
     check('PDF order page says closets only', txt.includes('CLOSET ORGANIZERS ONLY'));
   }
