@@ -53,7 +53,7 @@ print(json.dumps(out, default=str))`;
       if(qty) op.qty = qty; applyQtyRule(op); j.openings.push(op); return op;
     };
     add('Bypass', 96, 86.5, {productType:'1.375 Hollow', doorStyle:'Columbia', paintColour:'STD White', handleType:'Finger Pull Round', hwColour:'Matte Black'}, 3);
-    add('GDL ByPass', 60, 80, {productType:'GDL', doorStyle:'Glissade Square Style 3', frameColour:'White', insertColour:'Frosted Glass'});
+    add('GDL ByPass', 60, 88, {productType:'GDL', doorStyle:'Glissade Square Style 3', frameColour:'White', insertColour:'Frosted Glass'});
     add('Single Swing', 32, 81, {productType:'1.375 Hollow', doorStyle:'Columbia', handleType:'Passage', handleStyle:'R - Georgian Standard', hwColour:'Matte Black', paintColour:'STD White'});
     state.job = j; state.view = 'job'; render();
   });
@@ -148,9 +148,36 @@ print(json.dumps(out, default=str))`;
     delete o.v.valance; j.materials = [{desc:'',price:'',qty:''},{desc:'',price:'',qty:''},{desc:'',price:'',qty:''}]; calcJob(j); render(); return r; });
   check('with line 1 used it goes on line 2', nx.second === 'Oversized Bulk Head' && nx.F56 === 'Oversized Bulk Head', nx);
   check('with all three used it is on the missing list and the tick says so; clearing one puts it there', nx.full.length === 1 && nx.hint && nx.third === 'Oversized Bulk Head' && nx.after.length === 0, nx);
-  // any height: not limited to 88 to 91
-  const any = await page.evaluate(() => { const op = state.job.openings[0]; const was = op.openH; op.openH = '80'; const a = canValance(op, op.options[0]); op.openH = was; return a; });
-  check('not limited by height', any === true);
+  // 2.81, Andrew: only 83 to 91 high; above 91 a 96 door as normal
+  const rng = await page.evaluate(() => { const op = state.job.openings[0], o = op.options[0], was = op.openH, r = {};
+    for(const h of ['82.875', '83', '88', '91', '91.125', '94']){ op.openH = h; r[h] = canValance(op, o); }
+    op.openH = was; return r; });
+  check('the tick is offered from 83" to 91" only', !rng['82.875'] && rng['83'] && rng['88'] && rng['91'] && !rng['91.125'] && !rng['94'], rng);
+  const lock = await page.evaluate(() => { const j = state.job, op = j.openings[0], o = op.options[0], g = j.openings[1].options[0], r = {};
+    op.openH = '88'; calcJob(j); r.before = [openPlan(op, o).blankH, cv('J9')];
+    o.v.valance = true; op.doorH = '96'; calcJob(j); render();
+    const P = openPlan(op, o); r.on = [P.blankH, P.finH, P.reRail, cv('J9'), op.height, j.materials[0].desc];
+    r.tick = !!document.querySelector('input[data-valance][data-op="' + op.id + '"]');
+    r.locked = !!document.querySelector('.rv-locked') && !document.querySelector('.rv-door[data-padof="doorH"][data-op="' + op.id + '"]');
+    g.v.valance = true; calcJob(j); r.gdl = cv('J10');
+    op.openH = '94'; calcJob(j); render(); r.over = [openPlan(op, o).blankH, cv('J9'), j.materials[0].qty, !!document.querySelector('input[data-valance][data-op="' + op.id + '"]')];
+    op.openH = '86.5'; delete op.doorH; delete o.v.valance; delete g.v.valance; calcJob(j); render(); r.back = cv('J9'); return r; });
+  check('88" opening: 96" door normally (Columbia has no 90)', lock.before[0] === 96 && lock.before[1] === 96, lock.before);
+  check('ticked: 84" door uncut, no re-rail, a typed 96 is not used, Oversized Bulk Head on', lock.on[0] === 84 && lock.on[1] === 84 && lock.on[2] === false && lock.on[3] === 84 && lock.on[4] === 84 && lock.on[5] === 'Oversized Bulk Head', lock.on);
+  check('review: the door height shows locked, no button to change it', lock.tick && lock.locked, lock);
+  check('GDL set ticked goes on the line 84" high', lock.gdl === 84, lock.gdl);
+  check('94" opening: no tick, 96" door, the bulk head line only counts the GDL set (qty 1)', lock.over[0] === 96 && lock.over[1] === 96 && lock.over[2] === '1' && !lock.over[3], lock.over);
+  check('back to the 86.5" opening as before', lock.back === 84, lock.back);
+  // the real workbook and the phone, for an 88" opening ticked
+  await page.evaluate(() => { const j = state.job, op = j.openings[0]; op.openH = '88'; op.options[0].v.valance = true; calcJob(j); render(); });
+  await page.waitForTimeout(300);
+  const wb88 = await book('b88');
+  check('workbook, 88" opening ticked: bypass line 84 high, Oversized Bulk Head 1 x $150', wb88['Pricing Sheet!J9'] === 84 && wb88['Pricing Sheet!F55'] === 'Oversized Bulk Head' &&
+    wb88['Pricing Sheet!J55'] === 150 && wb88['Pricing Sheet!K55'] === 1 && wb88['UploadTemplate!W37'] === 84, ['J9', 'F55', 'J55', 'K55'].map(k => wb88['Pricing Sheet!' + k]).concat(wb88['UploadTemplate!W37']));
+  if(process.env.SHOT3){ await page.locator('.rv-locked').first().scrollIntoViewIfNeeded(); await page.evaluate(() => window.scrollBy(0, -160));
+    await page.locator('.rv-locked').first().evaluate(e => e.closest('.rv-scroll').scrollLeft = e.closest('td').offsetLeft - 200);
+    await page.screenshot({path:process.env.SHOT3}); }
+  await page.evaluate(() => { const j = state.job, op = j.openings[0]; op.openH = '86.5'; delete op.options[0].v.valance; calcJob(j); render(); });
   // signing changes with the tick
   const fp = await page.evaluate(() => { const o = state.job.openings[0].options[0]; const a = signFp(state.job); o.v.valance = true; calcJob(state.job);
     const b = signFp(state.job); delete o.v.valance; calcJob(state.job); return a !== b; });
