@@ -1433,19 +1433,53 @@ function docProforma() {
   }).join("");
 }
 
+/* ONE DECLARATION LINE PER INVOICE LINE
+   The broker (Farrow, 27 November 2026): like lines may not be combined on
+   the Plant and Plant Product Declaration; each line on the invoice needs its
+   own corresponding line. So every commercial invoice line gets its own rows,
+   in the same order, with its own HTS number and entered value, and its share
+   of the plant weight split into the components. The weight is still the
+   shipment, less pallets, shared out on door count. */
+const LA_ROWS_PER_PAGE = 15;
+function laceyLines() {
+  const lines = activeLines();
+  const step = parseFloat($("roundTo").value) || 1;
+  const target = roundTo(Math.max(0, netShipmentLbs()), step);
+  const doors = lines.reduce((a, l) => a + (+l.qty || 0), 0);
+  let used = 0;
+  return lines.map((l, i) => {
+    const last = i === lines.length - 1;
+    const lbs = last ? Math.max(0, target - used)
+                     : roundTo(doors ? target * (+l.qty || 0) / doors : 0, step);
+    used += lbs;
+    let cu = 0;
+    const rows = state.comps.map((c, ci) => {
+      const lastC = ci === state.comps.length - 1;
+      const v = lastC ? lbs - cu : roundTo(lbs * (+c.share || 0) / 100, step);
+      cu += v;
+      return { name: c.name, genus: c.genus, species: c.species, qtyLbs: Math.max(0, v) };
+    });
+    return { no: i + 1, hs: (l.hs || "").trim(), amount: +l.amount || 0, rows: rows };
+  });
+}
 function docLacey() {
-  const groups = hsGroups();
+  const all = laceyLines();
+  const per = Math.max(1, Math.floor(LA_ROWS_PER_PAGE / Math.max(1, state.comps.length)));
+  const chunks = [];
+  for (let i = 0; i < Math.max(1, all.length); i += per) chunks.push(all.slice(i, i + per));
+
+  return chunks.map((chunk, pi) => {
   const rows = [];
-  groups.forEach(g => g.rows.forEach((r, ri) => rows.push({
+  chunk.forEach(g => g.rows.forEach((r, ri) => rows.push({
     hs: g.hs.replace(/[.\-]/g, ""),
-    value: ri === 0 ? Math.round(g.amount) : null,
-    comp: r.name, genus: r.genus, species: r.species,
+    value: ri === 0 ? g.amount : null,
+    comp: "Line " + g.no + " " + r.name, genus: r.genus, species: r.species,
     country: $("harvest").value, qty: r.qtyLbs
   })));
   while (rows.length < 6) rows.push(null);
 
   const body = rows.map(r => r
-    ? '<tr class="data"><td>' + esc(r.hs) + "</td><td>" + (r.value == null ? "" : intfmt(r.value)) + "</td><td>" + esc(r.comp) +
+    ? '<tr class="data"><td>' + esc(r.hs) + "</td><td>" + (r.value == null ? "" : money(r.value)) + "</td><td>" + esc(r.comp) +
       "</td><td>" + esc(r.genus) + "</td><td>" + esc(r.species) + "</td><td>" + esc(r.country) +
       "</td><td>" + intfmt(r.qty) + "</td><td>LBS</td><td>0</td></tr>"
     : '<tr class="data"><td>&nbsp;</td><td></td><td></td><td></td><td></td><td></td><td></td><td></td><td></td></tr>'
@@ -1455,7 +1489,7 @@ function docLacey() {
     ? '<span class="sig">' + esc($("certName").value) + "</span>"
     : "&nbsp;";
 
-  return sheetWrap("la", $("wantLA").checked,
+  return sheetWrap("la" + (pi ? pi : ""), $("wantLA").checked,
     '<div class="la">' +
     '<table class="omb"><tr><td class="l">According to the Paperwork Reduction Act of 1995, an agency may not conduct or sponsor, and a person is not required to respond to, a collection of information unless it displays a valid OMB control number. The valid OMB control number for this information collection is 0579-0349. The time required to complete this information collection is estimated to average 0.5 hours per response, including the time for reviewing instructions, searching existing data sources, gathering and maintaining the data needed, and completing and reviewing the collection of information.</td>' +
       '<td class="r">OMB APPROVED<br>0579-0349<br>EXP.: 04/2022</td></tr></table>' +
@@ -1497,11 +1531,12 @@ function docLacey() {
       '<td style="width:1.3in"><span class="fld">TELEPHONE NUMBER</span><span class="val">' + esc($("certPhone").value) + "</span></td>" +
       '<td style="width:1in"><span class="fld">DATE (MM/DD/YYYY)</span><span class="val">' + esc(usDate($("invDate").value)) + "</span></td>" +
     "</tr></table>" +
-    '<div class="foot"><div style="width:0.8in">PPQ FORM 505<br>APR 2020</div>' +
+    '<div class="foot"><div style="width:0.8in">PPQ FORM 505<br>APR 2020' + (chunks.length > 1 ? "<br>Page " + (pi + 1) + " of " + chunks.length : "") + '</div>' +
       "<div>(<u>NOTE</u>: Knowingly making any false statement in this Declaration for importation may subject the declarant to criminal penalties in accordance with 16 U.S.C. 3373(d)).</div></div>" +
     '<div style="text-align:center;font-size:7pt;font-style:italic;font-family:Arial,Helvetica,sans-serif;margin-top:4px">(Previous editions are obsolete.)</div>' +
     "</div>"
   );
+  }).join("");
 }
 
 function tscaDescriptions() {

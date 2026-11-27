@@ -46,6 +46,13 @@ The papers are kept in `pallet_customs_docs`, newest first, never deleted,
 with the order ids they covered. The pallet card has Print (opens them in a
 tab with a Print button) and Download (the same page as an .html file).
 
+The Plant and Plant Product Declaration (Lacey) has one entry per
+commercial invoice line, in the same order, numbered "Line 1", "Line 2" and
+so on, each with its own HTS number, entered value and its share of the
+plant weight split into the components (portal 2.25). The broker, Farrow,
+rejected a declaration that combined like lines on 27 November 2026. It
+runs to as many PPQ 505 pages as it needs, five invoice lines a page.
+
 No charge remakes go on the papers as doors at their invoiced value of
 zero. The "No charge" prefix comes off first, because "charge" is one of the
 export app's service words and would otherwise drop the doors.

@@ -237,6 +237,11 @@ let WHO = ME;
   const txt = html.replace(/<style[\s\S]*?<\/style>/g, '').replace(/data:image[^"]+/g, '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
   console.log('papers say:', ['Proforma Invoice', 'PLANT AND PLANT PRODUCT DECLARATION', 'Toxic Substance Control Act',
     '4418.29.8030', '4418.29.8060', 'BOL 5521', 'Miami'].map(w => w + '=' + txt.includes(w)).join(' '));
+  /* the broker, 27 November: one declaration line per invoice line */
+  const ciLines = (html.match(/<table class="gridbox ci-items">[\s\S]*?<\/tbody>/g) || [])
+    .join('').split('<tr><td>').length - 1;
+  const laLines = (html.match(/Line \d+ Facing/g) || []).length;
+  console.log('declaration lines match invoice lines:', laLines, 'of', ciLines, laLines === ciLines);
   console.log('papers total line:', (txt.match(/Total USD [\d,.]+/) || [''])[0], '/ South Florida words:', sfdWords.test(txt));
   console.log('pallet card:', await page.$eval('.pal-h .nm', x => x.innerText), '/', await btns());
   const [tab] = await Promise.all([page.context().waitForEvent('page'), page.click('button[data-cusprint]')]);
