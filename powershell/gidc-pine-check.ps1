@@ -14,8 +14,9 @@
 #  last sent.
 #
 #  Read only. Opens the back end with Mode=Read, writes nothing to it,
-#  sends nothing. Prints order numbers, dates and counts only: no name,
-#  address, phone number, price or note.
+#  sends nothing. Prints order numbers, the job's last name (as Order
+#  Supplies already shows it), dates and counts: no address, phone
+#  number, price or note.
 #
 #      powershell -ExecutionPolicy Bypass -File .\gidc-pine-check.ps1
 #
@@ -121,6 +122,10 @@ for ($i = 0; $i -lt $ids.Count; $i += 200) {
     $o[[int]$r["OrderID"]] = @{ no = [string]$r["OrderNo"]; sold = DayOf $r["SalesDate"]; tmpl = DayOf $r["TemplateBookedDate"];
                                inst = DayOf $r["InstallBookedDate"]; done = DayOf $r["CompletedDate"] }
   }
+  foreach ($r in (Rows "select OrderID, LastName from Estimates where OrderID in ($chunk)")) {
+    $id = [int]$r["OrderID"]
+    if ($o.ContainsKey($id) -and -not (Blank $r["LastName"])) { $o[$id].job = [string]$r["LastName"] }
+  }
   $want = @($cutIds) + @($packIds)
   if ($want.Count) {
     foreach ($r in (Rows ("select ps.OrderID, d.ProductTypeDetailID, d.ProductTypeDetailValue_DateTime as V
@@ -152,7 +157,7 @@ foreach ($id in $ids) {
            elseif ($need -le $today.AddDays(27)) { "next 4 weeks" }
            elseif ($need -le $today.AddDays(120)) { "later, within 120 days" }
            else { "past 120 days" }
-  $rows += [pscustomobject]@{ no = $x.no; sold = $x.sold; tmpl = $x.tmpl; inst = $x.inst; cut = $c;
+  $rows += [pscustomobject]@{ no = $x.no; job = $x.job; sold = $x.sold; tmpl = $x.tmpl; inst = $x.inst; cut = $c;
                               pack = $(if ($pack.ContainsKey($id)) { $pack[$id] } else { $null }); done = $x.done;
                               need = $need; why = $why; state = $state; v = $per[$id] }
 }
@@ -167,10 +172,10 @@ foreach ($g in ($rows | Group-Object state | Sort-Object Name)) {
 }
 
 Head "3. Every order not completed, with a valance, Add Pine or bump stops"
-Out2 "   order | sold | template | install | cut | packaging | completed | day given | from | valance lines | add pine lines | bump stop lines | rerail lines"
+Out2 "   order | job | sold | template | install | cut | packaging | completed | day given | from | valance lines | add pine lines | bump stop lines | rerail lines"
 foreach ($r in ($rows | Where-Object { $_.state -ne "completed" -and ($_.v.val -or $_.v.pine -or $_.v.bump) } | Sort-Object { if ($_.need) { $_.need } else { [datetime]::MaxValue } })) {
-  Out2 ("   {0} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12}" -f $r.no, (Ymd $r.sold), (Ymd $r.tmpl), (Ymd $r.inst),
-        (Ymd $r.cut), (Ymd $r.pack), (Ymd $r.done), (Ymd $r.need), $r.why, $r.v.val, $r.v.pine, $r.v.bump, $r.v.rerail)
+  Out2 ("   {0} | {13} | {1} | {2} | {3} | {4} | {5} | {6} | {7} | {8} | {9} | {10} | {11} | {12}" -f $r.no, (Ymd $r.sold), (Ymd $r.tmpl), (Ymd $r.inst),
+        (Ymd $r.cut), (Ymd $r.pack), (Ymd $r.done), (Ymd $r.need), $r.why, $r.v.val, $r.v.pine, $r.v.bump, $r.v.rerail, $(if ($r.job) { $r.job } else { "-" }))
 }
 
 Out2 ""
