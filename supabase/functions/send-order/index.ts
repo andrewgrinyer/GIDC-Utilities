@@ -13,7 +13,7 @@
 // Secrets it reads, set under Edge Functions, Secrets:
 //   RESEND_API_KEY     required, from resend.com
 //   ORDER_EMAIL_FROM   optional, defaults to Resend's test address
-//   ORDER_EMAIL_TO     optional, defaults to order@grinyer.ca, commas for several
+//   ORDER_EMAIL_TO     optional, defaults to orders@grinyer.ca, commas for several
 //
 // ---------------------------------------------------------------------------
 // 1 Oct 2026. The first version of this imported the Supabase client library
@@ -165,7 +165,7 @@ Deno.serve(async (req) => {
     if (body.reopen) {
       const why = String(body.reopen.reason ?? "").trim();
       const fromAddr = Deno.env.get("ORDER_EMAIL_FROM") ?? "onboarding@resend.dev";
-      const toAddr = (Deno.env.get("ORDER_EMAIL_TO") ?? "order@grinyer.ca")
+      const toAddr = (Deno.env.get("ORDER_EMAIL_TO") ?? "orders@grinyer.ca")
         .split(",").map((s) => s.trim()).filter(Boolean);
       const who = dealer?.name || "A dealer";
       const ref = order.order_ref || order.id;
@@ -330,7 +330,7 @@ Deno.serve(async (req) => {
       `</div>`;
 
     const from = Deno.env.get("ORDER_EMAIL_FROM") ?? "onboarding@resend.dev";
-    const to = (Deno.env.get("ORDER_EMAIL_TO") ?? "order@grinyer.ca")
+    const to = (Deno.env.get("ORDER_EMAIL_TO") ?? "orders@grinyer.ca")
       .split(",").map((s) => s.trim()).filter(Boolean);
 
     const payload = JSON.stringify({
