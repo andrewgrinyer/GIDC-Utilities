@@ -30,7 +30,7 @@ select supply_schedule_load('[{"order_id":5069,"order_no":"5067","job":"Aris","u
 reset role;
 select job, uses, amount from supply_schedule order by job, uses;
 
-\echo -- who can see the items (want admin and manufacturing 95: 7 shop, 66 hardware, 8 painting, 14 sanding; everybody else 0)
+\echo -- who can see the items (want admin and manufacturing 102: 7 shop, 66 hardware, 8 painting, 14 sanding, 7 packaging; everybody else 0)
 do $$ declare n text; c int; begin
   foreach n in array array['admin','user','sales','manufacturing','installer','dealer','dadmin','cdealer','stranger'] loop
     perform set_config('request.jwt.claim.sub', md5(n)::text, false);
@@ -122,3 +122,33 @@ select supply_schedule_load('[
 reset role;
 select uses, spec, amount from supply_schedule where access_order_id = 6001 order by amount desc;
 
+
+\echo -- packaging: no pallet tables yet, so nothing used (want [])
+select pg_temp.as_who('admin');
+set role authenticated;
+select supply_pallet_use('2026-01-01');
+reset role;
+
+\echo -- packaging: two pallets, one empty. Pallet A: a single 80 in door, a bifold pair 79.5 in (1 level), 2 doors of 96 in on one line
+create table if not exists public.pallets(id uuid primary key default gen_random_uuid(), dealer_id uuid, name text, max_rows int, closed_at timestamptz, built_on date default current_date);
+create table if not exists public.pallet_orders(order_id uuid primary key, pallet_id uuid, position int);
+create table if not exists public.dealer_orders(id uuid primary key default gen_random_uuid(), form jsonb);
+insert into dealer_orders(id, form) values
+  (md5('o1')::uuid, '{"rows":[{"doorType":"Single Swing","qty":"1","height":"80"},{"doorType":"Bifold","qty":"1","height":"79.5"}]}'),
+  (md5('o2')::uuid, '{"rows":[{"doorType":"Bypass","qty":"2","height":"96"}]}');
+insert into pallets(id, name, built_on) values (md5('pa')::uuid, 'SFD 1', '2026-11-20'), (md5('pb')::uuid, 'Empty', '2026-11-21');
+insert into pallet_orders values (md5('o1')::uuid, md5('pa')::uuid, 1), (md5('o2')::uuid, md5('pa')::uuid, 2);
+\echo -- want one pallet, 4 doors, foam 92 + 91.5 + 2 x 108 = 399.5
+select pg_temp.as_who('admin');
+set role authenticated;
+select supply_pallet_use('2026-01-01');
+\echo -- want 0 rows from a date after it
+select supply_pallet_use('2026-11-21');
+reset role;
+\echo -- a stranger may not read it (want not allowed)
+select pg_temp.as_who('stranger');
+set role authenticated;
+select supply_pallet_use('2026-01-01');
+reset role;
+\echo -- packaging list seeded (want 7 items, Uline packs, tape counted only)
+select shop_name, unit, uses, per_unit, order_step, pack_name from supply_items where category = 'packaging' order by sort;

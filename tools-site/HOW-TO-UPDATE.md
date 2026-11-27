@@ -18,7 +18,7 @@ live together.
     tools.gidc.ca/inventory/     Door Inventory
     tools.gidc.ca/supplies/      Order Supplies (the menu)
     tools.gidc.ca/paint/         Paint, under Order Supplies
-    tools.gidc.ca/supplies/order/?c=shop     Shop Supplies (also sanding, install)
+    tools.gidc.ca/supplies/order/?c=shop     Shop Supplies (also hardware, painting, sanding, install, packaging)
     tools.gidc.ca/salesmap/      Sales Map (administrators only)
     tools.gidc.ca/webleads/      Web Leads (administrators and office staff)
 

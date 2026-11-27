@@ -34,14 +34,15 @@ const SCHED = [
   Object.assign(S(5074, '5072', 'Slide', 'track', '2026-11-27', [], 2), {spec:'length=60'}),
   Object.assign(S(5074, '5072', 'Slide', 'finger_pull', '2026-11-27', [], 4), {spec:'shape=round; finish=Satin Nickel'}),
 ];
-let CATS, SUPPLIERS, ITEMS, COUNTS, ORDERS, n = 0, ROLE = 'manufacturing', MAIL_OK = true;
+let CATS, SUPPLIERS, ITEMS, COUNTS, ORDERS, PALLETS, n = 0, ROLE = 'manufacturing', MAIL_OK = true;
 const posted = [];
 function reset(){
   CATS = [{code:'shop', name:'Shop Supplies', po_prefix:'SHP', copy_to:'ashley@grinyer.ca', sort:10},
           {code:'painting', name:'Painting Supplies', po_prefix:'PNT', copy_to:'ashley@grinyer.ca', sort:5},
           {code:'hardware', name:'Hardware', po_prefix:'HDW', copy_to:'ashley@grinyer.ca', sort:15},
           {code:'sanding', name:'Sanding Supplies', po_prefix:'SND', copy_to:'ashley@grinyer.ca', sort:20},
-          {code:'install', name:'Install Supplies', po_prefix:'INST', copy_to:'ashley@grinyer.ca', sort:30}];
+          {code:'install', name:'Install Supplies', po_prefix:'INST', copy_to:'ashley@grinyer.ca', sort:30},
+          {code:'packaging', name:'Packaging Materials', po_prefix:'PKG', copy_to:'ashley@grinyer.ca', sort:40}];
   SUPPLIERS = [{id:'s1', name:'Lumber Yard', email:'orders@lumber.ca', note:null},
                {id:'s2', name:'Valance Co', email:null, note:null}];
   const I = (id, name, uses, per, warn, std, sup, sitem, sort) =>
@@ -61,10 +62,30 @@ function reset(){
              H('h4', 'Bypass track 60"', 'track', 'length=60', 1, 'track', 's1', 202),
              H('h5', 'Finger pull round Satin Nickel', 'finger_pull', 'shape=round; finish=Satin Nickel', 2, 'pair', 's3', 401));
   SUPPLIERS.push({id:'s3', name:'Onward', email:null, note:'Orders through the Onward portal. POs go to Ashley to place.'});
+  // Packaging Materials (Andrew, 27 November), as supplies.sql seeds it
+  SUPPLIERS.push({id:'s4', name:'Uline', email:null, note:'Ashley places these orders.'},
+                 {id:'s5', name:'Grand River Pallets', email:null, note:'Ashley places these orders.'});
+  const K = (id, name, sitem, unit, uses, per, step, pack, std, sup, sort, price) =>
+    ({id, category:'packaging', shop_name:name, supplier_item:sitem, supplier_id:sup, unit, uses, spec:'', per_unit:per == null ? null : String(per),
+      waste_pct:'0.0', warn_qty:'0', standard_order:std == null ? null : String(std), order_step:step == null ? null : String(step),
+      pack_name:pack, price:price == null ? null : String(price), sort});
+  ITEMS.push(K('k1', 'Shipping pallet 99 x 40', '99" x 40" new block pallet, solid top', 'pallet', 'pallet', 1, null, null, null, 's5', 10),
+             K('k2', 'Door foam', 'S-1098 Foam roll', 'roll', 'door_foam', 15000, 2, 'bundle', 2, 's4', 20, 364),
+             K('k3', 'Corner protectors', 'S-14337 Heavy duty edge protectors', 'piece', 'pallet', 4, 30, 'carton', 30, 's4', 30, 128),
+             K('k4', 'Strap guards', 'S-765 Strap guards', 'piece', 'pallet', 10, 1000, 'carton', 1000, 's4', 40),
+             K('k5', 'No Stack cones', 'S-22361 No Stack pallet cones', 'piece', 'pallet', 2, 50, 'bundle', 50, 's4', 50),
+             K('k6', 'Stretch wrap', 'S-2187 Stretch wrap', 'roll', 'pallet', 0.1333, 4, 'case', 4, 's4', 60),
+             K('k7', 'Packing tape', 'Uline industrial tape (part number to confirm)', 'roll', null, null, null, null, null, 's4', 70));
   COUNTS = [{id:'c1', item_id:'i1', qty:'30.00', counted_on:'2026-11-17', created_at:'2026-11-17T22:00:00Z', created_by:'Nick'},
             {id:'c2', item_id:'i2', qty:'3.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
             {id:'c3', item_id:'i3', qty:'5.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
-            {id:'c4', item_id:'i5', qty:'0.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'}];
+            {id:'c4', item_id:'i5', qty:'0.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
+            {id:'c5', item_id:'k3', qty:'20.00', counted_on:'2026-11-10', created_at:'2026-11-10T22:00:00Z', created_by:'Nick'},
+            {id:'c6', item_id:'k2', qty:'2.00', counted_on:'2026-11-10', created_at:'2026-11-10T22:00:00Z', created_by:'Nick'}];
+  // pallets from the dealer portal: two since the counts, one long before
+  PALLETS = [{pallet_id:'p0', name:'Old', day:'2026-10-01', doors:5, foam_in:500},
+             {pallet_id:'p1', name:'SFD 1', day:'2026-11-12', doors:10, foam_in:9200},
+             {pallet_id:'p2', name:'Chicago 3', day:'2026-11-18', doors:6, foam_in:5800}];
   ORDERS = [{id:'00000000-0000-0000-0000-00000000000a', category:'shop', po_no:'SHP00001', supplier_id:'s1', supplier_name:'Lumber Yard',
              needed_by:null, note:null, status:'requested', requested_at:'2026-11-18T15:00:00Z', requested_by:'Andrew',
              sent_to:'orders@lumber.ca', copied_to:'ashley@grinyer.ca', emailed_at:'2026-11-18T15:00:01Z', received_on:null,
@@ -109,6 +130,7 @@ async function mock(page){
       if(m === 'DELETE'){ const i = COUNTS.findIndex(x => x.id === eqv(u, 'id')); return jw(COUNTS.splice(i, 1)); }
       return j(COUNTS);
     }
+    if(p === '/rest/v1/rpc/supply_pallet_use'){ posted.push(['pallets', body]); return j(PALLETS); }
     if(p === '/rest/v1/supply_schedule') return j(+(u.searchParams.get('offset') || 0) ? [] : SCHED);
     if(p === '/rest/v1/supply_orders'){
       if(m === 'PATCH'){
@@ -175,9 +197,9 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(tiles.includes('Order Supplies') && !tiles.includes('Paint'), 'the tools page shows Order Supplies, and Paint has moved under it (' + tiles.join(', ') + ')');
   await page.click('text=Order Supplies'); await page.waitForTimeout(500);
   const menu = await page.$$eval('.tile', ts => ts.map(t => t.querySelector('b').textContent + ' ' + t.getAttribute('href')));
-  check(menu.join('|') === 'Paint /paint/|Painting Supplies ./order/?c=painting|Shop Supplies ./order/?c=shop|Hardware ./order/?c=hardware|Sanding Supplies ./order/?c=sanding|Install Supplies ./order/?c=install',
-    'the menu: Paint, Painting, Shop, Hardware, Sanding, Install (' + menu.join(', ') + ')');
-  check(/PO PD.*PO PNT.*PO SHP.*PO HDW.*PO SND.*PO INST/.test(await text(page, '.grid')), 'each says its PO prefix');
+  check(menu.join('|') === 'Paint /paint/|Painting Supplies ./order/?c=painting|Shop Supplies ./order/?c=shop|Hardware ./order/?c=hardware|Sanding Supplies ./order/?c=sanding|Packaging Materials ./order/?c=packaging|Install Supplies ./order/?c=install',
+    'the menu: Paint, Painting, Shop, Hardware, Sanding, Packaging, Install (' + menu.join(', ') + ')');
+  check(/PO PD.*PO PNT.*PO SHP.*PO HDW.*PO SND.*PO PKG.*PO INST/.test(await text(page, '.grid')), 'each says its PO prefix');
   if(SHOTS) await page.screenshot({path: SHOTS + '/supplies-menu.png'});
   await page.close();
   page = await open('installer', '/');
@@ -342,6 +364,56 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   await page.close();
   page = await open('sales', '/supplies/order/?c=shop');
   check(/Not one of yours/.test(await page.evaluate(() => document.body.innerText)), 'sales is turned away');
+  await page.close();
+
+  // Packaging Materials: taken down by the pallets in the dealer portal
+  page = await open('admin', '/supplies/order/?c=packaging');
+  check(await text(page, '#title') === 'Packaging Materials' && /\(PKG\)/.test(await text(page, '#lede')) && /goes to Ashley/.test(await text(page, '#lede')),
+    'Packaging Materials opens, PKG, every order to Ashley');
+  check(posted.some(x => x[0] === 'pallets' && x[1].p_from === '2025-10-16'), 'it reads the pallets from the dealer portal');
+  check(/Taken down by the pallets packed in the dealer portal/.test(await text(page, '#fresh')), 'and says where the numbers come from');
+  c = await card(page, 'Corner protectors');
+  check(/12 pieces in stock/.test(c) && /less 8 used since/.test(c),
+    'corner protectors: 20 counted Nov 10, two pallets since at 4 each (' + c + ')');
+  check(/Next 2 weeks 8 \(2 pallets at the last 2 weeks/.test(c), 'the next two weeks are taken to be like the last two: two pallets, 8 (' + c + ')');
+  check(/Comes in carton of 30 pieces/.test(c) && /Price \$128\.00 a carton/.test(c) && /Stock value \$51\.20/.test(c),
+    'the pack, the price a carton and the stock value at 128 / 30 a piece (' + c + ')');
+  c = await card(page, 'Door foam');
+  // 9200 + 5800 inches used = 15000 = one roll
+  check(/1 roll in stock/.test(c) && /less 1 used since/.test(c), 'foam: 2 rolls counted, 15,000 inches of foam used, one roll left (' + c + ')');
+  c = await card(page, 'Shipping pallet');
+  check(/Not counted yet/.test(c) && /Next 2 weeks 2 \(2 pallets/.test(c) && /Price not set/.test(c), 'pallets: not counted, two in the next two weeks, no price yet (' + c + ')');
+  c = await card(page, 'Packing tape');
+  check(/not predicted/.test(c), 'tape: counted only for now (' + c + ')');
+  check(!(await page.$eval('#pal-wrap', e => e.classList.contains('hide'))) &&
+        /Wed Nov 18 Chicago 3 6 483\.3/.test(await text(page, '#pals')) && /Four weeks 2 pallets 16 1,?250/.test(await text(page, '#pals')),
+    'Pallets packed lists the last four weeks with doors and feet of foam (' + await text(page, '#pals') + ')');
+  check(await page.$eval('#sched-wrap', e => e.classList.contains('hide')), 'there is no Access schedule on this list');
+  // a low item suggests whole packs
+  await page.click('[data-edit="k3"]');
+  check(await page.inputValue('#i-step') === '30' && await page.inputValue('#i-pack') === 'carton' && await page.inputValue('#i-price') === '128.00',
+    'the item form shows the pack and the price');
+  await page.fill('#i-warn', '40'); await page.fill('#i-price', '$1,150.5'); await page.click('#i-save'); await page.waitForTimeout(300);
+  check(posted.some(x => x[0] === 'itemedit' && x[1].price === 1150.5 && x[1].order_step === 30 && x[1].pack_name === 'carton' && x[1].warn_qty === 40),
+    'Edit saves the price, typed with a dollar sign and a comma');
+  c = await card(page, 'Corner protectors');
+  check(/Suggest ordering 60 pieces \(2 cartons\)/.test(c), 'below the minimum, it suggests whole cartons: 4 left after two weeks, 36 short of 40, so 60 (' + c + ')');
+  await page.click('[data-edit="k6"]');
+  await page.fill('#i-per', '200/1500'); await page.click('#i-save'); await page.waitForTimeout(300);
+  check(posted.some(x => x[0] === 'itemedit' && x[1].per_unit === 0.1333), 'a part of a roll can be typed as 200/1500');
+  await page.click('[data-edit="k4"]');
+  await page.fill('#i-step', '0'); await page.click('#i-save');
+  check(/Packs of should be a number above 0/.test(await text(page, '#msg')), 'a pack of 0 is refused');
+  await page.click('[data-close]');
+  await page.click('[data-add="k5"]');
+  check(await page.inputValue('[data-qty="k5"]') === '50', 'Add to order puts in a bundle of 50 cones');
+  check(/PKG PO for Uline, to ashley@grinyer\.ca only/.test(await text(page, '#groups')), 'a Uline PO goes to Ashley only (' + await text(page, '#groups') + ')');
+  if(SHOTS) await page.screenshot({path: SHOTS + '/supplies-packaging.png', fullPage: true});
+  await page.close();
+  page = await open('admin', '/supplies/order/?c=packaging', {width:390, height:844});
+  const wideP = await page.evaluate(() => document.documentElement.scrollWidth);
+  check(wideP <= 390, 'Packaging: no sideways page scroll on a phone (' + wideP + ')');
+  if(SHOTS) await page.screenshot({path: SHOTS + '/supplies-packaging-phone.png', fullPage: true});
   await page.close();
 
   // phone width

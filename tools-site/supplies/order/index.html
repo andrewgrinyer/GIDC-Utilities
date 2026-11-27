@@ -199,6 +199,12 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
   </div>
   <div class="groups" id="groups"></div>
 
+  <div id="pal-wrap" class="hide">
+    <h2>Pallets packed</h2>
+    <p class="sub" id="palsub"></p>
+    <div class="tablewrap"><table class="sched" id="pals"></table></div>
+  </div>
+
   <div id="sched-wrap">
     <h2 class="withbtn">Coming up <button class="plain small" id="showjobs">Show jobs</button></h2>
     <p class="sub" id="schedsub"></p>
@@ -213,7 +219,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.3 &middot; 23 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.4 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -268,13 +274,22 @@ var USES = {
   roller_set:    {label: 'Extra roller sets for bypass', per: 'Roller sets per unit', cut: false, group: 'Bypass tracks and rollers'},
   floor_guide:   {label: 'Floor guides for bypass', per: 'Floor guides per unit', cut: false, group: 'Bypass tracks and rollers'},
   finger_pull:   {label: 'Finger pulls, by shape and colour', per: 'Finger pulls per unit', cut: false, spec: true, group: 'Finger pulls'},
-  flush_bolt:    {label: 'Flush bolts, by colour', per: 'Flush bolts per unit', cut: false, spec: true, group: 'Flush bolts'}
+  flush_bolt:    {label: 'Flush bolts, by colour', per: 'Flush bolts per unit', cut: false, spec: true, group: 'Flush bolts'},
+  /* Andrew, 27 November: Packaging Materials, from the pallets in the
+     dealer portal, not from Access. A pallet item says how much of its
+     unit each pallet uses (4 corner protectors, 0.1333 of a 1,500 ft
+     roll of wrap); foam is every door's height plus 12", in inches,
+     against the length of one roll. */
+  pallet:        {label: 'Every pallet packed in the dealer portal', per: 'Used on each pallet, in this item\u2019s unit', cut: false, pallet: true, times: true},
+  door_foam:     {label: 'Foam: every door on a pallet, its height plus 12"', per: 'Length of one roll, inches', cut: false, pallet: true}
 };
+function isPallet(it){ return !!(it && USES[it.uses] && USES[it.uses].pallet); }
 /* "size=3.5; radius=0.25; finish=Black" read as "3.5, 0.25, Black" */
 function niceSpec(sp){ return String(sp || '').split(';').map(function(b){ return b.split('=').pop().trim(); }).filter(Boolean).join(', '); }
 
 /* ---- what was read ------------------------------------------------------ */
 var ME = null, CAT = null, ITEMS = [], SUPPLIERS = [], COUNTS = [], ORDERS = [], SCHED = [];
+var PALLETS = null, PALLET_ERR = '';  // pallets from the dealer portal, for Packaging Materials
 var QTY = {};              // what is typed in the new order, by item id
 var panel = null;          // which little form is open
 var askRemove = null;      // item or supplier about to be removed
@@ -343,6 +358,12 @@ function load(){
     ]);
   }).then(function(r){
     ITEMS = r[0] || []; SUPPLIERS = r[1] || []; COUNTS = r[2] || []; ORDERS = r[3] || []; SCHED = r[4] || [];
+    if(!ITEMS.some(isPallet)){ PALLETS = null; return; }
+    return rpc('supply_pallet_use', {p_from: addDays(TODAY, -400)})
+      .then(function(rows){ PALLETS = rows || []; })
+      .catch(function(err){ PALLETS = null; PALLET_ERR = err.message; });
+  }).then(function(){
+    if(PALLETS) SCHED = SCHED.concat(palletRows(PALLETS));
     draw();
   }).catch(function(err){
     message('bad', err.message);
@@ -395,8 +416,46 @@ function unitsFor(it, rows){
     rows.forEach(function(s){ (s.cuts || []).forEach(function(c){ cuts.push(Number(c)); }); });
     return pack(cuts, per) * waste;
   }
+  if(USES[it.uses] && USES[it.uses].times) return sum(rows, function(s){ return s.amount; }) * per * waste;
   return sum(rows, function(s){ return s.amount; }) / per * waste;
 }
+
+/* ---- pallets -----------------------------------------------------------------
+   Each pallet from the dealer portal becomes two rows of the same shape
+   as the Access schedule: one pallet, and the inches of foam its doors
+   take, on the day it was built. Nobody knows tomorrow's pallets, so the
+   two weeks ahead are taken to be like the two weeks just gone: each of
+   those pallets is copied 14 days forward, marked ahead, and only ever
+   counts as need to come, never as stock used. */
+function palletRows(list){
+  var out = [];
+  list.forEach(function(p){
+    var base = {access_order_id: 'P' + p.pallet_id, order_no: '', job: 'Pallet ' + (p.name || ''), spec: '', cuts: [],
+                need_on: p.day, doors: Number(p.doors) || 0, pulled_at: null, pallet: true};
+    out.push(Object.assign({}, base, {uses: 'pallet', amount: 1}));
+    if(Number(p.foam_in) > 0) out.push(Object.assign({}, base, {uses: 'door_foam', amount: Number(p.foam_in)}));
+  });
+  var from = addDays(TODAY, -14);
+  out.filter(function(r){ return r.need_on >= from && r.need_on < TODAY; }).forEach(function(r){
+    out.push(Object.assign({}, r, {need_on: addDays(r.need_on, 14), ahead: true, access_order_id: r.access_order_id + '+'}));
+  });
+  return out;
+}
+/* what the stock is taken down by: real pallets and jobs only */
+function realRows(rows){ return rows.filter(function(s){ return !s.ahead; }); }
+
+/* ---- packs and prices ---------------------------------------------------------
+   Andrew, 27 November: Uline sells by the carton, bundle and case, and
+   every item gets a price for the inventory value tool to come. The
+   price is for one pack when the item has one, else for one unit. */
+function stepOf(it){ return Number(it.order_step) > 0 ? Number(it.order_step) : 0; }
+function packText(it){
+  var st = stepOf(it);
+  return st ? (it.pack_name || 'pack') + ' of ' + n1(st) + ' ' + plural(st, it.unit) : '';
+}
+function roundUp(it, q){ var st = stepOf(it); return st && q > 0 ? Math.ceil(q / st - 1e-9) * st : q; }
+function money(n){ return '$' + (Number(n) || 0).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function unitPrice(it){ var p = Number(it.price); if(!(it.price != null && p >= 0)) return null; var st = stepOf(it); return st ? p / st : p; }
 
 /* ---- stock ----------------------------------------------------------------
    As paint: the last count (stock at the end of that day), plus what was
@@ -415,7 +474,7 @@ function stockOf(it){
   if(!last) linesFor(it, received).forEach(function(x){ if(x.o.received_on && (!firstIn || x.o.received_on < firstIn)) firstIn = x.o.received_on; });
   if(!last && firstIn) since = addDays(firstIn, -1);
   var got = sum(linesFor(it, function(o){ return received(o) && (!since || o.received_on > since); }), function(x){ return x.l.qty; });
-  var used = since ? unitsFor(it, rowsFor(it, addDays(since, 1), addDays(TODAY, -1))) : 0;
+  var used = since ? unitsFor(it, realRows(rowsFor(it, addDays(since, 1), addDays(TODAY, -1)))) : 0;
   var onOrder = sum(linesFor(it, function(o){ return o.status === 'requested'; }), function(x){ return x.l.qty; });
   var now = last ? Number(last.qty) + got - used : firstIn ? got - used : null;
 
@@ -437,7 +496,7 @@ function stockOf(it){
   var warn = Number(it.warn_qty) || 0, std = Number(it.standard_order) || 0;
   var after = now == null ? null : now + onOrder - need2;
   var state = now == null ? 'unknown' : after < 0 ? 'short' : after < warn ? 'low' : 'ok';
-  var suggest = state === 'short' || state === 'low' ? Math.max(std, Math.ceil(warn - after)) : 0;
+  var suggest = state === 'short' || state === 'low' ? roundUp(it, Math.max(std, Math.ceil(warn - after))) : 0;
   return {last: last, now: now, got: got, used: used, onOrder: onOrder, need2: need2,
           jobs2: Object.keys(jobs2).length, runsOut: runsOut, after: after, state: state, suggest: suggest};
 }
@@ -461,20 +520,27 @@ function card(it){
     '<div class="min">Minimum on hand <b>' + (Number(it.warn_qty) ? esc(qtyText(it.warn_qty, u)) : 'not set') + '</b></div>' +
     '<div class="how">' + how + '</div>' +
     '<dl>' +
-      (it.uses ? '<dt>Next 2 weeks</dt><dd>' + n1(s.need2) + (s.jobs2 ? ' <span style="color:var(--muted)">(' + s.jobs2 + ' job' + (s.jobs2 === 1 ? '' : 's') + ')</span>' : '') + '</dd>'
-               : '<dt>Next 2 weeks</dt><dd><span class="tiny">not in Access</span></dd>') +
+      (isPallet(it) ? '<dt>Next 2 weeks</dt><dd>' + n1(s.need2) + ' <span style="color:var(--muted)">(' + s.jobs2 + ' pallet' + (s.jobs2 === 1 ? '' : 's') + ' at the last 2 weeks&rsquo; pace)</span></dd>'
+       : it.uses ? '<dt>Next 2 weeks</dt><dd>' + n1(s.need2) + (s.jobs2 ? ' <span style="color:var(--muted)">(' + s.jobs2 + ' job' + (s.jobs2 === 1 ? '' : 's') + ')</span>' : '') + '</dd>'
+               : '<dt>Next 2 weeks</dt><dd><span class="tiny">' + (CODE === 'packaging' ? 'not predicted' : 'not in Access') + '</span></dd>') +
       '<dt>On order</dt><dd>' + (s.onOrder ? n1(s.onOrder) : 'none') + '</dd>' +
       (s.after == null ? '' : '<dt>Left after 2 weeks</dt><dd>' + n1(s.after) + '</dd>') +
       '<dt>Standard order</dt><dd>' + (Number(it.standard_order) ? n1(it.standard_order) : 'not set') + '</dd>' +
+      (stepOf(it) ? '<dt>Comes in</dt><dd>' + esc(packText(it)) + '</dd>' : '') +
+      '<dt>Price</dt><dd>' + (unitPrice(it) == null ? 'not set'
+        : esc(money(it.price)) + ' a ' + esc(stepOf(it) ? (it.pack_name || 'pack') : it.unit)) + '</dd>' +
+      (unitPrice(it) != null && s.now != null ? '<dt>Stock value</dt><dd>' + esc(money(Math.max(0, s.now) * unitPrice(it))) + '</dd>' : '') +
     '</dl>' +
-    (s.suggest ? '<div class="suggest">Suggest ordering ' + esc(qtyText(s.suggest, u)) + ', to stay at or above the minimum</div>' : '') +
+    (s.suggest ? '<div class="suggest">Suggest ordering ' + esc(qtyText(s.suggest, u)) +
+      (stepOf(it) ? ' (' + n1(s.suggest / stepOf(it)) + ' ' + esc(plural(n1(s.suggest / stepOf(it)), it.pack_name || 'pack')) + ')' : '') +
+      ', to stay at or above the minimum</div>' : '') +
     (askRemove === it.id
       ? '<div class="areyousure">Take ' + esc(it.shop_name) + ' off the list, with its counts? Orders keep their record.' +
         '<div class="acts"><button class="save small" data-removeyes="' + esc(it.id) + '">Yes, remove it</button>' +
         '<button class="plain small" data-removeno>No</button></div></div>'
       : '') +
     '<div class="acts"><button class="plain small" data-count="' + esc(it.id) + '">Count</button>' +
-      '<button class="save small" data-add="' + esc(it.id) + '" data-q="' + (s.suggest || Number(it.standard_order) || 1) + '">Add to order</button>' +
+      '<button class="save small" data-add="' + esc(it.id) + '" data-q="' + (s.suggest || Number(it.standard_order) || stepOf(it) || 1) + '">Add to order</button>' +
       '<button class="plain small" data-edit="' + esc(it.id) + '">Edit</button></div>' +
     '</div>';
 }
@@ -521,7 +587,8 @@ function drawOrderForm(){
         '<td class="n">' + (s.now == null ? '?' : n1(s.now)) + '</td>' +
         '<td class="n">' + (s.suggest ? n1(s.suggest) : '<span class="tiny">none</span>') + '</td>' +
         '<td class="n"><input class="qty" data-qty="' + esc(it.id) + '" inputmode="decimal" value="' + esc(q == null ? '' : q) + '" aria-label="How many ' + esc(it.shop_name) + '"> ' +
-          '<span class="tiny">' + esc(plural(2, it.unit)) + '</span></td></tr>';
+          '<span class="tiny">' + esc(plural(2, it.unit)) + '</span>' +
+          (stepOf(it) ? '<small>' + esc(packText(it)) + '</small>' : '') + '</td></tr>';
     }).join('') + '</tbody>';
   drawGroups();
 }
@@ -539,7 +606,8 @@ function drawGroups(){
 
 /* ---- coming up, by the day needed ------------------------------------------- */
 function drawSchedule(){
-  var used = ITEMS.filter(function(it){ return it.uses && Number(it.per_unit) > 0; });
+  var used = ITEMS.filter(function(it){ return it.uses && Number(it.per_unit) > 0 && !isPallet(it); });
+  drawPallets();
   $('sched-wrap').classList.toggle('hide', !used.length);
   if(!used.length) return;
   var to = addDays(TODAY, 27);
@@ -576,6 +644,26 @@ function drawSchedule(){
   var tot = '<tr class="tot"><td>Four weeks</td>' + used.map(function(it){ return '<td>' + n1(unitsFor(it, rowsFor(it, TODAY, to))) + '</td>'; }).join('') + '</tr>';
   $('sched').innerHTML = head + '<tbody>' + body + tot + '</tbody>';
   $('showjobs').classList.toggle('on', showJobs);
+}
+
+/* the last four weeks of pallets from the dealer portal, so the numbers
+   taken off stock can be checked against the floor */
+function drawPallets(){
+  var on = ITEMS.some(isPallet) && PALLETS;
+  $('pal-wrap').classList.toggle('hide', !on);
+  if(!on) return;
+  var from = addDays(TODAY, -27);
+  var list = PALLETS.filter(function(p){ return p.day >= from; }).slice().reverse();
+  $('palsub').textContent = 'The last four weeks from the dealer portal, by the day each pallet was started. ' +
+    'Foam is each door\u2019s height on the order plus 12".';
+  if(!list.length){ $('pals').innerHTML = '<tr><td><div class="empty">No pallets in the last four weeks.</div></td></tr>'; return; }
+  var doors = sum(list, function(p){ return p.doors; }), foam = sum(list, function(p){ return p.foam_in; });
+  $('pals').innerHTML = '<thead><tr><th>Day</th><th>Pallet</th><th>Doors</th><th>Foam, feet</th></tr></thead><tbody>' +
+    list.map(function(p){
+      return '<tr' + (p.day === TODAY ? ' class="today"' : '') + '><td>' + esc(nice(p.day, true)) + '</td><td>' + esc(p.name || '') + '</td>' +
+        '<td>' + n1(p.doors) + '</td><td>' + n1((Number(p.foam_in) || 0) / 12) + '</td></tr>';
+    }).join('') +
+    '<tr class="tot"><td>Four weeks</td><td>' + list.length + ' pallet' + (list.length === 1 ? '' : 's') + '</td><td>' + n1(doors) + '</td><td>' + n1(foam / 12) + '</td></tr></tbody>';
 }
 
 /* ---- orders ------------------------------------------------------------- */
@@ -636,6 +724,13 @@ function drawSettings(){
 
 function drawFresh(){
   var el = $('fresh');
+  if(ITEMS.some(isPallet) && !ITEMS.some(function(it){ return it.uses && !isPallet(it); })){
+    el.className = 'fresh' + (PALLETS ? '' : ' stale');
+    el.textContent = PALLETS ? 'Taken down by the pallets packed in the dealer portal: one shipping pallet, 4 corner protectors, 10 strap guards, ' +
+      '2 cones and the wrap for each pallet, and foam for each door on it at its height plus 12".'
+      : 'Could not read the pallets from the dealer portal' + (PALLET_ERR ? ': ' + PALLET_ERR : '') + '. Has supplies.sql been run again?';
+    return;
+  }
   if(!ITEMS.some(function(it){ return it.uses && it.uses !== 'doors'; })){ el.className = 'fresh'; el.textContent = ''; return; }
   var last = SCHED.reduce(function(m, s){ return s.pulled_at > m ? s.pulled_at : m; }, '');
   if(!last){ el.className = 'fresh stale'; el.textContent = 'Nothing has come from Access yet. The server sync sends what each job needs every hour once it is set up.'; return; }
@@ -656,6 +751,8 @@ function draw(){
       ? 'Hinges, bypass tracks and rollers, floor guides, finger pulls and flush bolts: in stock, what the jobs coming up will use, and purchase orders (' + CAT.po_prefix + ').'
       : CODE === 'painting'
       ? 'Paint pockets, floor paper, acetone, filters, waste barrels and sprayer tips: in stock, minimums and purchase orders (' + CAT.po_prefix + '). Every order goes to Ashley.'
+      : CODE === 'packaging'
+      ? 'Shipping pallets from Grand River Pallets and foam, corner protectors, strap guards, cones, wrap and tape from Uline: in stock, what the pallets use, and purchase orders (' + CAT.po_prefix + '). Every order goes to Ashley.'
       : CODE === 'sanding'
       ? 'Mirka discs, square sheets, pads and bags from Abrasive Supply, and fillers through Ashley: in stock, minimums and purchase orders (' + CAT.po_prefix + '). The 240 and 320 discs are predicted from the doors coming up: a 240 disc does about 4 doors, a 320 about 10.'
       : 'What is in stock and purchase orders (' + CAT.po_prefix + '). Add the items you keep, their suppliers and standard orders.';
@@ -708,6 +805,9 @@ function drawPanel(){
       '<input id="i-spec" list="i-specs" value="' + esc(e.spec || '') + '" placeholder="Pick from the list">' +
       '<datalist id="i-specs">' + specsFor(uses).map(function(x){ return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
     '<div id="i-wastewrap"' + (uses ? '' : ' class="hide"') + '><label for="i-waste">Waste allowance, %</label><input id="i-waste" inputmode="decimal" value="' + esc(e.waste_pct == null ? 10 : e.waste_pct) + '"></div>' +
+    '<div><label for="i-step">Comes in packs of</label><input id="i-step" inputmode="decimal" value="' + esc(e.order_step == null ? '' : n1(e.order_step)) + '" placeholder="Blank if sold one at a time"></div>' +
+    '<div><label for="i-pack">Pack is called</label><input id="i-pack" value="' + esc(e.pack_name || '') + '" placeholder="carton, bundle, case"></div>' +
+    '<div><label for="i-price">Price, for one pack (or one unit if no pack)</label><input id="i-price" inputmode="decimal" value="' + esc(e.price == null ? '' : Number(e.price).toFixed(2)) + '" placeholder="$"></div>' +
     (panel.id && askRemove !== e.id ? '' : '') +
     '<div class="acts"><button class="save" id="i-save">' + (panel.id ? 'Save' : 'Add item') + '</button><button class="plain" data-close>Cancel</button>' +
       (panel.id ? '<button class="plain" data-remove="' + esc(e.id) + '">Remove item</button>' : '') +
@@ -719,7 +819,14 @@ function specsFor(uses){
   ITEMS.forEach(function(it){ if(it.uses === uses && it.spec) seen[it.spec] = 1; });
   return Object.keys(seen).sort();
 }
-function numOf(id){ var t = String($(id) && $(id).value || '').trim().replace(',', '.'); if(t === '') return null; var v = Number(t); return isFinite(v) ? v : NaN; }
+function numOf(id){
+  var t = String($(id) && $(id).value || '').trim().replace(/^\$/, '').replace(/,(?=\d{3}\b)/g, '').replace(',', '.');
+  if(t === '') return null;
+  /* "200/1500" for 200 ft of a 1,500 ft roll */
+  var f = t.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if(f) return Number(f[2]) > 0 ? Math.round(Number(f[1]) / Number(f[2]) * 10000) / 10000 : NaN;
+  var v = Number(t); return isFinite(v) ? v : NaN;
+}
 
 function saveCount(){
   var q = numOf('c-qty'), day = $('c-day').value;
@@ -756,12 +863,19 @@ function saveItem(){
   var warn = numOf('i-warn'), std = numOf('i-std'), per = numOf('i-per'), waste = numOf('i-waste');
   if(!name) return message('bad', 'Type the shop name.');
   if(isNaN(warn) || warn < 0 || isNaN(std) || std < 0) return message('bad', 'Minimum on hand and standard order should be numbers, or left blank.');
-  if(uses && !(per > 0)) return message('bad', USES[uses].cut ? 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.' : 'Type how many doors one unit covers.');
+  var step = numOf('i-step'), price = numOf('i-price');
+  if(isNaN(step) || (step != null && step <= 0)) return message('bad', 'Packs of should be a number above 0, or left blank.');
+  if(isNaN(price) || (price != null && price < 0)) return message('bad', 'The price should be a number, or left blank.');
+  if(uses && !(per > 0)) return message('bad', USES[uses].cut ? 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.'
+    : USES[uses].times ? 'Type how much one pallet uses, in this item\u2019s unit. For part of a roll, feet a pallet / feet a roll, like 200/1500.'
+    : uses === 'door_foam' ? 'Type the length of one roll in inches: 15000 for 1,250 feet.' : 'Type how many doors one unit covers.');
   if(uses && (waste == null || isNaN(waste) || waste < 0 || waste > 100)) return message('bad', 'The waste allowance is a percentage from 0 to 100.');
   var row = {shop_name: name, supplier_item: $('i-sitem').value.trim() || null, supplier_id: $('i-sup').value || null,
              unit: $('i-unit').value.trim() || 'piece', warn_qty: warn, standard_order: std,
              uses: uses, per_unit: uses ? per : null, waste_pct: uses ? waste : 0,
-             spec: uses && USES[uses].spec ? $('i-spec').value.trim() : ''};
+             spec: uses && USES[uses].spec ? $('i-spec').value.trim() : '',
+             order_step: step, pack_name: step ? ($('i-pack').value.trim() || null) : null,
+             price: price == null ? null : Math.round(price * 100) / 100};
   if(!panel.id){ row.category = CODE; row.sort = (ITEMS.reduce(function(m, i){ return Math.max(m, i.sort || 0); }, 0) || 0) + 10; }
   busy = true;
   (panel.id ? send('PATCH', '/rest/v1/supply_items?id=eq.' + encodeURIComponent(panel.id), row) : send('POST', '/rest/v1/supply_items', row))
@@ -930,7 +1044,7 @@ document.addEventListener('change', function(e){
     $('i-specwrap').classList.toggle('hide', !(u && USES[u].spec));
     if(u){
       $('i-perlabel').textContent = USES[u].per;
-      if(!$('i-per').value) $('i-per').value = USES[u].cut ? 192 : 1;
+      if(!$('i-per').value) $('i-per').value = USES[u].cut ? 192 : u === 'door_foam' ? 15000 : 1;
       if(!USES[u].cut && $('i-waste').value === '10') $('i-waste').value = 0;
       $('i-specs').innerHTML = specsFor(u).map(function(x){ return '<option value="' + esc(x) + '">'; }).join('');
     }
