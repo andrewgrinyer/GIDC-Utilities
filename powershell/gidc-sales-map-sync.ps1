@@ -297,6 +297,20 @@ Say ("  green   in home visit and showroom, sold     {0}" -f (CountOf { $_.measu
 Say ("  purple  sold with no showroom visit          {0}" -f (CountOf { $_.sold_on -and -not $_.showroom_on }))
 Say ("  blue    sold in showroom, no in home visit   {0}" -f (CountOf { $_.sold_on -and $_.showroom_on -and -not $_.measure_on }))
 Say ""
+Say "WHEN THE SHOWROOM DATE FALLS (Andrew, 26 November: is the showroom split right?)" "Cyan"
+$todayS = (Get-Date).ToString("yyyy-MM-dd")
+$soldShow = @($rows | Where-Object { $_.sold_on -and $_.showroom_on })
+Say ("  sold with a showroom date: {0}" -f $soldShow.Count)
+Say ("    showroom on or before the sale date   {0}" -f @($soldShow | Where-Object { $_.showroom_on -le $_.sold_on }).Count)
+Say ("    showroom after the sale date          {0}" -f @($soldShow | Where-Object { $_.showroom_on -gt $_.sold_on }).Count)
+Say ("    showroom date still to come           {0}" -f @($soldShow | Where-Object { $_.showroom_on -gt $todayS }).Count)
+Say ("    showroom on the very day of the sale  {0}" -f @($soldShow | Where-Object { $_.showroom_on -eq $_.sold_on }).Count)
+Say ("    showroom on the estimate date         {0}" -f @($soldShow | Where-Object { $_.showroom_on -eq $_.created_on }).Count)
+$unsShow = @($rows | Where-Object { -not $_.sold_on -and $_.showroom_on })
+Say ("  not sold with a showroom date: {0}, of them still to come {1}" -f $unsShow.Count, @($unsShow | Where-Object { $_.showroom_on -gt $todayS }).Count)
+$soldHome = @($rows | Where-Object { $_.sold_on -and $_.measure_on })
+Say ("  sold with an in home date: {0}, of them in home after the sale {1}" -f $soldHome.Count, @($soldHome | Where-Object { $_.measure_on -gt $_.sold_on }).Count)
+Say ""
 Say "WHERE THE DETAILS COME FROM" "Cyan"
 $addrWhere = if ($AddressColumn) { $AddressColumn } elseif ($streetNo -or $streetName) { "$streetNo + $streetName" } else { "(none found)" }
 Say ("  address   Estimates.{0}, on {1}" -f $addrWhere, (CountOf { $_.address }))
