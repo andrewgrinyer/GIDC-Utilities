@@ -232,6 +232,14 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 /* 2.76: Mix Door Types */
 .mix-f{margin:6px 0 4px;max-width:calc(100vw - 48px)}
 .mix-f .hint{white-space:normal}
+.mix-f .hint.warn-t{color:#B5121B;font-weight:600}
+/* 2.78: the door to be ordered, changeable on the review */
+.rv-door{display:block;margin:3px 0 0;font:inherit;font-size:12px;font-weight:600;color:var(--ink,#1F1F24);background:#fff;
+  border:1px solid var(--rule);border-radius:6px;padding:3px 6px;min-height:28px;cursor:pointer;text-align:left;white-space:nowrap}
+.rv-door.typed{border-color:#B5121B}
+.rv-door small{color:#B5121B;font-weight:600}
+.rv-doorauto{display:block;font-size:11px;margin-top:2px}
+@media print{.rv-door{border:0;padding:0;min-height:0;font-size:inherit}.rv-door small,.rv-doorauto{display:none!important}}
 .mix-tick{display:inline-flex;align-items:center;gap:8px;font-weight:600;font-size:14px;cursor:pointer}
 .mix-tick input{width:20px;height:20px}
 .mix-rows{display:grid;gap:6px;margin:6px 0 2px}
@@ -1087,6 +1095,11 @@ const JOB_DOCS = [
   {id:'bifold', title:'Bifold Door Fit Guide', file:'bifold-door-fit-guide.pdf',
    png:'bifold-door-fit-guide.png', stamp:'corner', sign:{x:96, y:752, dx:445},
    why:'a bifold door', needs:o => BIFOLD_TYPES.indexOf(o.v.doorType) >= 0},
+  /* 2.78, Andrew 27 Nov: a bypass with Oversized Valance Build Down ticked
+     takes the build down form with his reference photo (scripts/valance-form.js) */
+  {id:'valance', title:'Oversized Valance Build Down', file:'oversized-valance-build-down.pdf',
+   png:'oversized-valance-build-down.png', stamp:'corner', sign:{x:56, y:694, dx:410},
+   why:'an oversized valance build down', needs:o => !!o.v.valance && BYPASS_TYPES.indexOf(o.v.doorType) >= 0},
   /* 2.52, Andrew 19 Nov: a customer in a condo building signs the
      Condominium Installation Details & Agreement (his form, redrawn in the
      print colours). It goes with the job, not with a door. */
@@ -3050,6 +3063,7 @@ function syncHandles(job){
   syncGdl(job);
   syncInstall(job);
   syncMix(job);                                // 2.76
+  syncValance(job);                            // 2.78
 }
 /* 2.59, Andrew 19 Nov: THE GDL LINE
  *
@@ -3178,7 +3192,7 @@ function specialText(op){
   return 'SPECIAL CASE: ' + op.qty + ' doors in this GDL set, set by hand' + (a && a.length ? ' (price list: ' + a.join(' or ') + ')' : ' (past the price list)') + '.';
 }
 // a door's note with the special case flag in front
-const lineNote = op => [specialText(op), opMixText(op), opPullText(op), noteOf(op) ? 'Note: ' + noteOf(op) : ''].filter(Boolean).join('  ');   // 2.76: and the mixed doors
+const lineNote = op => [specialText(op), opMixText(op), opPullText(op), opValanceText(op), noteOf(op) ? 'Note: ' + noteOf(op) : ''].filter(Boolean).join('  ');   // 2.76: and the mixed doors
 function gdlQtyRule(op, o){
   const auto = gdlPanels(op, o);
   const all = []; for(let n = 1; n <= GDL_PANEL_MAX; n++) all.push(n);
@@ -3353,6 +3367,43 @@ const opMixText = op => op.options.filter(o => o.include).map(o => mixText(op, o
 const mixFp = job => job.openings.map(op => op.options.filter(o => o.include && isMix(op, o)).map(o => [op.number, o.v.mix.map(m => [m.style, m.insert || '', m.product || ''])]));
 const hasMidPulls = job => ((job && job.openings) || []).some(op => op.options.some(o => o.include && o.v.midPulls && canMidPull(op, o)));
 const pullFp = job => job.openings.map(op => op.options.filter(o => o.include && o.v.midPulls && canMidPull(op, o)).map(o => [op.number, midPullCounts(op, o)]));
+/* 2.78, Andrew 27 Nov: a bypass (plain or GDL) has a tick, Oversized Valance
+   Build Down. It lets 84" doors go in an opening with an 88" to 91" ceiling,
+   but it is not limited by height: it can be used anywhere. Ticked, it puts
+   Oversized Bulk Head, qty 1 at $150, on the next empty Special Materials and
+   Rework line (one line for the order; two doors ticked make it qty 2), and
+   the Oversized Valance Build Down form, with Andrew's photo, goes with the
+   order like the other forms. Unticked, the line it made comes off. The line
+   is an ordinary special materials line, so the rep can still change it. */
+const VALANCE_ITEM = 'Oversized Bulk Head', VALANCE_PRICE = 150;
+const canValance = (op, o) => !!(op && o) && BYPASS_TYPES.indexOf(o.v.doorType) >= 0;
+const hasValance = (op, o) => !!(o && o.v.valance && canValance(op, o));
+const valanceCount = job => ((job && job.openings) || []).reduce((n, op) => n + op.options.filter(o => o.include && hasValance(op, o)).length, 0);
+const valanceLine = job => ((job && job.materials) || []).findIndex(m => m && m.auto === 'valance');
+const EMPTY_MAT = () => ({desc:'', price:'', qty:''});
+function syncValance(job){
+  if(!job || !job.openings) return;
+  const n = valanceCount(job);
+  let at = valanceLine(job);
+  if(!n){ if(at >= 0) job.materials[at] = EMPTY_MAT(); return; }
+  job.materials = job.materials || [];
+  while(job.materials.length < 3) job.materials.push(EMPTY_MAT());
+  if(at >= 0){ const m = job.materials[at]; if(m.autoN !== n){ m.qty = String(n); m.autoN = n; } return; }
+  at = job.materials.slice(0, 3).findIndex(m => !String(m.desc || '').trim() && (m.price === '' || m.price == null) && (m.qty === '' || m.qty == null));
+  if(at < 0) return;                               // no empty line: missing() and the tick's hint say so
+  job.materials[at] = {desc:VALANCE_ITEM, price:String(VALANCE_PRICE), qty:String(n), auto:'valance', autoN:n};
+}
+const valanceText = (op, o) => hasValance(op, o) ? 'Oversized Valance Build Down (Oversized Bulk Head on Special Materials and Rework).' : '';
+const opValanceText = op => op.options.filter(o => o.include).map(o => valanceText(op, o)).filter(Boolean).join('  ');
+function valanceFields(op, o){
+  if(!canValance(op, o)) return '';
+  const job = state.job, full = hasValance(op, o) && o.include && valanceLine(job) < 0;
+  return '<div class="mix-f val-f"><label class="mix-tick"><input type="checkbox" data-valance="1" data-op="' + op.id + '" data-o="' + o.id + '"' +
+    (o.v.valance ? ' checked' : '') + '> Oversized Valance Build Down</label>' +
+    '<p class="hint' + (full ? ' warn-t' : '') + '">' + (full ? 'The three Special Materials and Rework lines are full. Clear one and Oversized Bulk Head goes on it.' :
+      o.v.valance ? 'Oversized Bulk Head, 1 at $' + VALANCE_PRICE + ', added to Special Materials. The build down form goes with the order.' :
+      'For 84" doors in an opening with an 88" to 91" ceiling, or anywhere the valance is built down to the doors.') + '</p></div>';
+}
 /* the price of each location, from the line's own Door MSRP formula with
    that location's style in place of the style cell. Needs the calculator,
    after calcJob has put the job in. A style the price list or the supplier
@@ -4111,6 +4162,8 @@ function missing(job){
     if(!CL_TEAR[job.closetTearOut]) out.push('Closets: tear out choice');
     if(!job.closetFile) out.push('Closets: upload the closet design PDF');
   }
+  // 2.78: the Oversized Bulk Head line needs an empty special materials line
+  if(valanceCount(job) && valanceLine(job) < 0) out.push('Oversized Valance Build Down: clear a Special Materials and Rework line for Oversized Bulk Head');
   job.openings.forEach(op => {
     const on = op.options.filter(o => o.include);
     if(!op.options.length){
@@ -4970,7 +5023,7 @@ async function padKey(k){
     const f = pad.f, v = padValue();
     if(op && !setOpeningSize(op, f, v)) return;      // refused: the pad stays up to fix it
     pad = null; drawPad();
-    if(op){ render(); persistBg(); }
+    if(op){ if(calc && state.view === 'review') calcJob(job); render(); persistBg(); }   // 2.78: a door size changed on the review
     return;
   }
   if(k === 'C'){ pad.whole = ''; pad.eighths = 0; }
@@ -5224,6 +5277,22 @@ function reviewSelect(list, val, attrs, only){
     items.map(x => '<option' + (String(x) === String(val) ? ' selected' : '') + '>' +
       esc(x) + '</option>').join('') + '</select>';
 }
+/* 2.78, Andrew 27 Nov: the size of the door to be ordered can be changed on
+   the review. It is the same each door width and height (op.doorW, op.doorH)
+   as on the measurement screen, on the same size picker; a size typed there
+   wins over the worked out one, and the price, size check, re-rail and
+   re-stile follow it. The opening itself stays read only (2.63). A GDL set is
+   made to the opening, so it has no door size to change. */
+function rvDoorBox(op, o, f){
+  if(isGdl(o) || !op.openW || !op.openH) return '';
+  const P = openPlan(op, o); if(!P) return '';
+  const typed = op[f] !== undefined && op[f] !== '', v = typed ? op[f] : f === 'doorW' ? P.blankW : P.blankH;
+  const lab = f === 'doorH' ? 'door' : P.per > 1 ? P.per + ' doors, each' : 'door';
+  return '<button type="button" class="rv-door' + (typed ? ' typed' : '') + '" data-padof="' + f + '" data-op="' + op.id + '"' +
+    ' title="The size of the door to be ordered. Tap to change it.">' + lab + ' ' + (v ? esc(sizeText(v)) + '"' : '<i>tap to set</i>') +
+    (typed ? ' <small>typed</small>' : '') + '</button>' +
+    (f === 'doorH' && (op.doorW || op.doorH) ? '<button type="button" class="linkbtn rv-doorauto" data-doorauto="' + op.id + '">Use the worked out size</button>' : '');
+}
 function reviewEditor(col, op, o){
   const at = 'data-rv="' + col.k + '" data-op="' + op.id + '" data-o="' + o.id + '"';
   if(col.k === 'location') return reviewSelect('location', op.location, at);
@@ -5246,6 +5315,7 @@ function reviewEditor(col, op, o){
     const ls = lineSize(op, o), f = col.k === 'height' ? 'openH' : 'openW';
     return '<span class="rv-fixed">' + esc(ls[col.k] === '' ? '' : sizeText(ls[col.k])) + '</span>' +
       (op[f] ? '<span class="rv-note">opening ' + esc(sizeText(op[f])) + '</span>' : '') +
+      rvDoorBox(op, o, col.k === 'height' ? 'doorH' : 'doorW') +
       (col.k === 'height' && floorGap(op, o) != null ? '<span class="rv-note rv-gap">floor gap ' + esc(sizeText(floorGap(op, o))) + '"</span>' : '');
   }
   /* 2.63, Andrew 20 Nov: the opening is measured on the measurement screen
@@ -5397,6 +5467,7 @@ function renderReview(){
            (specialText(op) ? '<p class="rv-special">' + esc(specialText(op)) + '</p>' : '') +
            mixFields(op, o, true) + (mixText(op, o) ? '<p class="rv-special mix-print">' + esc(mixText(op, o)) + '</p>' : '') +   // 2.76
            pullFields(op, o) + (midPullText(op, o) ? '<p class="rv-special mix-print">' + esc(midPullText(op, o)) + '</p>' : '') +
+           valanceFields(op, o) + (valanceText(op, o) ? '<p class="rv-special mix-print">' + esc(valanceText(op, o)) + '</p>' : '') +   // 2.78
            noteBox('data-opnote="' + op.id + '"', op.note, 'Note for door ' + op.number + ' (prints in red)') +
            '<div class="note-print">' + esc(noteOf(op) ? 'Note: ' + noteOf(op) : '') + '</div></td></tr>';
   });
@@ -7371,7 +7442,7 @@ function renderJob(){
                 }
                 h += '</div>';
               });
-              if(s.id === 'build') h += gdlFields(o, op.id, true);           // 2.59
+              if(s.id === 'build') h += gdlFields(o, op.id, true) + valanceFields(op, o);   // 2.59, 2.78
               if(s.id === 'style') h += mixFields(op, o, false);             // 2.76
               if(s.id === 'hardware') h += pullFields(op, o);                // 2.76
               h += '</div>';
@@ -7519,7 +7590,7 @@ document.addEventListener('click', async e => {
   if(d.review !== undefined) return openReview();
   if(d.padof){ const o = job && job.openings.find(x => x.id === d.op); if(o) openPad(o, d.padof); return; }
   if(d.doorauto){ const o = job && job.openings.find(x => x.id === d.doorauto);
-    if(o){ delete o.doorW; delete o.doorH; render(); persistBg(); } return; }
+    if(o){ delete o.doorW; delete o.doorH; if(calc && state.view === 'review') calcJob(job); render(); persistBg(); } return; }
   if(d.revback !== undefined){ if(navBack()) return; state.view = 'job'; return render(); }
   /* 2.20, Andrew 18 Nov: a door added straight from the review. It is a new
      opening with the job's defaults, and its line is filled in right here. */
@@ -8021,6 +8092,13 @@ document.addEventListener('change', async e => {
     if(t.checked) o.v.midPulls = true; else delete o.v.midPulls;
     if(calc && state.view === 'review') calcJob(job);
     render(); return persistBg(); }
+  // 2.78: Oversized Valance Build Down, on the Edit screen and the review
+  if(d.valance){ const op = job.openings.find(x => x.id === d.op), o = op && op.options.find(x => x.id === d.o);
+    if(!op || !o) return;
+    if(t.checked) o.v.valance = true; else delete o.v.valance;
+    syncValance(job);
+    if(calc && state.view === 'review') calcJob(job);
+    render(); return persistBg(); }
   // 2.76: Mix Door Types, on the Edit screen and the review
   if(d.mix){ const op = job.openings.find(x => x.id === d.op), o = op && op.options.find(x => x.id === d.o);
     if(!op || !o) return;
@@ -8210,6 +8288,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.77 · 27 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.78 · 27 Nov 2026</div>
 </body>
 </html>
