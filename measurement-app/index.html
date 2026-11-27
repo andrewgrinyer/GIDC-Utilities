@@ -1623,7 +1623,7 @@ function signFields(job){
     note:'Opening' + (jr.length > 1 ? 's ' : ' ') + jr.map(r => r.n).join(', ') + ': jamb widths, swing directions and door sizes.'});
   // 2.70: the closet measurements, details and design
   if(nc) f.push({id:'closets', kind:'sign', title:'Sign the closet organizer order',
-    note:nc + ' closet' + (nc === 1 ? '' : 's') + ' and their details, ' + (CL_TEAR[job.closetTearOut] || 'tear out not chosen') +
+    note:nc + ' closet' + (nc === 1 ? '' : 's') + ', ' + (CL_TEAR[job.closetTearOut] || 'tear out not chosen') +
       (job.closetFile ? ', and the closet design (' + clPages(job.closetFile) + ')' : '') + '.'});
   jobDocs(job).forEach(d => f.push({id:'form-' + d.id, kind:'sign', title:'Sign the ' + d.title, note:docFor(d) + '.'}));
   return f;
@@ -2237,7 +2237,6 @@ async function contractPdf(job, opts){
     const W = 612, H = 792, colW = (W - 56 - 16) / 2;
     const cards = cls.map(c => {
       const ls = clDetRows(c).map(([l, v]) => ({l:fitText(l + ': ' + v, F, 8, colW - 8)}));
-      if(!ls.length) ls.push({l:'No details set', red:true});
       return {c, ls, h:18 + ls.length * 10.5 + 8};
     });
     const tear = CL_TEAR[job.closetTearOut] || 'Not chosen';
@@ -2272,7 +2271,7 @@ async function contractPdf(job, opts){
       y -= rh + 4; k += 2;
     }
     if(y < 100){ foot(pg, W); newPage(false); }
-    wrap('Your signature confirms the closet details and tear out choice above' +
+    wrap('Your signature confirms the closets and tear out choice above' +
       (job.closetFile ? ' and the closet design pages that follow' : '') + '. All closet materials are special order and cannot be returned.',
       F, 7.5, W - 56).forEach((l, j) => text(pg, l, 28, 96 - j * 9, {size:7.5, color:GREY}));
     sigLines(pg, 'closets', 90, 64); foot(pg, W);
@@ -6052,7 +6051,12 @@ const CL_DETAIL = [
 const CL_DEF = {thick:'3/4"', backing:'No', notched:'Yes', holes:'Yes', guides:'Full'};
 const CL_TEAR = {patch:'No Charge Tear Out and Rough Patch', paint:'Customer to Tear Out and Paint Prior to Install'};
 const clDet = c => (c.det = c.det && typeof c.det === 'object' ? c.det : {...CL_DEF});
-const clDetRows = c => CL_DETAIL.map(f => { const v = clDet(c)[f.k];
+/* 2.77, Andrew 27 Nov: the closet options are gone from the app. Depth,
+   backing, notching and the rest are set in the closet software and come
+   with the design PDF, so entering them here was redundant. Details saved on
+   older jobs are no longer shown or printed. */
+const clDetRows = c => [];
+const clDetRowsOld = c => CL_DETAIL.map(f => { const v = clDet(c)[f.k];
   return [f.label, Array.isArray(v) ? v.join(', ') : String(v || '').trim()]; }).filter(r => r[1]);
 const clPriceNum = job => { const v = parseFloat(String(job.closetPrice == null ? '' : job.closetPrice).replace(/[$,\s]/g, ''));
   return isNaN(v) || v < 0 ? null : Math.round(v * 100) / 100; };
@@ -6112,7 +6116,7 @@ async function closetUpload(job, file){
 function newCloset(job){
   const list = closetsOf(job);
   const n = list.reduce((x, c) => Math.max(x, +c.number || 0), 0) + 1;
-  const c = {id:uid(), number:n, location:'', shape:'', pts:[], dims:{}, ceiling:'', note:'', det:{...CL_DEF}};
+  const c = {id:uid(), number:n, location:'', shape:'', pts:[], dims:{}, ceiling:'', note:''};
   list.push(c);
   return c;
 }
@@ -6506,7 +6510,6 @@ function renderClosets(){
           '<div class="cl-mfrom">From corner is measured from ' + esc(clStartOf(c, mk.wall)) + ' along wall ' + esc(mk.wall) + '.</div></div>').join('') +
           '<button class="btn btn-sm" data-cl="madd" data-cid="' + c.id + '">+ Window or obstruction</button></div>';
       }
-      h += closetDetails(c);
       h += '<div class="field cl-note"><label>Notes</label>' +
            noteBox('data-clnote="' + c.id + '"', c.note, 'e.g. baseboard 4", outlet on wall B, remove the old shelf') + '</div>' +
            '<div style="display:flex;gap:8px;padding-top:8px"><button class="btn btn-sm btn-danger" data-cl="rm" data-cid="' + c.id +
@@ -8207,6 +8210,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.76.3 · 26 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.77 · 27 Nov 2026</div>
 </body>
 </html>

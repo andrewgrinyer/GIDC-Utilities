@@ -4,7 +4,7 @@
 //   (or PLAYWRIGHT=/path/to/playwright node tests/closet-contract.js)
 //
 // iPhone sized screen, Supabase switched off (the design PDF is kept on the
-// device). A closets only job: details chips, price, tear out choice and the
+// device). A closets only job: price, tear out choice and the
 // design PDF on the Closets screen; Review order from the Closets dock; the
 // price lands in U46 (Organizer) and the tax is worked on it; signing walks
 // the closet field and the closet forms; the signed PDF has the closet page,
@@ -77,18 +77,10 @@ const pdfText = bytes => {
   // 1. closets only job: the closet order on the Closets screen
   await setup(false); await addCloset();
   check('the closet order card shows on the Closets screen', await page.locator('.cl-order [data-clprice]').count() === 1);
-  check('a new closet starts with the usual details (3/4, no backing, notched, holes, full guides)', await page.evaluate(() =>
-    JSON.stringify(state.job.closets[0].det) === JSON.stringify({thick:'3/4"', backing:'No', notched:'Yes', holes:'Yes', guides:'Full'})));
+  // 2.77, Andrew 27 Nov: no closet options on the closet any more (the design PDF has them)
+  check('no closet options on the closet', await page.locator('.cl-det, [data-cldet], [data-cl="det"]').count() === 0);
   const miss0 = await page.evaluate(() => missing(state.job).filter(m => /^Closets/.test(m)));
   check('signing waits for the price, tear out and design', miss0.length === 3, miss0);
-  await page.click('.cl-card.is-open [data-cl="det"][data-k="depth"][data-v=\'14"\']');
-  await page.click('.cl-card.is-open [data-cl="det"][data-k="acc"][data-v="Belt"]');
-  await page.click('.cl-card.is-open [data-cl="det"][data-k="acc"][data-v="Tie"]');
-  await page.click('.cl-card.is-open [data-cl="det"][data-k="dstyle"][data-v="Shaker"]');
-  await page.fill('.cl-card.is-open [data-cldet="finish"]', 'White'); await page.locator('.cl-card.is-open [data-cldet="finish"]').dispatchEvent('change');
-  const det = await page.evaluate(() => clDetRows(state.job.closets[0]));
-  check('closet details are kept', JSON.stringify(det).includes('"Accessories","Belt, Tie"') && JSON.stringify(det).includes('"Finish","White"') &&
-    JSON.stringify(det).includes('"Drawer style","Shaker"'), det);
   await page.fill('[data-clprice]', '$4,250.50'); await page.locator('[data-clprice]').dispatchEvent('change'); await page.waitForTimeout(150);
   await page.click('[data-cl="tear"][data-v="patch"]'); await page.waitForTimeout(150);
   await page.setInputFiles('[data-clfile]', {name:'Cara closets.pdf', mimeType:'application/pdf', buffer:design});
@@ -147,7 +139,7 @@ const pdfText = bytes => {
   if(txt === null) console.log('SKIP PDF text (no pdftotext here)');
   else {
     check('PDF has the closet page with the order and details', ['Closet Organizers', 'Master Bedroom', 'No Charge Tear Out and Rough Patch',
-      'Accessories: Belt, Tie', 'Drawer style: Shaker', '4,250.50'].every(w => txt.includes(w)), txt.slice(0, 1500));
+      '4,250.50'].every(w => txt.includes(w)), txt.slice(0, 1500));
     // 2.71, Andrew: the app's drawings, sizes, marks and notes are sales reference only
     check('PDF leaves out the measurement drawing, sizes, marks and notes', !['Ceiling height', 'Sizes:', 'Window on wall C', 'Bulkhead over the door']
       .some(w => txt.includes(w)), txt.slice(0, 1500));
