@@ -23,6 +23,12 @@
 //   supersede  associate (2.28): stores the copy of an earlier contract
 //              stamped SUPERSEDED (the page stamps it) beside the original,
 //              which is never changed, and records it on the request.
+//   design-up  associate (2.70): stores the job's closet design PDF at
+//              designs/<job>/<random>.pdf and returns its path.
+//   design     associate (2.70): a short lived download link for a closet
+//              design of the job (designs/<job>/ only).
+//   closet     customer (2.70): a short lived download link for the closet
+//              design on the order as it was sent.
 //
 // 2.28 revisions: a job signed before and signed again is the next revision
 // (Rev 001, Rev 002...). On finish the contract it replaces moves to
@@ -174,7 +180,21 @@ Deno.serve(async (req) => {
     };
 
     /* ---------------- the associate's actions ---------------- */
-    if (["send", "status", "cancel", "pdf", "supersede"].includes(action)) {
+    // 2.70: a short lived download link for a file in the store
+    const signedUrl = async (p: string) => {
+      const r = await call("download link", `${url}/storage/v1/object/sign/${BUCKET}/${p}`, {
+        method: "POST", headers: { ...admin, "Content-Type": "application/json" }, body: JSON.stringify({ expiresIn: 900 }) });
+      const j = r.ok ? await r.json().catch(() => ({})) : {};
+      return j.signedURL ? `${url}/storage/v1${j.signedURL}` : "";
+    };
+    // 2.70: a closet design of this job only: designs/<job>/<name>.pdf
+    const designPath = (p: string, jobId: string) => {
+      const parts = String(p ?? "").split("/");
+      return parts.length === 3 && parts[0] === "designs" && (parts[1] === jobId || parts[1] === encodeURIComponent(jobId)) &&
+        /^[A-Za-z0-9_-]+\.pdf$/.test(parts[2]) ? parts.join("/") : "";
+    };
+
+    if (["send", "status", "cancel", "pdf", "supersede", "design-up", "design"].includes(action)) {
       const auth = req.headers.get("Authorization") ?? "";
       if (!auth) return json({ error: "Not signed in" }, 401);
       const asCaller = { apikey: anon, Authorization: auth };
@@ -249,6 +269,25 @@ Deno.serve(async (req) => {
             superseded_by_rev: Number(body.rev ?? 0) || null, superseded_pdf_path: to }) }).catch(() => null);
         return json({ ok: true, path: to });
       }
+      /* 2.70: the closet design PDF, one per job */
+      if (action === "design-up") {
+        const pdf = String(body.pdf ?? "").replace(/\s+/g, "");
+        if (!pdf || !/^[A-Za-z0-9+/]+=*$/.test(pdf) || pdf.length * 0.75 > MAX_PDF_BYTES)
+          return json({ error: "The design PDF did not come through (25 MB at most)" }, 400);
+        const bytes = b64ToBytes(pdf);
+        if (new TextDecoder().decode(bytes.slice(0, 4)) !== "%PDF") return json({ error: "That is not a PDF" }, 400);
+        const to = `designs/${encodeURIComponent(jobId)}/${newSecret().slice(0, 24)}.pdf`;
+        const up = await call("store the design", `${url}/storage/v1/object/${BUCKET}/${to}`, {
+          method: "POST", headers: { ...admin, "Content-Type": "application/pdf", "x-upsert": "true" }, body: bytes as BodyInit });
+        if (!up.ok) return json({ error: "The design could not be stored: " + (await up.text()).slice(0, 160) }, 502);
+        return json({ ok: true, path: to });
+      }
+      if (action === "design") {
+        const p = designPath(String(body.path ?? ""), jobId);
+        const link = p ? await signedUrl(p) : "";
+        if (!link) return json({ error: "That closet design is not in the store" }, 404);
+        return json({ ok: true, url: link });
+      }
       if (action === "cancel") {
         if (!latest || latest.status !== "sent") return json({ error: "There is no unsigned link to stop" }, 409);
         return json({ ok: true, request: publicStamp(await patch(latest.id, { status: "cancelled" })) });
@@ -304,7 +343,7 @@ Deno.serve(async (req) => {
     }
 
     /* ---------------- the customer's actions ---------------- */
-    if (!["open", "sign", "finish"].includes(action)) return json({ error: "Unknown action" }, 400);
+    if (!["open", "sign", "finish", "closet"].includes(action)) return json({ error: "Unknown action" }, 400);
     const secret = String(body.token ?? "");
     if (!/^[A-Za-z0-9_-]{40,60}$/.test(secret)) return json({ error: "This link is not complete. Open it again from the email." }, 400);
     const found = await rest("find the request", `sign_requests?token_hash=eq.${await sha256(secret)}&limit=1`);
@@ -320,6 +359,15 @@ Deno.serve(async (req) => {
         signedJob: row.status !== "sent" ? row.job : null, fp: row.fp,
         // signed but the PDF never arrived: the page finishes it from these
         signed: row.status === "signed" ? row.signed : null });
+    }
+
+    // 2.70: the closet design on the order as it was sent
+    if (action === "closet") {
+      const f = ((r.job as { closetFile?: { path?: string } })?.closetFile ?? {}) as { path?: string };
+      const p = designPath(String(f.path ?? ""), r.job_id);
+      const link = p ? await signedUrl(p) : "";
+      if (!link) return json({ error: "The closet design is not in the store" }, 404);
+      return json({ ok: true, url: link });
     }
 
     if (action === "sign") {

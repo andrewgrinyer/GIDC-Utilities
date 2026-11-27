@@ -117,18 +117,25 @@ const check = (name, ok, got) => {
   await page.click('[data-sp="start"]');
   const fields = await page.evaluate(() => signFields(state.job).map(f => f.id));
   // 2.32: the S/O line (typed price) adds the special order initial after the contract
-  check('fields: 8 initials, special order initial, contract, terms, doors and each form',
-    fields.filter(f => /^ini-\d/.test(f)).length === 8 && fields[1] === 'ini-so' && ['contract', 'terms', 'doors'].every(f => fields.includes(f)) &&
+  // 2.72: the nine terms are read one at a time (no initials), the terms signed once
+  check('fields: special order initial, 9 terms to read, contract, terms, doors and each form',
+    fields.filter(f => /^ini-\d/.test(f)).length === 0 && fields.filter(f => /^read-\d/.test(f)).length === 9 && fields[1] === 'ini-so' && ['contract', 'terms', 'doors'].every(f => fields.includes(f)) &&
     fields.includes('form-bifold'), fields);
   // Next on an empty pad does not move on
   const head0 = await page.locator('.signpad').innerText();
   await page.click('[data-sp="next"]'); await page.waitForTimeout(100);
   check('an empty field cannot be skipped', await page.locator('.signpad').innerText() === head0);
-  const seen = {};
+  const seen = {}; let readSeen = null;
   for(let k = 0; k < fields.length; k++){
-    const c = await page.$('.signpad canvas'); if(!c) break;
+    const c = await page.$('.signpad canvas');
+    if(!c && await page.$('.signpad .sp-read')){
+      if(fields[k] === 'read-3'){ await page.waitForSelector('.sp-spot.on', {timeout:20000}).catch(() => {});
+        readSeen = await page.evaluate(() => ({spot:!!document.querySelector('.sp-spot.on'), pad:!!document.querySelector('.signpad canvas'),
+          text:document.querySelector('.sp-read').innerText.length})); }
+      await page.click('[data-sp="next"]'); await page.waitForTimeout(40); continue; }   // 2.72: a term to read
+    if(!c) break;
     // 2.27: the page being signed shows above the pad, its place marked
-    const id = fields[k], look = k === 0 || id === 'ini-2' || id === 'ini-3' || id === 'contract' || id === 'doors' || id.startsWith('form-');
+    const id = fields[k], look = k === 0 || id === 'ini-so' || id === 'contract' || id === 'doors' || id.startsWith('form-');
     if(look){
       await page.waitForSelector('.sp-spot.on', {timeout:20000}).catch(() => {});
       seen[id] = await page.evaluate(() => { const s = document.querySelector('.sp-spot.on'), d = document.querySelector('.sp-doc');
@@ -146,16 +153,17 @@ const check = (name, ok, got) => {
     }
     await page.click('[data-sp="next"]'); await page.waitForTimeout(60);
   }
+  check('a term to read shows its text and its place on the terms page, with no pad', readSeen && readSeen.spot && !readSeen.pad && readSeen.text > 20, readSeen);
   const lookIds = Object.keys(seen);
   check('each step shows its page with the place marked and in view',
     lookIds.length >= 4 && lookIds.every(i => seen[i] && seen[i].pages >= 1 && seen[i].inView), seen);
   check('what is drawn on the pad shows on the page', lookIds.every(i => seen[i] && seen[i].live > 20), seen);
-  check('the second initial shows the first one already in its place', seen['ini-3'] && seen['ini-3'].done >= 1, seen);
+  check('the special order initial is shown in its place', seen['ini-so'] && seen['ini-so'].pages >= 1, seen);
   check('the contract step shows every order page', seen.contract && seen.contract.pages >= 1, seen);
   await page.waitForTimeout(2500);
   const s = await page.evaluate(() => ({ok:signedOk(state.job), n:Object.keys(state.job.signed.marks).length,
     name:state.job.signed.name, banner:!!document.querySelector('.rv-signed')}));
-  check('every field signed and saved on the job', s.ok && s.n === fields.length && s.name === 'Jane Sample', s);
+  check('every field signed and saved on the job', s.ok && s.n === fields.filter(f => !/^read-/.test(f)).length && s.name === 'Jane Sample', s);
   check('the review says it is signed', s.banner, s);
 
   // 6. the signed PDF

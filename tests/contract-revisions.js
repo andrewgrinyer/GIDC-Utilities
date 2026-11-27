@@ -72,7 +72,9 @@ const check = (name, ok, got) => {
   const signAll = async () => {
     await page.click('[data-sp="start"]');
     for(let k = 0; k < 40; k++){
-      const c = await page.$('.signpad canvas'); if(!c) break;
+      const c = await page.$('.signpad canvas');
+    if(!c && await page.$('.signpad .sp-read')){ await page.click('[data-sp="next"]'); await page.waitForTimeout(40); continue; }   // 2.72: a term to read
+    if(!c) break;
       const b = await c.boundingBox();
       await page.mouse.move(b.x + b.width * .2, b.y + b.height * .6); await page.mouse.down();
       for(let i = 1; i <= 10; i++) await page.mouse.move(b.x + b.width * (.2 + i * .05), b.y + b.height * (.6 - .25 * Math.sin(i / 2)));

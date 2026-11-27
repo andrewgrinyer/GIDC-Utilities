@@ -1,0 +1,200 @@
+// Measurement app 2.78 (Andrew, 27 Nov):
+//  1. the size of the door to be ordered can be changed on the review (the same
+//     each door width and height as the measurement screen, on the size picker);
+//  2. a bypass (plain or GDL) has an Oversized Valance Build Down tick that puts
+//     Oversized Bulk Head, qty 1 at $150, on the next empty Special Materials and
+//     Rework line, and attaches the build down form with Andrew's photo.
+// Checked by touch on an iPhone sized review, in a LibreOffice recalculated
+// workbook (every other cell as before) and in the contract PDF.
+//
+//   node tests/valance-door-size.js        needs soffice, pdftotext and python3 with openpyxl
+const { chromium, devices } = require(process.env.PLAYWRIGHT || 'playwright');
+const path = require('path'), fs = require('fs'), http = require('http'), os = require('os');
+const { execFileSync } = require('child_process');
+const DIR = path.join(__dirname, '..', 'measurement-app');
+const server = http.createServer((q, r) => {
+  let p = decodeURIComponent(q.url.split('?')[0]); if(p === '/') p = '/index.html';
+  const f = path.join(DIR, p);
+  if(!f.startsWith(DIR) || !fs.existsSync(f)){ r.statusCode = 404; return r.end('nf'); }
+  let body = fs.readFileSync(f);
+  if(p === '/index.html') body = body.toString('utf8').replace("supabaseUrl: 'https://baakegbtuygtldksmant.supabase.co'", "supabaseUrl: ''");
+  r.setHeader('Content-Type', p.endsWith('.js') ? 'text/javascript' : p.endsWith('.pdf') ? 'application/pdf' :
+    p.endsWith('.png') ? 'image/png' : p.endsWith('.jpg') ? 'image/jpeg' : 'text/html'); r.end(body);
+});
+let fails = 0;
+const check = (name, ok, got) => { console.log((ok ? 'PASS ' : 'FAIL ') + name + (ok ? '' : '  got: ' + String(JSON.stringify(got)).slice(0, 600))); if(!ok) fails++; };
+const READ = `
+import sys, json, openpyxl
+wb = openpyxl.load_workbook(sys.argv[1], data_only=True)
+out = {}
+for sn, rows, cols in [('Pricing Sheet', list(range(9, 12)) + list(range(46, 58)), range(1, 41)), ('UploadTemplate', range(37, 40), range(1, 34))]:
+    ws = wb[sn]
+    for r in rows:
+        for c in cols:
+            out[sn + '!' + ws.cell(r, c).coordinate] = ws.cell(r, c).value
+print(json.dumps(out, default=str))`;
+
+(async () => {
+  await new Promise(ok => server.listen(0, ok));
+  const browser = await chromium.launch();
+  const ctx = await browser.newContext({...devices['iPhone 13'], acceptDownloads:true});
+  const page = await ctx.newPage();
+  const errors = []; page.on('pageerror', e => errors.push(e.message));
+  await page.goto('http://127.0.0.1:' + server.address().port + '/'); await page.waitForTimeout(300);
+
+  // a 3 door bypass (88 ceiling), a GDL bypass and a swing door
+  await page.evaluate(() => {
+    state.me = {name:'tester', role:'admin'};
+    const j = newJob(); Object.assign(j, {customer:'Valance Sample', address:'1 Test St', docType:'Sales Contract - Cash Web Pricing', inHome:false}); j.openings = [];
+    const add = (type, W, H, v, qty) => {
+      const op = newOpening(j.openings.length + 1, null, j);
+      Object.assign(op, {location:'Master Bed', existingType:type, openW:String(W), openH:String(H), cond:'Jamb'});
+      Object.assign(op.options[0].v, {doorType:type, install:'YES'}, v);
+      if(qty) op.qty = qty; applyQtyRule(op); j.openings.push(op); return op;
+    };
+    add('Bypass', 96, 86.5, {productType:'1.375 Hollow', doorStyle:'Columbia', paintColour:'STD White', handleType:'Finger Pull Round', hwColour:'Matte Black'}, 3);
+    add('GDL ByPass', 60, 80, {productType:'GDL', doorStyle:'Glissade Square Style 3', frameColour:'White', insertColour:'Frosted Glass'});
+    add('Single Swing', 32, 81, {productType:'1.375 Hollow', doorStyle:'Columbia', handleType:'Passage', handleStyle:'R - Georgian Standard', hwColour:'Matte Black', paintColour:'STD White'});
+    state.job = j; state.view = 'job'; render();
+  });
+
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'val-'));
+  fs.writeFileSync(path.join(tmp, 'read.py'), READ);
+  const prof = path.join(tmp, 'lo'); fs.mkdirSync(path.join(prof, 'user'), {recursive:true});
+  fs.writeFileSync(path.join(prof, 'user', 'registrymodifications.xcu'), '<?xml version="1.0" encoding="UTF-8"?>' +
+    '<oor:items xmlns:oor="http://openoffice.org/2001/registry" xmlns:xs="http://www.w3.org/2001/XMLSchema" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">' +
+    '<item oor:path="/org.openoffice.Office.Calc/Formula/Load"><prop oor:name="OOXMLRecalcMode" oor:op="fuse"><value>0</value></prop></item></oor:items>');
+  const book = async name => {
+    const [dl] = await Promise.all([page.waitForEvent('download'), page.evaluate(() => download(state.job))]);
+    const f = path.join(tmp, name + '.xlsx'); await dl.saveAs(f);
+    const out = path.join(tmp, name); fs.mkdirSync(out);
+    execFileSync('soffice', ['-env:UserInstallation=file://' + prof, '--headless', '--convert-to', 'xlsx', '--outdir', out, f], {stdio:'ignore'});
+    return JSON.parse(execFileSync('python3', ['-I', '-W', 'ignore', path.join(tmp, 'read.py'), path.join(out, name + '.xlsx')]).toString());
+  };
+  const before = await book('before');
+  const pdfText = async name => { const b = await page.evaluate(async () => { await getCalc(); calcJob(state.job); return Array.from(await contractPdf(state.job, {blank:true})); });
+    const f = path.join(tmp, name + '.pdf'); fs.writeFileSync(f, Buffer.from(b)); if(process.env.PDF && name === 'valance') fs.writeFileSync(process.env.PDF, Buffer.from(b));
+    return execFileSync('pdftotext', ['-layout', f, '-']).toString(); };
+  const txt0 = await pdfText('before');
+
+  // the Edit screen: the tick is on both bypass doors, not on the swing door
+  const ed = await page.evaluate(() => { const j = state.job, r = {};
+    const at = i => { state.editOption = j.openings[i].options[0].id; state.openOpening = j.openings[i].id; render();
+      return !!document.querySelector('input[data-valance][data-o="' + j.openings[i].options[0].id + '"]'); };
+    r.bypass = at(0); r.gdl = at(1); r.swing = at(2); state.editOption = null; render(); return r; });
+  check('Edit screen: Oversized Valance Build Down on the bypass and the GDL bypass, not the swing door', ed.bypass && ed.gdl && !ed.swing, ed);
+
+  await page.tap('[data-review]');
+  await page.waitForFunction(() => state.reviewReady, null, {timeout:30000}); await page.waitForTimeout(300);
+  const ids = await page.evaluate(() => state.job.openings.map(op => op.id));
+  check('review: the tick shows on the two bypass doors only', await page.locator('input[data-valance]').count() === 2);
+  const base = await page.evaluate(() => ({L55:cv('L55'), F55:cv('F55'), U:cv('U57') }));
+
+  // 1. tick on the 3 door bypass
+  const tick = n => 'input[data-valance][data-op="' + n + '"]';
+  await page.locator(tick(ids[0])).scrollIntoViewIfNeeded(); await page.tap(tick(ids[0])); await page.waitForTimeout(400);
+  const t1 = await page.evaluate(() => ({mats:state.job.materials, F:cv('F55'), J:cv('J55'), K:cv('K55'), L:cv('L55'),
+    docs:jobDocs(state.job).map(d => d.id + ':' + d.openings.join('|')), note:lineNote(state.job.openings[0]),
+    box:[...document.querySelectorAll('input[data-rvmat]')].map(i => i.value).slice(0, 3)}));
+  check('ticked: Oversized Bulk Head, $150, qty 1 on the first special materials line', t1.mats[0].desc === 'Oversized Bulk Head' && t1.mats[0].price === '150' && t1.mats[0].qty === '1' &&
+    t1.F === 'Oversized Bulk Head' && t1.J === 150 && t1.K === 1 && t1.L === 150, t1);
+  check('the review box shows it', t1.box[0] === 'Oversized Bulk Head', t1.box);
+  check('the build down form goes with the order for opening 1', t1.docs.indexOf('valance:1') >= 0, t1.docs);
+  check('the note under the door says so', /Oversized Valance Build Down/.test(t1.note), t1.note);
+  await page.locator(tick(ids[0])).scrollIntoViewIfNeeded();
+  await page.screenshot({path:path.join(tmp, 'valance-review.png')});
+  if(process.env.SHOT) fs.copyFileSync(path.join(tmp, 'valance-review.png'), process.env.SHOT);
+
+  const vb = await book('valance');
+  check('workbook: F55 Oversized Bulk Head, J55 150, K55 1, L55 150', vb['Pricing Sheet!F55'] === 'Oversized Bulk Head' && vb['Pricing Sheet!J55'] === 150 && vb['Pricing Sheet!K55'] === 1 && vb['Pricing Sheet!L55'] === 150,
+    ['F55', 'J55', 'K55', 'L55'].map(k => vb['Pricing Sheet!' + k]));
+  const d1 = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(vb[k]));
+  check('workbook: only the special materials line and the totals under it move', d1.every(k => /^Pricing Sheet!([FJKL]55|[A-Z]+5[0-7]|[A-Z]+4[6-9])$/.test(k)) &&
+    Math.abs(vb['Pricing Sheet!U51'] - before['Pricing Sheet!U51'] - 150) < 0.001, d1.map(k => [k, before[k], vb[k]]));
+  const txt1 = await pdfText('valance');
+  check('contract PDF: has the Oversized Valance Build Down form and the line', /Oversized Valance Build Down/.test(txt1) && /Oversized Bulk Head/.test(txt1) &&
+    /Reference photo: a three door bypass/.test(txt1) && !/Reference photo/.test(txt0), txt1.split('\n').filter(l => /Valance|Bulk/.test(l)));
+  const page2 = await page.evaluate(() => { const d = jobDocs(state.job).find(x => x.id === 'valance'); return docPage(d, state.job); });
+  check('printed order: the form page with the customer on it', /oversized-valance-build-down\.png/.test(page2) && /Valance Sample/.test(page2), page2.slice(0, 200));
+
+  // a second bypass ticked: the same line, qty 2
+  await page.locator(tick(ids[1])).scrollIntoViewIfNeeded(); await page.tap(tick(ids[1])); await page.waitForTimeout(400);
+  const t2 = await page.evaluate(() => ({mats:state.job.materials.map(m => m.desc + '/' + m.qty), K:cv('K55'), L:cv('L55')}));
+  check('both bypass doors ticked: one line, qty 2, $300', t2.mats[0] === 'Oversized Bulk Head/2' && t2.mats[1] === '/' && t2.K === 2 && t2.L === 300, t2);
+  await page.locator(tick(ids[1])).scrollIntoViewIfNeeded(); await page.tap(tick(ids[1])); await page.waitForTimeout(400);
+  check('one unticked: back to qty 1', await page.evaluate(() => state.job.materials[0].qty) === '1');
+
+  // the rep can still change the line, a changed price stays
+  await page.evaluate(() => { state.job.materials[0].price = '175'; calcJob(state.job); render(); });
+  check('a price changed by hand stays', await page.evaluate(() => cv('L55')) === 175);
+
+  // untick: the line comes off, the workbook as before
+  await page.locator(tick(ids[0])).scrollIntoViewIfNeeded(); await page.tap(tick(ids[0])); await page.waitForTimeout(400);
+  const off = await page.evaluate(() => ({mats:state.job.materials, docs:jobDocs(state.job).map(d => d.id)}));
+  check('unticked: the line and the form come off', off.mats.every(m => !m.desc && !m.price && !m.qty && !m.auto) && off.docs.indexOf('valance') < 0, off);
+  const back = await book('back');
+  const d2 = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(back[k]));
+  check('unticked workbook is the same as before', d2.length === 0, d2.map(k => [k, before[k], back[k]]));
+
+  // the line goes on the NEXT empty line; with none empty it is asked for
+  const nx = await page.evaluate(() => { const j = state.job, o = j.openings[0].options[0];
+    j.materials[0] = {desc:'Casing', price:'40', qty:'2'}; o.v.valance = true; calcJob(j);
+    const r = {second:j.materials[1].desc, F56:cv('F56')};
+    j.materials[1] = {desc:'', price:'', qty:''}; delete o.v.valance; calcJob(j);
+    j.materials[1] = {desc:'Stop', price:'10', qty:'1'}; j.materials[2] = {desc:'Shims', price:'5', qty:'1'};
+    o.v.valance = true; calcJob(j); render();
+    r.full = missing(j).filter(x => /Valance/.test(x)); r.hint = !!document.querySelector('.val-f .warn-t');
+    j.materials[2] = {desc:'', price:'', qty:''}; calcJob(j); r.third = j.materials[2].desc; r.after = missing(j).filter(x => /Valance/.test(x));
+    delete o.v.valance; j.materials = [{desc:'',price:'',qty:''},{desc:'',price:'',qty:''},{desc:'',price:'',qty:''}]; calcJob(j); render(); return r; });
+  check('with line 1 used it goes on line 2', nx.second === 'Oversized Bulk Head' && nx.F56 === 'Oversized Bulk Head', nx);
+  check('with all three used it is on the missing list and the tick says so; clearing one puts it there', nx.full.length === 1 && nx.hint && nx.third === 'Oversized Bulk Head' && nx.after.length === 0, nx);
+  // any height: not limited to 88 to 91
+  const any = await page.evaluate(() => { const op = state.job.openings[0]; const was = op.openH; op.openH = '80'; const a = canValance(op, op.options[0]); op.openH = was; return a; });
+  check('not limited by height', any === true);
+  // signing changes with the tick
+  const fp = await page.evaluate(() => { const o = state.job.openings[0].options[0]; const a = signFp(state.job); o.v.valance = true; calcJob(state.job);
+    const b = signFp(state.job); delete o.v.valance; calcJob(state.job); return a !== b; });
+  check('ticking it changes what is signed', fp);
+
+  // 2. the door size on the review: the swing door (32 x 81 opening)
+  const sw = await page.evaluate(() => { const op = state.job.openings[2], P = openPlan(op, op.options[0]);
+    return {blankW:P.blankW, blankH:P.blankH, J:cv('J11'), L:cv('L11'), btn:[...document.querySelectorAll('.rv-door[data-op="' + op.id + '"]')].map(b => b.dataset.padof + ' ' + b.textContent)}; });
+  check('swing door: worked out 32 x 80, and the review has door width and height buttons', sw.blankW === 32 && sw.blankH === 80 && sw.btn.length === 2 &&
+    /doorW door 32"/.test(sw.btn.join()) && /doorH door 80"/.test(sw.btn.join()), sw);
+  const btn = f => '.rv-door[data-padof="' + f + '"][data-op="' + ids[2] + '"]';
+  await page.locator(btn('doorW')).scrollIntoViewIfNeeded(); await page.tap(btn('doorW')); await page.waitForTimeout(300);
+  check('tapping it opens the size picker', await page.locator('#pad .pick-card').count() === 1);
+  await page.tap('#pad [data-pk="w28"]'); await page.waitForTimeout(200);
+  if(await page.locator('#pad [data-pk="pf0"]').count()) await page.tap('#pad [data-pk="pf0"]');
+  await page.waitForTimeout(500);
+  const w2 = await page.evaluate(() => { const op = state.job.openings[2];
+    return {doorW:op.doorW, L:cv('L11'), z:sizeCheck(op, op.options[0], cv('R11')).status, typed:!!document.querySelector('.rv-door.typed[data-op="' + op.id + '"]'), view:state.view}; });
+  check('picked 28: the door to be ordered is 28 wide, the line and the price follow, still on the review', w2.doorW === '28' && w2.L === 28 && w2.view === 'review' && w2.typed, w2);
+  await page.tap(btn('doorH')); await page.waitForTimeout(300);
+  await page.tap('#pad [data-pk="w78"]'); await page.waitForTimeout(200);
+  if(await page.locator('#pad [data-pk="pf0"]').count()) await page.tap('#pad [data-pk="pf0"]');
+  await page.waitForTimeout(500);
+  const h2 = await page.evaluate(() => { const op = state.job.openings[2]; return {doorH:op.doorH, J:cv('J11'), opening:[op.openW, op.openH]}; });
+  check('picked 78 high: the line is 78, the opening itself is unchanged', h2.doorH === '78' && h2.J === 78 && h2.opening.join() === '32,81', h2);
+  if(process.env.SHOT2){ await page.locator(btn('doorH')).scrollIntoViewIfNeeded(); await page.evaluate(() => window.scrollBy(0, -120));
+    await page.locator(btn('doorH')).evaluate(e => e.closest('.rv-scroll').scrollLeft = e.closest('td').offsetLeft - 200);
+    await page.screenshot({path:process.env.SHOT2}); }
+  const sb = await book('size');
+  check('workbook: the swing line is 28 x 78', sb['Pricing Sheet!L11'] === 28 && sb['Pricing Sheet!J11'] === 78, [sb['Pricing Sheet!L11'], sb['Pricing Sheet!J11']]);
+  const d3 = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(sb[k]));
+  console.log('  changed cells with the new door size: ' + d3.map(k => k + ' ' + JSON.stringify(before[k]) + '>' + JSON.stringify(sb[k])).join(', '));
+  check('workbook: only the swing door line and what follows from it move', d3.every(k => /^Pricing Sheet!([A-Z]+11|[A-Z]+4[6-9]|[A-Z]+5[0-7])$|^UploadTemplate![A-Z]+39$/.test(k)), d3.filter(k => !/11$|39$/.test(k)).map(k => [k, before[k], sb[k]]));
+  await page.locator('.rv-doorauto[data-doorauto="' + ids[2] + '"]').scrollIntoViewIfNeeded();
+  await page.tap('.rv-doorauto[data-doorauto="' + ids[2] + '"]'); await page.waitForTimeout(500);
+  const au = await page.evaluate(() => { const op = state.job.openings[2]; return {w:op.doorW, h:op.doorH, J:cv('J11'), L:cv('L11')}; });
+  check('Use the worked out size: back to 32 x 80', au.w === undefined && au.h === undefined && au.J === 80 && au.L === 32, au);
+  const ab = await book('auto');
+  const d4 = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(ab[k]));
+  check('workbook back to as before', d4.length === 0, d4.map(k => [k, before[k], ab[k]]));
+  // bypass: each panel, width on the line is the opening; GDL: no door size
+  const bp = await page.evaluate(() => [...document.querySelectorAll('.rv-door')].map(b => b.dataset.op === state.job.openings[1].id ? 'gdl' : b.textContent));
+  check('bypass shows 3 doors, each, the GDL set has no door size box', bp.indexOf('gdl') < 0 && bp.some(t => /^3 doors, each 3/.test(t)), bp);
+  check('no page errors', errors.length === 0, errors);
+  console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
+  await browser.close(); server.close(); process.exit(fails ? 1 : 0);
+})();

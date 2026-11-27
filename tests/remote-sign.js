@@ -113,7 +113,9 @@ const server = http.createServer(async (q, r) => {
   await cust.click('[data-rssign]'); await cust.waitForTimeout(200);
   await cust.click('[data-sp="start"]');
   for(let k = 0; k < 30; k++){
-    const c = await cust.$('.signpad canvas'); if(!c) break;
+    const c = await cust.$('.signpad canvas');
+    if(!c && await cust.$('.signpad .sp-read')){ await cust.click('[data-sp="next"]'); await cust.waitForTimeout(40); continue; }   // 2.72: a term to read
+    if(!c) break;
     const b = await c.boundingBox();
     await cust.mouse.move(b.x + b.width * .2, b.y + b.height * .6); await cust.mouse.down();
     for(let i = 1; i <= 12; i++) await cust.mouse.move(b.x + b.width * (.2 + i * .05), b.y + b.height * (.6 - .25 * Math.sin(i / 2)));

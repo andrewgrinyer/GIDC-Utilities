@@ -59,7 +59,7 @@ const check = (name, ok, got) => {
     out.editFrame = document.querySelectorAll('.opt-edit [data-chip="frameColour"]').length;
     out.editPaint = document.querySelectorAll('.opt-edit .s-colour, .opt-edit .s-hardware').length;
     state.editOption = null; j.inHome = true; render();
-    out.cardFrame = document.querySelectorAll('.card.is-open [data-chip="frameColour"]').length;
+    out.cardFrame = document.querySelectorAll('.card.is-open [data-chip="frameColour"], .card.is-open [data-chip="insertColour"]').length;
     out.dim = [...document.querySelectorAll('.card.is-open [data-dtype].dim')].map(e => e.dataset.dtype);
     return out;
   });
@@ -75,13 +75,14 @@ const check = (name, ok, got) => {
   check('missing: frame and insert on each, and swing is not GDL', r.miss.filter(x => /frame colour/.test(x)).length === 3 &&
     r.miss.filter(x => /insert colour/.test(x)).length === 3 && r.miss.some(x => /Opening 3: GDL is bypass or bifold only/.test(x)), r.miss);
   check('the Edit screen shows the frame chips, no paint or hardware', r.editFrame === 3 && r.editPaint === 0, r);
-  check('the in-home card shows the frame chips (Glissade: 3)', r.cardFrame === 3, r.cardFrame);
+  check('2.69: the in-home card puts the frame and insert colours away', r.cardFrame === 0, r.cardFrame);
   check('other door types dimmed on a GDL opening', r.dim.includes('Single Swing') && !r.dim.includes('Bifold') && !r.dim.includes('GDL ByPass'), r.dim);
 
-  // pick frame and insert on the card
-  await page.click('.card.is-open [data-chip="frameColour"][data-val="Black"]');
-  await page.click('.card.is-open [data-chip="insertColour"][data-val="White Lacobel"]');
-  await page.evaluate(() => { state.job.inHome = false; render(); });
+  // pick frame and insert on the Edit screen (2.69: In-Home Measurement puts them away)
+  await page.evaluate(() => { state.job.inHome = false; state.editOption = state.job.openings[0].options[0].id; render(); });
+  await page.click('.opt-edit [data-chip="frameColour"][data-val="Black"]');
+  await page.click('.opt-edit [data-chip="insertColour"][data-val="White Lacobel"]');
+  await page.evaluate(() => { state.editOption = null; render(); });
   const fp0 = await page.evaluate(() => signFp(state.job));
   const s = await page.evaluate(() => {
     const j = state.job, [a, b, c] = j.openings;

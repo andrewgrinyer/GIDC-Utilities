@@ -1,0 +1,53 @@
+MEASUREMENT APP JOBS LINKED TO ACCESS, ROUND 4 (23 November, evening)
+
+ROUND 4: only the Supabase SQL changed. Your jobs table needs the login
+that owns each job, which a job made from Access did not have, so the
+preview stopped. A new job is now owned by its sales rep's login, or by
+your administrator login where Access has no rep the app knows. If you
+did steps 1 and 2 of round 3, just do step 1 again with this SQL, then
+step 3, the preview.
+
+ROUND 3:
+
+What changed since your send:
+  * A job in the app with only the customer's whole name typed (no
+    phone or address) now links when Access has that same first and last
+    name around the same date. Before, a name alone was not enough, which
+    is why Ashley K Grinyer and the others said no customer matches.
+  * New jobs: every customer on the Estimates tab at Initial Visit Booked
+    with a visit date (MeasureDate) today or later gets a job in the app,
+    unless a job there already has them. That replaces "created from 24
+    November".
+  * Jobs with no customer name stay flagged. Open each one with Link and
+    tap Not in Access if it is a test or a blank.
+
+What your send already did: it linked the jobs it could, gave them their
+Access status, and flagged the rest. Nothing shows in the app yet because
+app 2.66 is not uploaded. The next send redoes every flagged job with the
+new rules, so nothing needs undoing.
+
+1. SUPABASE, SQL editor: paste in 1-supabase-measurement-access-link.sql
+   from this zip and Run. Safe to run again.
+   (Step 2, the edge function, has not changed. Skip it.)
+
+2. SERVER: copy gidc-measurement-sync.ps1 from this zip into C:\GIDC,
+   replacing the old one.
+
+3. SERVER: right click 4-PREVIEW-MEASUREMENT-LINKS.bat, Run as
+   administrator. It changes nothing. Please send me
+   measurement-sync-preview-result.txt. Near the top it now says how
+   many Initial Visit Booked customers have a visit ahead; the list at
+   the bottom is every job it would make.
+
+4. When the preview looks right: double click
+   5-SEND-MEASUREMENT-SYNC-NOW.bat, then right click
+   6-SET-UP-HOURLY-MEASUREMENT-SYNC.bat, Run as administrator (the KPI
+   import account, press Enter to take it). Hourly at 27 minutes past.
+
+5. CLOUDFLARE: upload 7-cloudflare-measurement-app-2.66.zip to the
+   measurement app the usual way.
+
+Linking by hand (administrators): on the job list tap Show them, then
+Link on a job. Suggestions come first, with what each matches on, then a
+search of the whole Access list. Not in Access stops a test job being
+flagged.
