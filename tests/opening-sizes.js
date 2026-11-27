@@ -214,20 +214,16 @@ const CASES = [
   // 2.33: the door size fields, filled from the opening and typed over
   await page.evaluate(() => { const op = state.job.openings[0];
     Object.assign(op, {openW:'60.25', openH:'81'}); op.options[0].v.doorType = 'Double Swing AST'; applyQtyRule(op); render(); });
-  const df = await page.evaluate(() => ({labels:[...document.querySelectorAll('.door-sz .padbox')].map(b => b.textContent),
-    head:(document.querySelector('.door-sz-h') || {}).textContent, w:state.job.openings[0].width, q:state.job.openings[0].qty}));
-  check('a 60 1/4 x 81 double shows 2 doors, each 30 x 80', df.head === '2 doors, each' && df.labels.join() === '30",80"' &&
+  // 2.82, Andrew 27 Nov: no manual door slab size; the door is shown on one line
+  const df = await page.evaluate(() => ({line:(document.querySelector('.door-sz-ro') || {}).textContent, boxes:document.querySelectorAll('.door-sz [data-padof]').length,
+    w:state.job.openings[0].width, q:state.job.openings[0].qty}));
+  check('a 60 1/4 x 81 double shows 2 doors, each 30 x 80, with no boxes to type over', /^2 doors, each 30" x 80" worked out/.test(df.line) && df.boxes === 0 &&
         df.w === 30 && df.q === 2, df);
-  await page.click('.door-sz [data-padof="doorW"]'); await page.click('#pad [data-pk="manual"]');
-  const padStart = await page.evaluate(() => padValue());
-  check('the door width pad starts at the worked out 30', padStart === '30', padStart);
-  for(const k of ['C', '2', '8']) await page.click('#pad [data-pk="' + k + '"]');
-  await page.click('#pad [data-pk="done"]'); await page.waitForTimeout(150);
+  // a size typed on an older version still counts, is marked, and can be put back
+  await page.evaluate(() => { state.job.openings[0].doorW = '28'; render(); });
   const typed = await page.evaluate(() => { const op = state.job.openings[0], P = openPlan(op, op.options[0]);
-    return {doorW:op.doorW, w:op.width, blankW:P.blankW, reStile:P.reStile, typed:!!document.querySelector('.door-sz i.typed'),
-            reset:!!document.querySelector('[data-doorauto]')}; });
-  check('a typed door width wins and goes on the workbook', typed.doorW === '28' && typed.w === 28 && typed.blankW === 28 &&
-        typed.typed && typed.reset, typed);
+    return {w:op.width, blankW:P.blankW, typed:!!document.querySelector('.door-sz i.typed'), reset:!!document.querySelector('[data-doorauto]')}; });
+  check('an older typed door width still goes on the workbook, marked typed earlier', typed.w === 28 && typed.blankW === 28 && typed.typed && typed.reset, typed);
   await page.click('[data-doorauto]'); await page.waitForTimeout(150);
   const back = await page.evaluate(() => [state.job.openings[0].doorW, state.job.openings[0].width]);
   check('Use the worked out size goes back to 30', back[0] === undefined && back[1] === 30, back);

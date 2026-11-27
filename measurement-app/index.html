@@ -219,6 +219,9 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .cond-note{color:var(--brass)}
 .door-sz{margin:10px 0 4px;padding:8px 10px;border:1px solid var(--rule);border-radius:10px}
 .door-sz-h{font-weight:600;font-size:14px;margin-bottom:4px}
+.door-sz-ro{padding:6px 10px;font-size:14px;line-height:1.4}
+.door-sz-ro .door-sz-h{display:inline;margin:0;font-weight:500;color:var(--muted)}
+.door-sz-ro b{font-size:15px}
 .door-sz i.auto,.door-sz i.typed{font-style:normal;font-size:11px;color:var(--muted, #6B6B6B);margin-left:4px}
 .door-sz i.typed{color:var(--brass)}
 .rv-conf{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:4px 0 2px;font-size:13px}
@@ -237,6 +240,19 @@ td.rv-ok b{color:#1F7A3A} td.rv-check b{color:#8A5A00} td.rv-so b{color:var(--br
 .rv-door{display:block;margin:3px 0 0;font:inherit;font-size:12px;font-weight:600;color:var(--ink,#1F1F24);background:#fff;
   border:1px solid var(--rule);border-radius:6px;padding:3px 6px;min-height:28px;cursor:pointer;text-align:left;white-space:nowrap}
 .rv-door.typed{border-color:#B5121B}
+/* 2.82, Andrew 27 Nov: on the review the ticks sit on one line; their notes
+   are left off (a warning still shows, and Mix Door Types' locations open under) */
+.rv-ticks{display:flex;flex-wrap:wrap;align-items:center;column-gap:18px;row-gap:2px;margin:4px 0 2px}
+.rv-ticks .mix-f{display:contents}
+.rv-ticks .mix-tick{order:0;font-size:13px;white-space:nowrap;gap:6px}
+.rv-ticks .mix-tick input{width:18px;height:18px}
+.rv-ticks .hint{display:none}
+.rv-ticks .hint.warn-t{display:block;order:1;flex-basis:100%;margin:2px 0}
+.rv-ticks .mix-rows{order:1;flex-basis:100%;max-width:calc(100vw - 48px)}
+.rv-ticks:empty{display:none}
+.rv-door.rv-locked{background:#F2F2F2;cursor:default;color:var(--muted)}
+.padbox.locked{background:#F2F2F2;color:var(--muted);cursor:default}
+.padbox.locked small{display:block;font-size:11px}
 .rv-door small{color:#B5121B;font-weight:600}
 .rv-doorauto{display:block;font-size:11px;margin-top:2px}
 @media print{.rv-door{border:0;padding:0;min-height:0;font-size:inherit}.rv-door small,.rv-doorauto{display:none!important}}
@@ -2920,6 +2936,8 @@ function openPlan(op, o){
      op.doorW / op.doorH). Filled from the opening; a size typed there wins. */
   const tW = parseFloat(op.doorW), tH = parseFloat(op.doorH);
   P.typedW = tW > 0; P.typedH = tH > 0;
+  // 2.81: Oversized Valance Build Down: the door is 84" high, a typed height is not used
+  if(hasValance(op, o)){ P.valance = true; P.typedH = false; }
   /* 2.33, Andrew's example: a 60 1/4 x 81 opening takes two 30 x 80 doors.
      A stock height that leaves a floor gap of up to 1 1/4" (the terms'
      range, so up to 3/4" over the 1/2" gap) is used as it is, uncut;
@@ -2945,7 +2963,11 @@ function openPlan(op, o){
   const fits = under !== undefined && (rough || finH - real(under) <= (realBi ? BIFOLD_GAP_EXTRA : GAP_EXTRA) + CUT_TOL);
   if(fits) finH = real(under);
   P.finH = r4(finH);
-  const bH = P.typedH ? tH : fits ? under : hs.find(h => real(h) >= finH - CUT_TOL);
+  if(P.valance){
+    if(hs.indexOf(VALANCE_H) < 0){ P.so = 'no ' + (L ? L.name : 'stock') + ' door comes ' + VALANCE_H + '" high for the valance build down'; return P; }
+    if(finH > VALANCE_H){ finH = VALANCE_H; P.finH = VALANCE_H; }     // built down to the door: uncut
+  }
+  const bH = P.valance ? VALANCE_H : P.typedH ? tH : fits ? under : hs.find(h => real(h) >= finH - CUT_TOL);
   if(bH === undefined){
     P.so = 'no ' + (L ? L.name : 'stock') + ' door is tall enough: it has to be ' + sizeText(r4(finH)) + '"' +
       (hs.length ? ' and the tallest is ' + ftin(hs[hs.length - 1]) : '');
@@ -2987,11 +3009,13 @@ function openPlan(op, o){
 function lineSize(op, o){
   /* 2.61: a GDL set is made to the opening and priced by it, so its line
      carries the opening itself, never a door worked out from it */
-  if(isGdl(o) && sized(op)) return {width:op.openW || '', height:op.openH || '', plan:null};
+  // 2.81: with the valance built down the doors are 84" high, a GDL set and an older job too
+  const vh = hasValance(op, o) ? VALANCE_H : null;
+  if(isGdl(o) && sized(op)) return {width:op.openW || '', height:vh || op.openH || '', plan:null};
   const P = openPlan(op, o);
   if(P && P.blankW) return {width:P.exportW, height:P.exportH, plan:P};
   if(sized(op)) return {width:'', height:'', plan:P};
-  return {width:op.width, height:op.height, plan:P};
+  return {width:op.width, height:vh || op.height, plan:P};
 }
 /* keep every option's re-rail and re-stile, and the opening's width and
    height (which older code reads), in step with the opening */
@@ -3401,8 +3425,14 @@ const pullFp = job => job.openings.map(op => op.options.filter(o => o.include &&
    the Oversized Valance Build Down form, with Andrew's photo, goes with the
    order like the other forms. Unticked, the line it made comes off. The line
    is an ordinary special materials line, so the rep can still change it. */
-const VALANCE_ITEM = 'Oversized Bulk Head', VALANCE_PRICE = 150;
-const canValance = (op, o) => !!(op && o) && BYPASS_TYPES.indexOf(o.v.doorType) >= 0;
+/* 2.81, Andrew 27 Nov: only for an opening 83" to 91" high (above 91" a 96"
+   door is used as normal). Ticked, the door height is 84" and cannot be
+   changed by hand: the door size box shows it locked, and a typed height is
+   not used. Off the range the tick is not offered and does nothing. */
+const VALANCE_ITEM = 'Oversized Bulk Head', VALANCE_PRICE = 150, VALANCE_H = 84, VALANCE_MIN = 83, VALANCE_MAX = 91;
+const valanceOpenH = op => parseFloat(sized(op) ? op.openH : op.height);
+const canValance = (op, o) => !!(op && o) && BYPASS_TYPES.indexOf(o.v.doorType) >= 0 &&
+  valanceOpenH(op) >= VALANCE_MIN - 1e-6 && valanceOpenH(op) <= VALANCE_MAX + 1e-6;
 const hasValance = (op, o) => !!(o && o.v.valance && canValance(op, o));
 const valanceCount = job => ((job && job.openings) || []).reduce((n, op) => n + op.options.filter(o => o.include && hasValance(op, o)).length, 0);
 const valanceLine = job => ((job && job.materials) || []).findIndex(m => m && m.auto === 'valance');
@@ -3427,8 +3457,8 @@ function valanceFields(op, o){
   return '<div class="mix-f val-f"><label class="mix-tick"><input type="checkbox" data-valance="1" data-op="' + op.id + '" data-o="' + o.id + '"' +
     (o.v.valance ? ' checked' : '') + '> Oversized Valance Build Down</label>' +
     '<p class="hint' + (full ? ' warn-t' : '') + '">' + (full ? 'The three Special Materials and Rework lines are full. Clear one and Oversized Bulk Head goes on it.' :
-      o.v.valance ? 'Oversized Bulk Head, 1 at $' + VALANCE_PRICE + ', added to Special Materials. The build down form goes with the order.' :
-      'For 84" doors in an opening with an 88" to 91" ceiling, or anywhere the valance is built down to the doors.') + '</p></div>';
+      o.v.valance ? 'Doors 84" high (locked). Oversized Bulk Head, 1 at $' + VALANCE_PRICE + ', added to Special Materials. The build down form goes with the order.' :
+      'For an opening 83" to 91" high: the doors are 84" and the valance is built down to them.') + '</p></div>';
 }
 /* the price of each location, from the line's own Door MSRP formula with
    that location's style in place of the style cell. Needs the calculator,
@@ -5303,22 +5333,8 @@ function reviewSelect(list, val, attrs, only){
     items.map(x => '<option' + (String(x) === String(val) ? ' selected' : '') + '>' +
       esc(x) + '</option>').join('') + '</select>';
 }
-/* 2.78, Andrew 27 Nov: the size of the door to be ordered can be changed on
-   the review. It is the same each door width and height (op.doorW, op.doorH)
-   as on the measurement screen, on the same size picker; a size typed there
-   wins over the worked out one, and the price, size check, re-rail and
-   re-stile follow it. The opening itself stays read only (2.63). A GDL set is
-   made to the opening, so it has no door size to change. */
-function rvDoorBox(op, o, f){
-  if(isGdl(o) || !op.openW || !op.openH) return '';
-  const P = openPlan(op, o); if(!P) return '';
-  const typed = op[f] !== undefined && op[f] !== '', v = typed ? op[f] : f === 'doorW' ? P.blankW : P.blankH;
-  const lab = f === 'doorH' ? 'door' : P.per > 1 ? P.per + ' doors, each' : 'door';
-  return '<button type="button" class="rv-door' + (typed ? ' typed' : '') + '" data-padof="' + f + '" data-op="' + op.id + '"' +
-    ' title="The size of the door to be ordered. Tap to change it.">' + lab + ' ' + (v ? esc(sizeText(v)) + '"' : '<i>tap to set</i>') +
-    (typed ? ' <small>typed</small>' : '') + '</button>' +
-    (f === 'doorH' && (op.doorW || op.doorH) ? '<button type="button" class="linkbtn rv-doorauto" data-doorauto="' + op.id + '">Use the worked out size</button>' : '');
-}
+/* 2.78 put a door size button on the review; 2.82 (Andrew 27 Nov) takes it
+   off again: the door size is changed on the measurement screen only. */
 function reviewEditor(col, op, o){
   const at = 'data-rv="' + col.k + '" data-op="' + op.id + '" data-o="' + o.id + '"';
   if(col.k === 'location') return reviewSelect('location', op.location, at);
@@ -5341,7 +5357,7 @@ function reviewEditor(col, op, o){
     const ls = lineSize(op, o), f = col.k === 'height' ? 'openH' : 'openW';
     return '<span class="rv-fixed">' + esc(ls[col.k] === '' ? '' : sizeText(ls[col.k])) + '</span>' +
       (op[f] ? '<span class="rv-note">opening ' + esc(sizeText(op[f])) + '</span>' : '') +
-      rvDoorBox(op, o, col.k === 'height' ? 'doorH' : 'doorW') +
+      (col.k === 'height' && hasValance(op, o) ? '<span class="rv-note">bulk head</span>' : '') +   // 2.82: no door size button on the review
       (col.k === 'height' && floorGap(op, o) != null ? '<span class="rv-note rv-gap">floor gap ' + esc(sizeText(floorGap(op, o))) + '"</span>' : '');
   }
   /* 2.63, Andrew 20 Nov: the opening is measured on the measurement screen
@@ -5491,9 +5507,10 @@ function renderReview(){
          '<tr class="rv-l2' + flags + '"' + doorVars(op) + '>' + L2.map((c, k) => cell(c, S2[k])).join('') + '</tr>' +
          '<tr class="rv-l3' + flags + (lineNote(op) ? '' : ' empty') + '"' + doorVars(op) + '><td colspan="' + span + '">' +
            (specialText(op) ? '<p class="rv-special">' + esc(specialText(op)) + '</p>' : '') +
-           mixFields(op, o, true) + (mixText(op, o) ? '<p class="rv-special mix-print">' + esc(mixText(op, o)) + '</p>' : '') +   // 2.76
-           pullFields(op, o) + (midPullText(op, o) ? '<p class="rv-special mix-print">' + esc(midPullText(op, o)) + '</p>' : '') +
-           valanceFields(op, o) + (valanceText(op, o) ? '<p class="rv-special mix-print">' + esc(valanceText(op, o)) + '</p>' : '') +   // 2.78
+           '<div class="rv-ticks">' + mixFields(op, o, true) + pullFields(op, o) + valanceFields(op, o) + '</div>' +   // 2.82: the ticks on one line
+           (mixText(op, o) ? '<p class="rv-special mix-print">' + esc(mixText(op, o)) + '</p>' : '') +   // 2.76
+           (midPullText(op, o) ? '<p class="rv-special mix-print">' + esc(midPullText(op, o)) + '</p>' : '') +
+           (valanceText(op, o) ? '<p class="rv-special mix-print">' + esc(valanceText(op, o)) + '</p>' : '') +   // 2.78
            noteBox('data-opnote="' + op.id + '"', op.note, 'Note for door ' + op.number + ' (prints in red)') +
            '<div class="note-print">' + esc(noteOf(op) ? 'Note: ' + noteOf(op) : '') + '</div></td></tr>';
   });
@@ -6041,15 +6058,17 @@ function openingFields(op){
     /* 2.33, Andrew 18 Nov: the second pair of fields, the size of each door
        that will be ordered. Filled from the opening; tap to change it. */
     const D = gdlOpt(op) ? null : doorPlan(op);
+    /* 2.82, Andrew 27 Nov: no manual door slab size. The door to be ordered
+       is shown on one line, worked out from the opening (84" high with the
+       valance built down). A size typed on an older version is still shown,
+       marked, with the button to go back to the worked out size. */
     if(D && (D.blankW || D.typedW || D.typedH)){
-      const dbox = (f, label, auto) => { const typed = op[f] !== undefined && op[f] !== '', v = typed ? op[f] : auto;
-        return '<div class="field"><label>' + label + (typed ? ' <i class="typed">typed</i>' : ' <i class="auto">worked out</i>') +
-          '</label><button type="button" class="padbox set' + (typed ? ' typed' : '') + '" data-padof="' + f + '" data-op="' + op.id + '">' +
-          (v !== '' && v != null ? esc(sizeText(v)) + '"' : 'Tap to type') + '</button></div>'; };
-      h += '<div class="door-sz"><div class="door-sz-h">' + (D.per > 1 ? D.per + ' doors, each' : 'The door') + '</div>' +
-        '<div class="open-sz">' + dbox('doorW', 'Door width (in)', D.blankW) + dbox('doorH', 'Door height (in)', D.blankH) + '</div>' +
-        (op.doorW || op.doorH ? '<button type="button" class="linkbtn" data-doorauto="' + op.id + '">Use the worked out size</button>' : '') +
-        '</div>';
+      const w = D.typedW ? parseFloat(op.doorW) : D.blankW, hh = D.valance ? VALANCE_H : D.typedH ? parseFloat(op.doorH) : D.blankH;
+      const typed = D.typedW || D.typedH;
+      h += '<div class="door-sz door-sz-ro"><span class="door-sz-h">' + (D.per > 1 ? D.per + ' doors, each' : 'Door') + '</span> <b>' +
+        (w ? esc(sizeText(w)) + '"' : '?') + ' x ' + (hh ? esc(sizeText(hh)) + '"' : '?') + '</b> <i class="' + (typed ? 'typed">typed earlier' : 'auto">worked out') + '</i>' +
+        (D.valance ? ' <i class="typed">bulk head</i>' : '') +
+        (typed ? ' <button type="button" class="linkbtn" data-doorauto="' + op.id + '">Use the worked out size</button>' : '') + '</div>';
     }
   }
   return h;
@@ -8315,6 +8334,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.80 · 27 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.82 · 27 Nov 2026</div>
 </body>
 </html>

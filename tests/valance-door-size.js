@@ -53,7 +53,7 @@ print(json.dumps(out, default=str))`;
       if(qty) op.qty = qty; applyQtyRule(op); j.openings.push(op); return op;
     };
     add('Bypass', 96, 86.5, {productType:'1.375 Hollow', doorStyle:'Columbia', paintColour:'STD White', handleType:'Finger Pull Round', hwColour:'Matte Black'}, 3);
-    add('GDL ByPass', 60, 80, {productType:'GDL', doorStyle:'Glissade Square Style 3', frameColour:'White', insertColour:'Frosted Glass'});
+    add('GDL ByPass', 60, 88, {productType:'GDL', doorStyle:'Glissade Square Style 3', frameColour:'White', insertColour:'Frosted Glass'});
     add('Single Swing', 32, 81, {productType:'1.375 Hollow', doorStyle:'Columbia', handleType:'Passage', handleStyle:'R - Georgian Standard', hwColour:'Matte Black', paintColour:'STD White'});
     state.job = j; state.view = 'job'; render();
   });
@@ -148,52 +148,59 @@ print(json.dumps(out, default=str))`;
     delete o.v.valance; j.materials = [{desc:'',price:'',qty:''},{desc:'',price:'',qty:''},{desc:'',price:'',qty:''}]; calcJob(j); render(); return r; });
   check('with line 1 used it goes on line 2', nx.second === 'Oversized Bulk Head' && nx.F56 === 'Oversized Bulk Head', nx);
   check('with all three used it is on the missing list and the tick says so; clearing one puts it there', nx.full.length === 1 && nx.hint && nx.third === 'Oversized Bulk Head' && nx.after.length === 0, nx);
-  // any height: not limited to 88 to 91
-  const any = await page.evaluate(() => { const op = state.job.openings[0]; const was = op.openH; op.openH = '80'; const a = canValance(op, op.options[0]); op.openH = was; return a; });
-  check('not limited by height', any === true);
+  // 2.81, Andrew: only 83 to 91 high; above 91 a 96 door as normal
+  const rng = await page.evaluate(() => { const op = state.job.openings[0], o = op.options[0], was = op.openH, r = {};
+    for(const h of ['82.875', '83', '88', '91', '91.125', '94']){ op.openH = h; r[h] = canValance(op, o); }
+    op.openH = was; return r; });
+  check('the tick is offered from 83" to 91" only', !rng['82.875'] && rng['83'] && rng['88'] && rng['91'] && !rng['91.125'] && !rng['94'], rng);
+  const lock = await page.evaluate(() => { const j = state.job, op = j.openings[0], o = op.options[0], g = j.openings[1].options[0], r = {};
+    op.openH = '88'; calcJob(j); r.before = [openPlan(op, o).blankH, cv('J9')];
+    o.v.valance = true; op.doorH = '96'; calcJob(j); render();
+    const P = openPlan(op, o); r.on = [P.blankH, P.finH, P.reRail, cv('J9'), op.height, j.materials[0].desc];
+    r.tick = !!document.querySelector('input[data-valance][data-op="' + op.id + '"]');
+    r.locked = !document.querySelector('[data-padof="doorH"][data-op="' + op.id + '"]') && [...document.querySelectorAll('tr.rv-l1 .rv-note')].some(e => e.textContent === 'bulk head');
+    g.v.valance = true; calcJob(j); r.gdl = cv('J10');
+    op.openH = '94'; calcJob(j); render(); r.over = [openPlan(op, o).blankH, cv('J9'), j.materials[0].qty, !!document.querySelector('input[data-valance][data-op="' + op.id + '"]')];
+    op.openH = '86.5'; delete op.doorH; delete o.v.valance; delete g.v.valance; calcJob(j); render(); r.back = cv('J9'); return r; });
+  check('88" opening: 96" door normally (Columbia has no 90)', lock.before[0] === 96 && lock.before[1] === 96, lock.before);
+  check('ticked: 84" door uncut, no re-rail, a typed 96 is not used, Oversized Bulk Head on', lock.on[0] === 84 && lock.on[1] === 84 && lock.on[2] === false && lock.on[3] === 84 && lock.on[4] === 84 && lock.on[5] === 'Oversized Bulk Head', lock.on);
+  check('review: the height says bulk head, no button to change it', lock.tick && lock.locked, lock);
+  check('GDL set ticked goes on the line 84" high', lock.gdl === 84, lock.gdl);
+  check('94" opening: no tick, 96" door, the bulk head line only counts the GDL set (qty 1)', lock.over[0] === 96 && lock.over[1] === 96 && lock.over[2] === '1' && !lock.over[3], lock.over);
+  check('back to the 86.5" opening as before', lock.back === 84, lock.back);
+  // the real workbook and the phone, for an 88" opening ticked
+  await page.evaluate(() => { const j = state.job, op = j.openings[0]; op.openH = '88'; op.options[0].v.valance = true; calcJob(j); render(); });
+  await page.waitForTimeout(300);
+  const wb88 = await book('b88');
+  check('workbook, 88" opening ticked: bypass line 84 high, Oversized Bulk Head 1 x $150', wb88['Pricing Sheet!J9'] === 84 && wb88['Pricing Sheet!F55'] === 'Oversized Bulk Head' &&
+    wb88['Pricing Sheet!J55'] === 150 && wb88['Pricing Sheet!K55'] === 1 && wb88['UploadTemplate!W37'] === 84, ['J9', 'F55', 'J55', 'K55'].map(k => wb88['Pricing Sheet!' + k]).concat(wb88['UploadTemplate!W37']));
+  await page.evaluate(() => { const j = state.job, op = j.openings[0]; op.openH = '86.5'; delete op.options[0].v.valance; calcJob(j); render(); });
   // signing changes with the tick
   const fp = await page.evaluate(() => { const o = state.job.openings[0].options[0]; const a = signFp(state.job); o.v.valance = true; calcJob(state.job);
     const b = signFp(state.job); delete o.v.valance; calcJob(state.job); return a !== b; });
   check('ticking it changes what is signed', fp);
 
-  // 2. the door size on the review: the swing door (32 x 81 opening)
-  const sw = await page.evaluate(() => { const op = state.job.openings[2], P = openPlan(op, op.options[0]);
-    return {blankW:P.blankW, blankH:P.blankH, J:cv('J11'), L:cv('L11'), btn:[...document.querySelectorAll('.rv-door[data-op="' + op.id + '"]')].map(b => b.dataset.padof + ' ' + b.textContent)}; });
-  check('swing door: worked out 32 x 80, and the review has door width and height buttons', sw.blankW === 32 && sw.blankH === 80 && sw.btn.length === 2 &&
-    /doorW door 32"/.test(sw.btn.join()) && /doorH door 80"/.test(sw.btn.join()), sw);
-  const btn = f => '.rv-door[data-padof="' + f + '"][data-op="' + ids[2] + '"]';
-  await page.locator(btn('doorW')).scrollIntoViewIfNeeded(); await page.tap(btn('doorW')); await page.waitForTimeout(300);
-  check('tapping it opens the size picker', await page.locator('#pad .pick-card').count() === 1);
-  await page.tap('#pad [data-pk="w28"]'); await page.waitForTimeout(200);
-  if(await page.locator('#pad [data-pk="pf0"]').count()) await page.tap('#pad [data-pk="pf0"]');
-  await page.waitForTimeout(500);
-  const w2 = await page.evaluate(() => { const op = state.job.openings[2];
-    return {doorW:op.doorW, L:cv('L11'), z:sizeCheck(op, op.options[0], cv('R11')).status, typed:!!document.querySelector('.rv-door.typed[data-op="' + op.id + '"]'), view:state.view}; });
-  check('picked 28: the door to be ordered is 28 wide, the line and the price follow, still on the review', w2.doorW === '28' && w2.L === 28 && w2.view === 'review' && w2.typed, w2);
-  await page.tap(btn('doorH')); await page.waitForTimeout(300);
-  await page.tap('#pad [data-pk="w78"]'); await page.waitForTimeout(200);
-  if(await page.locator('#pad [data-pk="pf0"]').count()) await page.tap('#pad [data-pk="pf0"]');
-  await page.waitForTimeout(500);
-  const h2 = await page.evaluate(() => { const op = state.job.openings[2]; return {doorH:op.doorH, J:cv('J11'), opening:[op.openW, op.openH]}; });
-  check('picked 78 high: the line is 78, the opening itself is unchanged', h2.doorH === '78' && h2.J === 78 && h2.opening.join() === '32,81', h2);
-  if(process.env.SHOT2){ await page.locator(btn('doorH')).scrollIntoViewIfNeeded(); await page.evaluate(() => window.scrollBy(0, -120));
-    await page.locator(btn('doorH')).evaluate(e => e.closest('.rv-scroll').scrollLeft = e.closest('td').offsetLeft - 200);
-    await page.screenshot({path:process.env.SHOT2}); }
+  // 2.82, Andrew: no door size button on the review; the ticks on one line
+  const rv = await page.evaluate(() => ({doorBtns:document.querySelectorAll('.rv-door, [data-padof="doorW"], [data-padof="doorH"]').length,
+    tops:[...document.querySelectorAll('tr.rv-l3')][0] ? [...[...document.querySelectorAll('tr.rv-l3')][0].querySelectorAll('.rv-ticks .mix-tick')].map(l => Math.round(l.getBoundingClientRect().top)) : []}));
+  check('review: no door size buttons', rv.doorBtns === 0, rv);
+  check('review: the three ticks of the 3 door bypass on one line', rv.tops.length === 3 && new Set(rv.tops).size === 1, rv.tops);
+  if(process.env.SHOT2){ await page.evaluate(() => { const j = state.job, op = j.openings[0]; op.openH = '88'; op.options[0].v.valance = true; calcJob(j); render(); });
+    await page.waitForTimeout(300); const r = page.locator('tr.rv-l3 .rv-ticks').first(); await r.evaluate(e => e.scrollIntoView({block:'center'}));
+    await page.screenshot({path:process.env.SHOT2});
+    await page.evaluate(() => { const j = state.job, op = j.openings[0]; op.openH = '86.5'; delete op.options[0].v.valance; calcJob(j); render(); }); }
+  const ms = await page.evaluate(() => { const v = state.view; state.view = 'job'; state.openOpening = state.job.openings[2].id; render();
+    const r = {boxes:document.querySelectorAll('[data-padof="doorW"], [data-padof="doorH"]').length, line:(document.querySelector('.door-sz-ro') || {}).textContent};
+    state.view = v; render(); return r; });
+  check('measurement screen: no manual door size boxes, the door on one line', ms.boxes === 0 && /Door 32" x 80"/.test(ms.line || ''), ms);
+  // a size typed on an older version still goes to the workbook until reset
+  await page.evaluate(() => { const op = state.job.openings[2]; setOpeningSize(op, 'doorW', '28'); setOpeningSize(op, 'doorH', '78'); calcJob(state.job); render(); });
   const sb = await book('size');
-  check('workbook: the swing line is 28 x 78', sb['Pricing Sheet!L11'] === 28 && sb['Pricing Sheet!J11'] === 78, [sb['Pricing Sheet!L11'], sb['Pricing Sheet!J11']]);
-  const d3 = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(sb[k]));
-  console.log('  changed cells with the new door size: ' + d3.map(k => k + ' ' + JSON.stringify(before[k]) + '>' + JSON.stringify(sb[k])).join(', '));
-  check('workbook: only the swing door line and what follows from it move', d3.every(k => /^Pricing Sheet!([A-Z]+11|[A-Z]+4[6-9]|[A-Z]+5[0-7])$|^UploadTemplate![A-Z]+39$/.test(k)), d3.filter(k => !/11$|39$/.test(k)).map(k => [k, before[k], sb[k]]));
-  await page.locator('.rv-doorauto[data-doorauto="' + ids[2] + '"]').scrollIntoViewIfNeeded();
-  await page.tap('.rv-doorauto[data-doorauto="' + ids[2] + '"]'); await page.waitForTimeout(500);
-  const au = await page.evaluate(() => { const op = state.job.openings[2]; return {w:op.doorW, h:op.doorH, J:cv('J11'), L:cv('L11')}; });
-  check('Use the worked out size: back to 32 x 80', au.w === undefined && au.h === undefined && au.J === 80 && au.L === 32, au);
+  check('workbook: a door size from the measurement screen still goes on the line (28 x 78)', sb['Pricing Sheet!L11'] === 28 && sb['Pricing Sheet!J11'] === 78, [sb['Pricing Sheet!L11'], sb['Pricing Sheet!J11']]);
+  await page.evaluate(() => { const op = state.job.openings[2]; delete op.doorW; delete op.doorH; calcJob(state.job); render(); });
   const ab = await book('auto');
   const d4 = Object.keys(before).filter(k => JSON.stringify(before[k]) !== JSON.stringify(ab[k]));
   check('workbook back to as before', d4.length === 0, d4.map(k => [k, before[k], ab[k]]));
-  // bypass: each panel, width on the line is the opening; GDL: no door size
-  const bp = await page.evaluate(() => [...document.querySelectorAll('.rv-door')].map(b => b.dataset.op === state.job.openings[1].id ? 'gdl' : b.textContent));
-  check('bypass shows 3 doors, each, the GDL set has no door size box', bp.indexOf('gdl') < 0 && bp.some(t => /^3 doors, each 3/.test(t)), bp);
   check('no page errors', errors.length === 0, errors);
   console.log(fails ? fails + ' FAILED' : 'ALL PASSED');
   await browser.close(); server.close(); process.exit(fails ? 1 : 0);
