@@ -34,6 +34,11 @@ const SCHED = [
   Object.assign(S(5074, '5072', 'Slide', 'track', '2026-11-27', [], 2), {spec:'length=60'}),
   Object.assign(S(5074, '5072', 'Slide', 'finger_pull', '2026-11-27', [], 4), {spec:'shape=round; finish=Satin Nickel'}),
 ];
+const DOORS = [{id:'d1', style:'Shaker', width_in:30, height_in:80, core:'Hollow', qty:2, unit_value:'85.00'},
+               {id:'d2', style:'Flat', width_in:24, height_in:null, core:null, qty:1, unit_value:null}];
+const PAINT = [{name:'Primer', kind:'primer', doors_per_pail:50, warn_gallons:'10', price_per_gallon:'40.0000', sort:0},
+               {name:'Extra White', kind:'stock', doors_per_pail:35, warn_gallons:'5', price_per_gallon:null, sort:10},
+               {name:'Custom', kind:'custom', doors_per_pail:35, warn_gallons:null, price_per_gallon:null, sort:90}];
 let CATS, SUPPLIERS, ITEMS, COUNTS, ORDERS, PALLETS, AHEAD, n = 0, ROLE = 'manufacturing', MAIL_OK = true;
 const posted = [];
 function reset(){
@@ -112,8 +117,14 @@ async function mock(page){
     if(!ok && p.startsWith('/rest/v1/supply')) return j([]);
     if(p === '/rest/v1/supply_categories'){
       if(m === 'PATCH'){ const c = CATS.find(x => x.code === eqv(u, 'code')); c.copy_to = body.copy_to; posted.push(['copy', body]); return jw([c]); }
+      if(!u.searchParams.get('code')) return j(CATS.slice().sort((a, b) => a.sort - b.sort));
       return j(CATS.filter(c => c.code === eqv(u, 'code')));
     }
+    // the Inventory Value screen reads doors itself and paint through the paint page
+    if(p === '/rest/v1/door_inventory') return j(DOORS);
+    if(p === '/rest/v1/paint_colours') return j(PAINT);
+    if(p === '/rest/v1/paint_counts') return j([{id:'pc1', colour:'Primer', gallons:'20.00', counted_on:'2026-11-19', created_at:'2026-11-19T22:00:00Z', created_by:'Nick'}]);
+    if(p.startsWith('/rest/v1/paint_')) return j([]);
     if(p === '/rest/v1/supply_suppliers'){
       if(m === 'POST'){
         if(SUPPLIERS.some(s => s.name.toLowerCase() === body.name.toLowerCase())) return j({message:'duplicate key value violates unique constraint "supply_suppliers_same_name"'}, 409);
@@ -439,6 +450,30 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   const wideP = await page.evaluate(() => document.documentElement.scrollWidth);
   check(wideP <= 390, 'Packaging: no sideways page scroll on a phone (' + wideP + ')');
   if(SHOTS) await page.screenshot({path: SHOTS + '/supplies-packaging-phone.png', fullPage: true});
+  await page.close();
+
+  // Inventory Value: doors, paint and every supplies list, on hand times price
+  reset();
+  page = await open('admin', '/value/');
+  await page.waitForFunction(() => /As of/.test(document.getElementById('status').innerText), null, {timeout: 40000});
+  const tl = await text(page, '#tiles');
+  check(/Everything \$1,203\.24/i.test(tl) && /Door Inventory \$170\.00/i.test(tl) && /Paint \$800\.00/i.test(tl) && /Packaging Materials \$233\.24/i.test(tl),
+    'the totals: 2 doors at 85, 20 gal primer at 40, 12 corner protectors at 4.27 and 1 roll of foam at 182 (' + tl + ')');
+  const ls = await text(page, '#lists');
+  check(/Flat 24 ?No price/.test(ls) && /Extra White ?Not counted/.test(ls) && /Corner protectors 12 pieces \$4\.27 \$51\.24/.test(ls),
+    'flags a door with no value and paint never counted, and shows each line (' + ls.slice(0, 300) + ')');
+  check(/4 items have stock but no price/.test(await text(page, '#status')), 'the status says what has no price (' + await text(page, '#status') + ')');
+  check(await page.$$eval('#frames iframe', f => f.length) === 0, 'the hidden pages are closed once they answer');
+  const dl = page.waitForEvent('download');
+  await page.click('#csv');
+  const csvPath = await (await dl).path();
+  const csvText = fs.readFileSync(csvPath, 'utf8');
+  check(/^List,Item,On hand,Unit,Price of one,Value/.test(csvText) && /Door Inventory,Shaker 30 x 80 Hollow,2,door,85,170/.test(csvText),
+    'Download for a spreadsheet writes every line (' + csvText.split('\n').slice(0, 3).join(' | ') + ')');
+  if(SHOTS) await page.screenshot({path: SHOTS + '/inventory-value.png', fullPage: true});
+  await page.close();
+  page = await open('manufacturing', '/value/');
+  check(/Not one of yours/.test(await page.evaluate(() => document.body.innerText)), 'the shop is turned away from Inventory Value');
   await page.close();
 
   // phone width

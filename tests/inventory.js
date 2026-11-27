@@ -102,6 +102,17 @@ const msgText = page => page.$eval('#msg', e => e.innerText);
   check(/Boston \(not on the price list\)/.test(await page.$eval('#f-style', e => e.selectedOptions[0].textContent)), 'Edit on an off list style keeps it, marked');
   await page.fill('#f-notes', 'Shelf D'); await page.click('#f-save'); await page.waitForTimeout(150);
   check(STOCK.find(d => d.id === 's4').notes === 'Shelf D', 'its notes can still be saved');
+  // a value on a line, for the Inventory Value screen (Andrew, 27 November)
+  check(!('unit_value' in STOCK.find(d => d.id === 's4')), 'before inventory-value.sql, a blank value is not sent');
+  await page.click('[data-edit="s4"]');
+  await page.fill('#f-value', '$1,085.5'); await page.click('#f-save'); await page.waitForTimeout(150);
+  check(STOCK.find(d => d.id === 's4').unit_value === 1085.5 && /\$1,085\.50 each/.test(await listText(page)), 'a value saves and shows on the line');
+  await page.click('[data-edit="s4"]');
+  check(await page.inputValue('#f-value') === '1085.50', 'Edit shows the value');
+  await page.fill('#f-value', 'lots'); await page.click('#f-save');
+  check(/should be dollars/.test(await page.evaluate(() => document.body.innerText)), 'a value that is not dollars is refused');
+  await page.fill('#f-value', ''); await page.click('#f-save'); await page.waitForTimeout(150);
+  check(STOCK.find(d => d.id === 's4').unit_value === null, 'a value can be cleared');
   await page.click('[data-edit="s3"]');
   check(await page.inputValue('#f-h') === '' && await page.inputValue('#f-core') === 'Bifold', 'Edit keeps a blank height blank');
   await page.click('#f-cancel');

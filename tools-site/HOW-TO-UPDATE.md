@@ -21,6 +21,7 @@ live together.
     tools.gidc.ca/supplies/order/?c=shop     Shop Supplies (also hardware, painting, sanding, install, packaging)
     tools.gidc.ca/salesmap/      Sales Map (administrators only)
     tools.gidc.ca/webleads/      Web Leads (administrators and office staff)
+    tools.gidc.ca/value/         Inventory Value (administrators only)
 
 No subdomains, no DNS, no certificates. The tiles link to the folders sitting
 beside them, so they work whatever address the project ends up on.

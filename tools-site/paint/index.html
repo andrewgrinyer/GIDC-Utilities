@@ -223,7 +223,7 @@ table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var
     </details>
   </div>
 </div>
-<div class="gidc-build">Paint 1.4 &middot; 23 Nov 2026</div>
+<div class="gidc-build">Paint 1.5 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -325,7 +325,7 @@ function load(){
     BYNAME = {}; COLOURS.forEach(function(c){ BYNAME[c.name] = c; });
     build(); draw();
   }).catch(function(err){
-    message('bad', err.message);
+    message('bad', err.message); reportValue(err.message);
     ['stock','custom','orders'].forEach(function(id){ $(id).innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
     $('sched').innerHTML = '';
   });
@@ -629,7 +629,9 @@ function drawSettings(){
     return '<tr><td>' + esc(c.kind === 'custom' ? 'Custom colours' : c.name) + '</td>' +
       '<td><input data-cov="' + esc(c.name) + '" inputmode="numeric" value="' + esc(c.doors_per_pail) + '"></td>' +
       '<td>' + (c.kind === 'custom' ? '<span class="z">bought per job</span>'
-               : '<input data-warn="' + esc(c.name) + '" inputmode="decimal" value="' + esc(c.warn_gallons == null ? '' : c.warn_gallons) + '">') + '</td></tr>';
+               : '<input data-warn="' + esc(c.name) + '" inputmode="decimal" value="' + esc(c.warn_gallons == null ? '' : c.warn_gallons) + '">') + '</td>' +
+      '<td>' + (c.kind === 'custom' ? '<span class="z">bought per job</span>'
+               : '<input data-price="' + esc(c.name) + '" inputmode="decimal" value="' + esc(c.price_per_gallon == null ? '' : Number(c.price_per_gallon)) + '" placeholder="$">') + '</td></tr>';
   }).join('');
   var counts = COUNTS.slice(0, 15).map(function(x){
     return '<div class="row"><div class="what"><span class="t">' + esc(x.colour) + '</span> ' + g1(x.gallons) + ' gal on ' +
@@ -637,7 +639,7 @@ function drawSettings(){
       '<div class="acts"><button class="plain small" data-uncount="' + x.id + '">Remove</button></div></div>';
   }).join('');
   $('setbody').innerHTML =
-    '<table class="cov"><thead><tr><th></th><th>Doors per 5 gal pail</th><th>Minimum on hand (gal)</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<table class="cov"><thead><tr><th></th><th>Doors per 5 gal pail</th><th>Minimum on hand (gal)</th><th>Price a gallon, $</th></tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p><button class="save" id="savecov">Save coverage and minimums</button></p>' +
     '<p class="sub">Minimum on hand: stock is never planned below it. When the next two weeks of the schedule, with what is on order, ' +
     'would take a colour below its minimum, the card says so and suggests enough pails to keep it.</p>' +
@@ -655,7 +657,20 @@ function drawFresh(){
     (age > 3 ? '. That is over three hours ago: the server sync may have stopped.' : '.');
 }
 
-function draw(){ drawFresh(); drawStock(); drawCustom(); drawSchedule(); drawOrders(); drawSettings(); drawPanel(); }
+/* ---- for the Inventory Value screen ----------------------------------------
+   Andrew, 27 November. That screen opens this page out of sight and reads
+   what it worked out, so stock on hand is the same number on both, from
+   the same arithmetic. Nothing happens when the page is opened on its own. */
+function reportValue(err){
+  if(window.parent === window) return;
+  var msg = err ? {list: 'Paint', error: err} : {list: 'Paint', rows: COLOURS.filter(function(c){ return c.kind !== 'custom'; }).map(function(c){
+    var s = stockOf(c);
+    return {name: c.name, unit: 'gal', now: s.now, counted: !!s.last,
+            price: c.price_per_gallon == null ? null : Number(c.price_per_gallon)};
+  })};
+  try{ window.parent.postMessage({gidcValue: msg}, location.origin); }catch(e){}
+}
+function draw(){ drawFresh(); drawStock(); drawCustom(); drawSchedule(); drawOrders(); drawSettings(); drawPanel(); reportValue(); }
 
 /* ---- the little forms: count and order ------------------------------------ */
 function drawPanel(){
@@ -804,8 +819,15 @@ function saveCoverage(){
     var cov = Number($$('[data-cov="' + c.name + '"]').value), w = $$('[data-warn="' + c.name + '"]');
     var warn = w ? (w.value.trim() === '' ? 0 : Number(w.value)) : c.warn_gallons;
     if(!(Number.isInteger(cov) && cov > 0) || !(warn == null || warn >= 0)){ jobs.push(Promise.reject(new Error(c.name + ': coverage must be a whole number of doors, and the minimum a number of gallons.'))); return; }
-    if(cov === Number(c.doors_per_pail) && warn == c.warn_gallons) return;
-    jobs.push(send('PATCH', '/rest/v1/paint_colours?name=eq.' + encodeURIComponent(c.name), {doors_per_pail: cov, warn_gallons: warn}));
+    /* Andrew, 27 November: a price a gallon, for the Inventory Value screen */
+    var pr = $$('[data-price="' + c.name + '"]'), pt = pr ? pr.value.trim().replace(/^\$/, '').replace(/,/g, '') : '';
+    var price = pt === '' ? null : Number(pt);
+    if(pt !== '' && !(price >= 0)){ jobs.push(Promise.reject(new Error(c.name + ': the price a gallon should be dollars, or blank.'))); return; }
+    var priceSame = !pr || (price == null ? c.price_per_gallon == null : Number(c.price_per_gallon) === price);
+    if(cov === Number(c.doors_per_pail) && warn == c.warn_gallons && priceSame) return;
+    var body = {doors_per_pail: cov, warn_gallons: warn};
+    if(!priceSame) body.price_per_gallon = price == null ? null : Math.round(price * 10000) / 10000;
+    jobs.push(send('PATCH', '/rest/v1/paint_colours?name=eq.' + encodeURIComponent(c.name), body));
   });
   Promise.all(jobs).then(function(){ message('good', 'Saved.'); return load(); }).catch(function(err){ message('bad', err.message); });
 }

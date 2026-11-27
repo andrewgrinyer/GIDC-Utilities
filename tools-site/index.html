@@ -289,6 +289,15 @@ const APPS = [
     icon: 'ruler'
   },
   {
+    name: 'Inventory Value',
+    group: 'Accounting',
+    desc: 'Everything on the shelf with a value: doors, paint and every supplies list, on hand times the price of one, with totals.',
+    url:  './value/',
+    icon: 'chart',
+    /* Andrew, 27 November. Administrators only: the page says the same. */
+    who:  'admin'
+  },
+  {
     name: 'Contract to QuickBooks',
     group: 'Accounting',
     desc: 'Pull the line items off a signed contract and export the invoice and customer CSVs.',
@@ -821,6 +830,6 @@ GIDCAuth.whoami().then(function(me){
   showSignIn();
 });
 </script>
-<div class="gidc-build">Tools 3.10.4 · 27 Nov 2026</div>
+<div class="gidc-build">Tools 3.11 · 27 Nov 2026</div>
 </body>
 </html>

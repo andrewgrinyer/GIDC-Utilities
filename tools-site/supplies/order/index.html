@@ -222,7 +222,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.4.3 &middot; 27 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.4.4 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -369,7 +369,7 @@ function load(){
     if(PALLETS) SCHED = SCHED.concat(palletRows(PALLETS, AHEAD));
     draw();
   }).catch(function(err){
-    message('bad', err.message);
+    message('bad', err.message); reportValue(err.message);
     ['stock','orders'].forEach(function(id){ $(id).innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
   });
 }
@@ -791,6 +791,20 @@ function drawFresh(){
     (age > 3 ? '. That is over three hours ago: the server sync may have stopped.' : '.');
 }
 
+/* ---- for the Inventory Value screen ----------------------------------------
+   Andrew, 27 November. That screen opens this page out of sight, one list
+   at a time, and reads what it worked out, so stock on hand is the same
+   number on both. Nothing happens when the page is opened on its own. */
+function reportValue(err){
+  if(window.parent === window) return;
+  var name = CAT ? CAT.name : CODE;
+  var msg = err ? {list: name, code: CODE, error: err} : {list: name, code: CODE, rows: ITEMS.map(function(it){
+    var s = stockOf(it);
+    return {name: it.shop_name, unit: it.unit, now: s.now, counted: !!s.last, price: unitPrice(it)};
+  })};
+  try{ window.parent.postMessage({gidcValue: msg}, location.origin); }catch(e){}
+}
+
 function draw(){
   if(CAT){
     $('title').textContent = CAT.name;
@@ -807,7 +821,7 @@ function draw(){
       ? 'Mirka discs, square sheets, pads and bags from Abrasive Supply, and fillers through Ashley: in stock, minimums and purchase orders (' + CAT.po_prefix + '). The 240 and 320 discs are predicted from the doors coming up: a 240 disc does about 4 doors, a 320 about 10.'
       : 'What is in stock and purchase orders (' + CAT.po_prefix + '). Add the items you keep, their suppliers and standard orders.';
   }
-  drawFresh(); drawStock(); drawOrderForm(); drawSchedule(); drawOrders(); drawSettings(); drawPanel();
+  drawFresh(); drawStock(); drawOrderForm(); drawSchedule(); drawOrders(); drawSettings(); drawPanel(); reportValue();
 }
 
 /* ---- the little forms --------------------------------------------------------- */

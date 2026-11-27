@@ -137,6 +137,7 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
       <div><label for="f-core">Core</label>
         <select id="f-core"></select></div>
       <div><label for="f-qty">How many</label><input id="f-qty" inputmode="numeric" value="1"></div>
+      <div><label for="f-value">Value of one door, $</label><input id="f-value" inputmode="decimal" placeholder="For the inventory value"></div>
       <div class="wide"><label for="f-notes">Notes</label>
         <input id="f-notes" placeholder="Where it is, condition, handing. For Other, the style name"></div>
       <div class="acts">
@@ -155,7 +156,7 @@ button.danger{border:1px solid var(--brass);background:var(--card);color:var(--b
   <div class="list" id="list"><div class="empty">Loading&hellip;</div></div>
   <p class="count" id="count"></p>
 </div>
-<div class="gidc-build">Inventory 1.4 &middot; 12 Nov 2026</div>
+<div class="gidc-build">Inventory 1.5 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -412,6 +413,7 @@ function draw(){
             (REF.ok && !isOther(d.style) && !REF.name[styleKey(d.style)] ? '<span class="chip warn">Not on the price list</span>' : '') +
           '</div>' +
           '<div class="meta">' + esc(sizeOf(d)) +
+            (d.unit_value != null ? ' · $' + Number(d.unit_value).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' each' : '') +
             (d.updated_by ? ' · last changed by ' + esc(d.updated_by) : '') + '</div>' +
           (d.notes ? '<div class="note">' + esc(d.notes) + '</div>' : '') +
         '</div>' +
@@ -446,7 +448,7 @@ function draw(){
 function clearForm(){
   editId = null;
   fillStyles(''); $('f-w').value = ''; $('f-h').value = '';
-  fillCores('Hollow'); $('f-qty').value = '1'; $('f-notes').value = '';
+  fillCores('Hollow'); $('f-qty').value = '1'; $('f-notes').value = ''; $('f-value').value = '';
   $('formtitle').textContent = 'Add a door';
   $('f-save').textContent = 'Add';
   $('f-cancel').className = 'plain hide';
@@ -457,6 +459,7 @@ function startEdit(id){
   editId = id;
   fillStyles(d.style); $('f-w').value = showIn(d.width_in); $('f-h').value = d.height_in == null ? '' : showIn(d.height_in);
   fillCores(d.core); $('f-qty').value = d.qty; $('f-notes').value = d.notes || '';
+  $('f-value').value = d.unit_value == null ? '' : Number(d.unit_value).toFixed(2);
   $('formtitle').textContent = 'Change this door';
   $('f-save').textContent = 'Save';
   $('f-cancel').className = 'plain';
@@ -491,8 +494,16 @@ function readForm(){
   if(w === null || w <= 0 || w >= 200) throw new Error('The width should be inches, like 30 or 29 1/2.');
   if(hRaw && (h === null || h <= 0 || h >= 200)) throw new Error('The height should be inches, like 80, or blank if it is not known.');
   if(!/^\d+$/.test(q)) throw new Error('How many should be a whole number.');
-  return {style: style, width_in: w, height_in: h, core: core,
-          qty: Number(q), notes: $('f-notes').value.trim() || null};
+  var row = {style: style, width_in: w, height_in: h, core: core,
+             qty: Number(q), notes: $('f-notes').value.trim() || null};
+  /* Andrew, 27 November: a value on every line, for the Inventory Value
+     screen. Sent only once the database has the column (inventory-value.sql),
+     or when one is typed, so the page keeps working before that is run. */
+  var v = $('f-value').value.trim().replace(/^\$/, '').replace(/,/g, '');
+  if(v && !(/^\d+(\.\d+)?$/.test(v))) throw new Error('The value should be dollars, like 85 or 85.50, or blank.');
+  if(v || (editing && 'unit_value' in editing) || ROWS.some(function(x){ return 'unit_value' in x; }))
+    row.unit_value = v ? Math.round(Number(v) * 100) / 100 : null;
+  return row;
 }
 /* Asking for the row back tells "saved" apart from "the database refused
    and said nothing", which PostgREST does by returning an empty list. */

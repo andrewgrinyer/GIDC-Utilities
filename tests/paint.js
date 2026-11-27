@@ -312,6 +312,10 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   await page.click('#settings summary');
   await page.fill('[data-warn="Primer"]', '5'); await page.click('#savecov'); await page.waitForTimeout(300);
   check(posted.some(x => x[0] === 'colour' && x[1] === 'Primer' && x[2].warn_gallons === 5), 'warning level saves');
+  check(!posted.some(x => x[0] === 'colour' && 'price_per_gallon' in x[2]), 'no price is sent while none is typed');
+  await page.fill('[data-price="Extra White"]', '$62.5'); await page.click('#savecov'); await page.waitForTimeout(300);
+  check(posted.some(x => x[0] === 'colour' && x[1] === 'Extra White' && x[2].price_per_gallon === 62.5), 'a price a gallon saves (Andrew, 27 November)');
+  check(await page.$$eval('[data-price]', es => es.length) >= 6 && !(await page.$('[data-price="Custom"]')), 'every colour on the shelf has a price box, Custom does not');
   c = await card(page, 'Primer');
   check(/OK/.test(c), 'primer is OK once the warning is 5 (' + c + ')');
   await page.close();
