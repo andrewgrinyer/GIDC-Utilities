@@ -44,7 +44,7 @@ for (const m of form.matchAll(/<select id="(\w+)">\s*<option value="([^"]*)"/g))
 for (const m of form.matchAll(/<textarea id="(\w+)"[^>]*>([^<]*)<\/textarea>/g)) F[m[1]] = m[2];
 
 const NAMES = ['wordRe', 'classifyLabel', 'ruleFor', 'applyRules', 'spreadValue', 'rebuildLines',
-  'mergeLines', 'activeLines', 'totals', 'palletTareLbs', 'netShipmentLbs', 'hsGroups', 'laceyLines',
+  'mergeLines', 'activeLines', 'totals', 'palletTareLbs', 'netShipmentLbs', 'hsGroups',
   'docProforma', 'docLacey', 'tscaDescriptions', 'docTsca', 'firstLine', 'secondLine',
   'restLines', 'addrOneLine', 'sheetWrap', 'roundTo', 'usDate', 'intfmt', 'money', 'parseNum'];
 let code = NAMES.map(fn).join('\n');
@@ -70,7 +70,6 @@ const EXPDOC = (() => {
   ${konst('DEFAULT_IMPORTER')}
   ${konst('RULES_SEED')}
   ${konst('CI_ROWS_PER_PAGE')}
-  ${konst('LA_ROWS_PER_PAGE')}
   const COMPS = ${comps};
   const FIELDS = Object.assign(${JSON.stringify(F)},
     {exporter: DEFAULT_EXPORTER, importer: DEFAULT_IMPORTER});
