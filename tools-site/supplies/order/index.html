@@ -222,7 +222,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.4.4 &middot; 27 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.4.5 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -482,6 +482,19 @@ function packText(it){
   var st = stepOf(it);
   return st ? (it.pack_name || 'pack') + ' of ' + n1(st) + ' ' + plural(st, it.unit) : '';
 }
+/* Andrew, 27 November: a piece is either a length (pine, rerail, valance:
+   16 ft, 12 ft) or comes in packs. A predicted cut keeps its length in
+   per_unit already; a counted only piece keeps it there too. */
+function isPiece(unit){ return /^(piece|pieces|pc|pcs)$/i.test(String(unit || 'piece').trim()); }
+function lengthOf(it){
+  if(!isPiece(it.unit) || !(Number(it.per_unit) > 0)) return 0;
+  if(it.uses && !USES[it.uses].cut) return 0;
+  return Number(it.per_unit);
+}
+function lengthText(inches){
+  var n = Number(inches);
+  return n % 12 === 0 ? n / 12 + ' ft' : n1(n) + '"';
+}
 function roundUp(it, q){ var st = stepOf(it); return st && q > 0 ? Math.ceil(q / st - 1e-9) * st : q; }
 function money(n, places){ return '$' + (Number(n) || 0).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: places || 2}); }
 function unitPrice(it){ var p = Number(it.price); return it.price != null && it.price !== '' && p >= 0 ? p : null; }
@@ -555,6 +568,7 @@ function card(it){
       '<dt>On order</dt><dd>' + (s.onOrder ? n1(s.onOrder) : 'none') + '</dd>' +
       (s.after == null ? '' : '<dt>Left after 2 weeks</dt><dd>' + n1(s.after) + '</dd>') +
       '<dt>Standard order</dt><dd>' + (Number(it.standard_order) ? n1(it.standard_order) : 'not set') + '</dd>' +
+      (lengthOf(it) ? '<dt>Length</dt><dd>' + esc(lengthText(lengthOf(it))) + ' a piece</dd>' : '') +
       (stepOf(it) ? '<dt>Comes in</dt><dd>' + esc(packText(it)) + '</dd>' : '') +
       '<dt>Price</dt><dd>' + (unitPrice(it) == null ? 'not set'
         : esc(money(it.price, 4)) + ' a ' + esc(it.unit)) + '</dd>' +
@@ -617,6 +631,7 @@ function drawOrderForm(){
         '<td class="n">' + (s.suggest ? n1(s.suggest) : '<span class="tiny">none</span>') + '</td>' +
         '<td class="n"><input class="qty" data-qty="' + esc(it.id) + '" inputmode="decimal" value="' + esc(q == null ? '' : q) + '" aria-label="How many ' + esc(it.shop_name) + '"> ' +
           '<span class="tiny">' + esc(plural(2, it.unit)) + '</span>' +
+          (lengthOf(it) ? '<small>' + esc(lengthText(lengthOf(it))) + ' lengths</small>' : '') +
           (stepOf(it) ? '<small>' + esc(packText(it)) + '</small>' : '') + '</td></tr>';
     }).join('') + '</tbody>';
   drawGroups();
@@ -853,12 +868,18 @@ function drawPanel(){
   /* an item, new or edited */
   var e = panel.id ? itemById(panel.id) || {} : {unit: 'piece', waste_pct: 10};
   var uses = e.uses || '';
+  var cut = !!(uses && USES[uses].cut), piece = isPiece(e.unit || 'piece');
+  var how = cut || (!uses && Number(e.per_unit) > 0) ? 'length' : stepOf(e) ? 'packs' : 'one';
   p.innerHTML = '<div class="panel"><h3>' + (panel.id ? 'Edit ' + esc(e.shop_name) : 'New item for ' + esc(CAT ? CAT.name : 'this list')) + '</h3><div class="form">' +
     '<div class="wide"><label for="i-name">Shop name</label><input id="i-name" value="' + esc(e.shop_name || '') + '" placeholder="What the shop calls it"></div>' +
     '<div class="wide"><label for="i-sitem">Supplier’s name for it</label><input id="i-sitem" value="' + esc(e.supplier_item || '') + '" placeholder="As it is on their invoice; goes on the PO"></div>' +
     '<div><label for="i-sup">Supplier</label><select id="i-sup">' + opt('', 'None yet', e.supplier_id || '') +
       SUPPLIERS.map(function(s){ return opt(s.id, s.name, e.supplier_id); }).join('') + '</select></div>' +
     '<div><label for="i-unit">Unit</label><input id="i-unit" value="' + esc(e.unit || 'piece') + '" placeholder="piece, box, roll"></div>' +
+    '<div id="i-howwrap"' + (piece ? '' : ' class="hide"') + '><label for="i-how">A piece is</label><select id="i-how">' +
+      opt('one', 'One at a time', how) + opt('length', 'A length', how) + opt('packs', 'Sold in packs of', how) + '</select></div>' +
+    '<div id="i-lenwrap"' + (piece && how === 'length' && !cut ? '' : ' class="hide"') + '><label for="i-len">Length of one piece, inches</label>' +
+      '<input id="i-len" inputmode="decimal" value="' + esc(!uses && Number(e.per_unit) > 0 ? n1(e.per_unit) : '') + '" placeholder="192 for 16 ft"></div>' +
     '<div><label for="i-warn">Minimum on hand</label><input id="i-warn" inputmode="decimal" value="' + esc(e.warn_qty == null ? '' : e.warn_qty) + '"></div>' +
     '<div><label for="i-std">Standard order</label><input id="i-std" inputmode="decimal" value="' + esc(e.standard_order == null ? '' : e.standard_order) + '"></div>' +
     '<div class="wide"><label for="i-uses">Predicted from</label><select id="i-uses">' + opt('', 'Not predicted: counted only', uses) +
@@ -869,14 +890,14 @@ function drawPanel(){
       '<input id="i-spec" list="i-specs" value="' + esc(e.spec || '') + '" placeholder="Pick from the list">' +
       '<datalist id="i-specs">' + specsFor(uses).map(function(x){ return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
     '<div id="i-wastewrap"' + (uses ? '' : ' class="hide"') + '><label for="i-waste">Waste allowance, %</label><input id="i-waste" inputmode="decimal" value="' + esc(e.waste_pct == null ? 10 : e.waste_pct) + '"></div>' +
-    '<div><label for="i-step">Comes in packs of</label><input id="i-step" inputmode="decimal" value="' + esc(e.order_step == null ? '' : n1(e.order_step)) + '" placeholder="Blank if sold one at a time"></div>' +
-    '<div><label for="i-pack">Pack is called</label><input id="i-pack" value="' + esc(e.pack_name || '') + '" placeholder="carton, bundle, case"></div>' +
+    '<div class="packwrap' + (piece && how === 'one' ? ' hide' : '') + '"><label for="i-step">Comes in packs of</label><input id="i-step" inputmode="decimal" value="' + esc(e.order_step == null ? '' : n1(e.order_step)) + '" placeholder="Blank if sold one at a time"></div>' +
+    '<div class="packwrap' + (piece && how === 'one' ? ' hide' : '') + '"><label for="i-pack">Pack is called</label><input id="i-pack" value="' + esc(e.pack_name || '') + '" placeholder="carton, bundle, case"></div>' +
     '<div><label for="i-price">Price for one ' + esc(e.unit || 'piece') + '</label><input id="i-price" inputmode="decimal" value="' + esc(e.price == null ? '' : String(Number(e.price))) + '" placeholder="$"></div>' +
     (panel.id && askRemove !== e.id ? '' : '') +
     '<div class="acts"><button class="save" id="i-save">' + (panel.id ? 'Save' : 'Add item') + '</button><button class="plain" data-close>Cancel</button>' +
       (panel.id ? '<button class="plain" data-remove="' + esc(e.id) + '">Remove item</button>' : '') +
       '<span class="total">Add suppliers under Settings.</span></div></div></div>';
-  $('i-name').focus();
+  $('i-name').focus(); pieceFields();
 }
 function specsFor(uses){
   var seen = {}; SCHED.forEach(function(s){ if(s.uses === uses && s.spec) seen[s.spec] = 1; });
@@ -928,6 +949,10 @@ function saveItem(){
   if(!name) return message('bad', 'Type the shop name.');
   if(isNaN(warn) || warn < 0 || isNaN(std) || std < 0) return message('bad', 'Minimum on hand and standard order should be numbers, or left blank.');
   var step = numOf('i-step'), price = numOf('i-price');
+  var piece = isPiece($('i-unit').value), how = piece ? $('i-how').value : 'packs';
+  var len = piece && how === 'length' && !uses ? numOf('i-len') : null;
+  if(piece && how === 'length' && !uses && !(len > 0 && len < 100000)) return message('bad', 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.');
+  if(piece && how === 'one') step = null;
   if(isNaN(step) || (step != null && step <= 0)) return message('bad', 'Packs of should be a number above 0, or left blank.');
   if(isNaN(price) || (price != null && price < 0)) return message('bad', 'The price should be a number, or left blank.');
   if(uses && !(per > 0)) return message('bad', USES[uses].cut ? 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.'
@@ -936,7 +961,7 @@ function saveItem(){
   if(uses && (waste == null || isNaN(waste) || waste < 0 || waste > 100)) return message('bad', 'The waste allowance is a percentage from 0 to 100.');
   var row = {shop_name: name, supplier_item: $('i-sitem').value.trim() || null, supplier_id: $('i-sup').value || null,
              unit: $('i-unit').value.trim() || 'piece', warn_qty: warn, standard_order: std,
-             uses: uses, per_unit: uses ? per : null, waste_pct: uses ? waste : 0,
+             uses: uses, per_unit: uses ? per : len, waste_pct: uses ? waste : 0,
              spec: uses && USES[uses].spec ? $('i-spec').value.trim() : '',
              order_step: step, pack_name: step ? ($('i-pack').value.trim() || null) : null,
              price: price == null ? null : Math.round(price * 10000) / 10000};
@@ -1101,7 +1126,21 @@ document.addEventListener('input', function(e){
     drawGroups();
   }
 });
+function pieceFields(){
+  if(!$('i-how')) return;
+  var piece = isPiece($('i-unit').value), how = $('i-how').value, u = $('i-uses').value;
+  var cut = !!(u && USES[u].cut);
+  $('i-howwrap').classList.toggle('hide', !piece);
+  $('i-lenwrap').classList.toggle('hide', !(piece && how === 'length' && !u));
+  [].forEach.call(document.querySelectorAll('.packwrap'), function(w){ w.classList.toggle('hide', piece && how === 'one'); });
+  if(cut && piece && how === 'one') $('i-how').value = 'length';
+  /* a pallet or door count prediction keeps its own number in per_unit */
+  var lo = $('i-how').querySelector('option[value="length"]'); lo.disabled = !!(u && !cut);
+  if(lo.disabled && $('i-how').value === 'length') $('i-how').value = 'packs';
+}
+document.addEventListener('input', function(e){ if(e.target.id === 'i-unit') pieceFields(); });
 document.addEventListener('change', function(e){
+  if(e.target.id === 'i-how' || e.target.id === 'i-uses') pieceFields();
   if(e.target.id === 'i-uses'){
     var u = e.target.value;
     $('i-perwrap').classList.toggle('hide', !u); $('i-wastewrap').classList.toggle('hide', !u);

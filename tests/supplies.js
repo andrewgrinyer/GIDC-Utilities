@@ -332,6 +332,26 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
     'New item saves, not predicted, on this list');
   c = await card(page, 'Glue');
   check(/Titebond III 4L · Lumber Yard/.test(c) && /\? jugs in stock/.test(c), 'and shows with its supplier (' + c + ')');
+  // a piece is one at a time, a length or packs of
+  await page.click('[data-edit="' + ITEMS.find(x => x.shop_name === 'Glue').id + '"]');
+  check(!(await page.isVisible('#i-how')) && await page.isVisible('#i-step'), 'a unit other than piece has no piece choice');
+  await page.fill('#i-unit', 'piece');
+  check(await page.inputValue('#i-how') === 'one' && !(await page.isVisible('#i-step')) && !(await page.isVisible('#i-len')), 'a piece one at a time hides packs and length');
+  await page.selectOption('#i-how', 'packs');
+  check(await page.isVisible('#i-step') && !(await page.isVisible('#i-len')), 'packs of shows the pack');
+  await page.selectOption('#i-how', 'length');
+  check(await page.isVisible('#i-len') && await page.isVisible('#i-step'), 'a length asks the length, packs stay for bundles');
+  await page.click('#i-save');
+  check(/Type the length of one piece/.test(await text(page, '#msg')), 'a length needs the length');
+  await page.fill('#i-len', '192'); await page.click('#i-save'); await page.waitForTimeout(300);
+  check(posted.some(x => x[0] === 'itemedit' && x[1].per_unit === 192 && x[1].uses === null && x[1].unit === 'piece'), 'the length saves on a counted only piece');
+  c = await card(page, 'Glue');
+  check(/Length 16 ft a piece/.test(c), 'the card shows the length (' + c + ')');
+  check(/16 ft lengths/.test(await text(page, '#ord')), 'and the order form says so (' + (await text(page, '#ord')).slice(0, 200) + ')');
+  await page.click('[data-edit="' + ITEMS.find(x => x.shop_name === 'Glue').id + '"]');
+  check(await page.inputValue('#i-how') === 'length' && await page.inputValue('#i-len') === '192', 'Edit opens on the length');
+  await page.fill('#i-unit', 'jug'); await page.click('#i-save'); await page.waitForTimeout(300);
+  check(posted.filter(x => x[0] === 'itemedit').pop()[1].per_unit === null, 'back to a jug drops the length');
   await page.click('[data-edit="i2"]');
   await page.selectOption('#i-uses', '');
   check(await page.$eval('#i-perwrap', e => e.classList.contains('hide')), 'not predicted hides the piece length');
