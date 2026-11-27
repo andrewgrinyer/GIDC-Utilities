@@ -150,5 +150,19 @@ select pg_temp.as_who('stranger');
 set role authenticated;
 select supply_pallet_use('2026-01-01');
 reset role;
+\echo -- coming up: orders not on a pallet with a ship date (want one row: today, 2 orders, 5 doors, foam 460; o1 is on a pallet, draft, shipped and next month left out)
+alter table dealer_orders add column if not exists dealer_id uuid, add column if not exists status text, add column if not exists est_ship_date date;
+insert into dealer_orders(id, dealer_id, status, est_ship_date, form) values
+  (md5('a1')::uuid, md5('d1')::uuid, 'in_production', current_date - 2, '{"rows":[{"doorType":"Double Swing","qty":"2","height":"80"}]}'),
+  (md5('a2')::uuid, md5('d1')::uuid, 'ready_to_ship', current_date,     '{"rows":[{"doorType":"Single Swing","qty":"3","height":"80"}]}'),
+  (md5('a3')::uuid, md5('d1')::uuid, 'draft',         current_date,     '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
+  (md5('a4')::uuid, md5('d1')::uuid, 'shipped',       current_date,     '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
+  (md5('a5')::uuid, md5('d1')::uuid, 'in_production', current_date + 30,'{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}');
+update dealer_orders set status = 'in_production', est_ship_date = current_date where id = md5('o1')::uuid;
+select pg_temp.as_who('admin');
+set role authenticated;
+select replace(supply_pallet_ahead(current_date + 13)::text, current_date::text, 'TODAY') as ahead;
+reset role;
+
 \echo -- packaging list seeded (want 7 items, Uline packs, tape counted only)
 select shop_name, unit, uses, per_unit, order_step, pack_name from supply_items where category = 'packaging' order by sort;
