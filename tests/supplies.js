@@ -454,6 +454,12 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
     'Edit saves the price, typed with a dollar sign and a comma');
   c = await card(page, 'Corner protectors');
   check(/Suggest ordering 60 pieces \(2 cartons\)/.test(c), 'below the minimum, it suggests whole cartons: none left after two weeks, 40 to reach 40, so 60 (' + c + ')');
+  await page.click('#lowonly');
+  let lo = await text(page, '#stock');
+  check(/Corner protectors/.test(lo) && !/Shipping pallet/.test(lo) && /of 7 items/.test(await text(page, '#findn')), 'Low or running out leaves out what is fine or not counted (' + lo.slice(0, 200) + ')');
+  check(!/Shipping pallet/.test(await text(page, '#ord')), 'and the order form follows it');
+  await page.click('#lowonly');
+  check(/Shipping pallet/.test(await text(page, '#stock')), 'pressed again shows every item');
   await page.click('[data-edit="k6"]');
   await page.fill('#i-per', '200/1500'); await page.click('#i-save'); await page.waitForTimeout(300);
   check(posted.some(x => x[0] === 'itemedit' && x[1].per_unit === 0.1333), 'a part of a roll can be typed as 200/1500');

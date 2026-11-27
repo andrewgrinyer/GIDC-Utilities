@@ -163,6 +163,12 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
     'Primer: every door in the next two weeks, primer only included, 115 doors 11.5 gal, low (' + c + ')');
   c = await card(page, 'Pearly');
   check(/\? gal in stock/.test(c) && /Not counted yet/.test(c) && /On order 10\.0 gal/.test(c), 'Pearly: not counted yet, 10 on order');
+  // low or running out
+  await page.click('#lowonly');
+  let lo = await text(page, '#stock') + ' ' + await text(page, '#others');
+  check(/Extra White/.test(lo) && /Primer/.test(lo) && !/Chantilly Lace/.test(lo) && !/Pearly/.test(lo), 'Low or running out shows only the short and the low (' + lo.slice(0, 200) + ')');
+  await page.click('#lowonly');
+  check(/Chantilly Lace/.test(await text(page, '#stock') + await text(page, '#others')), 'and pressed again shows everything');
 
   // custom colours
   let cu = await text(page, '#custom');

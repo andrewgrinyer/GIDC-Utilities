@@ -165,8 +165,8 @@ table.ord{border-collapse:collapse;width:100%;font-size:14px}
 .back{display:inline-block;margin:16px 0 0;font-size:14px;color:var(--brass);text-decoration:none;font-weight:600}
 .back:hover{text-decoration:underline}
 .tiny{font-size:12.5px;color:var(--muted)}
-.find{display:flex;gap:8px;align-items:center;margin:14px 0 0}
-.find input{flex:1;max-width:420px;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;font:inherit;background:var(--card,#fff);color:inherit}
+.find{display:flex;gap:8px;align-items:center;margin:14px 0 0;flex-wrap:wrap}
+.find input{flex:1 1 200px;min-width:0;max-width:420px;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;font:inherit;background:var(--card,#fff);color:inherit}
 .find .tiny{white-space:nowrap}
 h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 </style>
@@ -180,7 +180,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
   <div id="msg" class="hide"></div>
   <div id="panel"></div>
 
-  <div class="find"><input id="find" type="search" placeholder="Search items: name, supplier, size, colour" aria-label="Search items" autocomplete="off"><span class="tiny" id="findn"></span></div>
+  <div class="find"><input id="find" type="search" placeholder="Search items: name, supplier, size, colour" aria-label="Search items" autocomplete="off"><button class="plain small" id="lowonly" aria-pressed="false" title="Only items below their minimum, or that run short in the next two weeks">Low or running out</button><span class="tiny" id="findn"></span></div>
 
   <h2 class="withbtn">Stock <button class="plain small" id="newitem">New item</button></h2>
   <div class="stock" id="stock"><div class="empty">Loading&hellip;</div></div>
@@ -222,7 +222,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.4.5 &middot; 27 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.4.6 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -298,6 +298,10 @@ var panel = null;          // which little form is open
 var askRemove = null;      // item or supplier about to be removed
 var showJobs = false;
 var FIND = '';
+/* Andrew, 27 November: a filter for what is below its minimum or will
+   run short, from the same arithmetic as the chips on each card. */
+var LOWONLY = false;
+function isLow(it){ var st = stockOf(it).state; return st === 'low' || st === 'short'; }
 var busy = false;
 
 function message(kind, text){
@@ -377,6 +381,7 @@ function load(){
 /* Search: every word typed must appear somewhere in the item's names,
    supplier, or size and colour. Picked items stay in the order table. */
 function matches(it){
+  if(LOWONLY && !isLow(it)) return false;
   if(!FIND) return true;
   var sup = supplierOf(it);
   var hay = [it.shop_name, it.supplier_item, sup ? sup.name : '', it.spec ? niceSpec(it.spec) : '', groupOf(it)].join(' ').toLowerCase();
@@ -385,7 +390,8 @@ function matches(it){
 function shown(){ return ITEMS.filter(matches); }
 function drawFind(){
   var n = shown().length;
-  $('findn').textContent = FIND ? (n ? n + ' of ' + ITEMS.length + ' items' : 'No item matches') : '';
+  $('findn').textContent = FIND || LOWONLY ? (n ? n + ' of ' + ITEMS.length + ' items' : LOWONLY && !FIND ? 'Nothing is low or running out' : 'No item matches') : '';
+  $('lowonly').classList.toggle('on', LOWONLY); $('lowonly').setAttribute('aria-pressed', LOWONLY ? 'true' : 'false');
 }
 function supplierOf(it){ return SUPPLIERS.filter(function(s){ return s.id === it.supplier_id; })[0] || null; }
 function itemById(id){ return ITEMS.filter(function(i){ return i.id === id; })[0] || null; }
@@ -594,7 +600,7 @@ function drawStock(){
      long hardware list reads in sections. */
   drawFind();
   var list = shown();
-  if(!list.length){ $('stock').innerHTML = '<div class="empty">No item matches that search.</div>'; return; }
+  if(!list.length){ $('stock').innerHTML = '<div class="empty">' + (LOWONLY && !FIND ? 'Nothing is below its minimum or running short in the next two weeks.' : 'No item matches that search.') + '</div>'; return; }
   var groups = [], by = {};
   list.forEach(function(it){ var g = groupOf(it); if(!by[g]){ by[g] = []; groups.push(g); } by[g].push(it); });
   if(groups.length === 1 && !groups[0]){ $('stock').innerHTML = list.map(card).join(''); return; }
@@ -1103,6 +1109,7 @@ document.addEventListener('click', function(e){
   if(t.closest('#clearorder')){ QTY = {}; drawOrderForm(); return; }
   if(t.closest('#o-send')){ sendOrder(); return; }
   if(t.closest('#showjobs')){ showJobs = !showJobs; drawSchedule(); return; }
+  if(t.closest('#lowonly')){ LOWONLY = !LOWONLY; drawStock(); drawOrderForm(); return; }
   if(t.closest('#s-savecopy')){ saveCopy(); return; }
   if((el = t.closest('[data-received]'))){ setStatus(el.dataset.received, 'received'); return; }
   if((el = t.closest('[data-cancel]'))){ setStatus(el.dataset.cancel, 'cancelled'); return; }

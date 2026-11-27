@@ -185,7 +185,7 @@ table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var
     <div id="msg" class="hide"></div>
     <div id="panel"></div>
 
-    <h2>Stock</h2>
+    <h2 class="withbtn">Stock <button class="plain small" id="lowonly" aria-pressed="false" title="Only colours below their minimum, or that run short in the next two weeks">Low or running out</button></h2>
     <div class="stock" id="stock"><div class="empty">Loading&hellip;</div></div>
 
     <h2 class="withbtn">Other colours in stock <button class="plain small" id="newcolour">New paint colour</button></h2>
@@ -223,7 +223,7 @@ table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var
     </details>
   </div>
 </div>
-<div class="gidc-build">Paint 1.5 &middot; 27 Nov 2026</div>
+<div class="gidc-build">Paint 1.6 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -436,10 +436,16 @@ function card(c){
         : '<button class="save small" data-order="' + esc(c.name) + '" data-p5="' + (s.suggest5 || 1) + '">Order</button>') +
     '</div></div>';
 }
+/* Andrew, 27 November: a filter for what is below its minimum or will
+   run short, from the same arithmetic as the chips on each card. */
+var LOWONLY = false;
+function lowFilter(c){ if(!LOWONLY) return true; var st = stockOf(c).state; return st === 'low' || st === 'short'; }
 function drawStock(){
-  $('stock').innerHTML = stocked().map(card).join('') || '<div class="empty">No colours set up.</div>';
-  $('others').innerHTML = others().map(card).join('') ||
-    '<div class="empty">None yet. Press New paint colour to add one, or order a custom colour.</div>';
+  $('lowonly').classList.toggle('on', LOWONLY); $('lowonly').setAttribute('aria-pressed', LOWONLY ? 'true' : 'false');
+  $('stock').innerHTML = stocked().filter(lowFilter).map(card).join('') ||
+    '<div class="empty">' + (LOWONLY ? 'Nothing is below its minimum or running short in the next two weeks.' : 'No colours set up.') + '</div>';
+  $('others').innerHTML = others().filter(lowFilter).map(card).join('') ||
+    '<div class="empty">' + (LOWONLY ? 'No other colour is low or running out.' : 'None yet. Press New paint colour to add one, or order a custom colour.') + '</div>';
 }
 
 /* ---- custom colours from today on ---------------------------------------
@@ -845,6 +851,7 @@ document.addEventListener('click', function(e){
   if(t.closest('#prev')){ shift(-1); return; }
   if(t.closest('#next')){ shift(1); return; }
   if(t.closest('#showjobs')){ showJobs = !showJobs; drawSchedule(); return; }
+  if(t.closest('#lowonly')){ LOWONLY = !LOWONLY; drawStock(); return; }
   if(t.closest('#print')){ window.print(); return; }
   if((el = t.closest('[data-count]'))){ panel = {type: 'count', colour: el.dataset.count}; message(null); drawPanel(); scrollTo(0, 0); return; }
   if((el = t.closest('[data-order]'))){ panel = {type: 'order', colour: el.dataset.order, p5: el.dataset.p5}; message(null); drawPanel(); scrollTo(0, 0); return; }
