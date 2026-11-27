@@ -150,15 +150,23 @@ select pg_temp.as_who('stranger');
 set role authenticated;
 select supply_pallet_use('2026-01-01');
 reset role;
-\echo -- coming up: orders not on a pallet with a ship date (want one row: today, 2 orders, 5 doors, foam 460; o1 is on a pallet, draft, shipped and next month left out)
-alter table dealer_orders add column if not exists dealer_id uuid, add column if not exists status text, add column if not exists est_ship_date date;
-insert into dealer_orders(id, dealer_id, status, est_ship_date, form) values
-  (md5('a1')::uuid, md5('d1')::uuid, 'in_production', current_date - 2, '{"rows":[{"doorType":"Double Swing","qty":"2","height":"80"}]}'),
-  (md5('a2')::uuid, md5('d1')::uuid, 'ready_to_ship', current_date,     '{"rows":[{"doorType":"Single Swing","qty":"3","height":"80"}]}'),
-  (md5('a3')::uuid, md5('d1')::uuid, 'draft',         current_date,     '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
-  (md5('a4')::uuid, md5('d1')::uuid, 'shipped',       current_date,     '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
-  (md5('a5')::uuid, md5('d1')::uuid, 'in_production', current_date + 30,'{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}');
-update dealer_orders set status = 'in_production', est_ship_date = current_date where id = md5('o1')::uuid;
+\echo -- coming up: no Access staging table yet (want [])
+select pg_temp.as_who('admin');
+set role authenticated;
+select supply_pallet_ahead(current_date + 13);
+reset role;
+\echo -- coming up: orders not on a pallet, by Access Packaging Date (want one row: today, 2 orders, 5 doors, foam 460; on a pallet, draft, shipped, unlinked and next month left out)
+create table if not exists public.access_dealer_orders(order_id integer primary key, order_no text, packed_on date);
+alter table dealer_orders add column if not exists dealer_id uuid, add column if not exists status text, add column if not exists access_order_id integer;
+insert into access_dealer_orders values (1, '1', current_date - 2), (2, '2', current_date), (3, '3', current_date), (4, '4', current_date), (5, '5', current_date + 30), (6, '6', current_date);
+insert into dealer_orders(id, dealer_id, status, access_order_id, form) values
+  (md5('a1')::uuid, md5('d1')::uuid, 'in_production', 1, '{"rows":[{"doorType":"Double Swing","qty":"2","height":"80"}]}'),
+  (md5('a2')::uuid, md5('d1')::uuid, 'ready_to_ship', 2, '{"rows":[{"doorType":"Single Swing","qty":"3","height":"80"}]}'),
+  (md5('a3')::uuid, md5('d1')::uuid, 'draft',         3, '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
+  (md5('a4')::uuid, md5('d1')::uuid, 'shipped',       4, '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
+  (md5('a5')::uuid, md5('d1')::uuid, 'in_production', 5, '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
+  (md5('a6')::uuid, md5('d1')::uuid, 'in_production', null, '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}');
+update dealer_orders set status = 'in_production', access_order_id = 6 where id = md5('o1')::uuid;
 select pg_temp.as_who('admin');
 set role authenticated;
 select replace(supply_pallet_ahead(current_date + 13)::text, current_date::text, 'TODAY') as ahead;

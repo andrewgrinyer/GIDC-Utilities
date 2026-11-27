@@ -278,41 +278,22 @@ const APPS = [
     icon: 'ruler'
   },
   {
-    name: 'Summary Estimate',
-    desc: 'Turn a contract workbook into a customer facing estimate to print or send as a PDF.',
-    url:  './estimate/',
-    icon: 'papers'
-  },
-  {
     name: 'Contract to QuickBooks',
     desc: 'Pull the line items off a signed contract and export the invoice and customer CSVs.',
     url:  './invoice/',
     icon: 'receipt'
   },
   {
-    name: 'Proliner Door Analysis',
-    desc: 'Check a Proliner measurement file against the sales order and flag anything that does not line up.',
-    url:  './proliner/',
-    icon: 'chart'
-  },
-  {
-    name: 'Door Packing Sequencer',
-    desc: 'Merge several orders into one bottom to top stacking order for loading the truck.',
-    url:  './packing/',
-    icon: 'boxes'
-  },
-  {
     name: 'Wholesale Order to QuickBooks',
     desc: 'Convert a wholesale dealer order into a QuickBooks Online import in US dollars, with discount and tariff applied.',
     url:  './wholesale/',
     icon: 'tag'
-  },
-  {
-    name: 'Export Documents',
-    desc: 'Build the proforma invoice, Lacey PPQ 505 and TSCA certification for a US shipment.',
-    url:  './exportdocs/',
-    icon: 'globe'
   }
+  /* Andrew, 27 November: Summary Estimate, Proliner Door Analysis, Door
+     Packing Sequencer and Export Documents are done inside the dealer
+     portal now, so their tiles are gone. Their folders stay on the site:
+     the portal's export documents are copied from exportdocs/ by
+     scripts/port-export-docs.js, and an old bookmark still opens. */
 ];
 
 const ICONS = {
@@ -815,6 +796,6 @@ GIDCAuth.whoami().then(function(me){
   showSignIn();
 });
 </script>
-<div class="gidc-build">Tools 3.10.2 · 27 Nov 2026</div>
+<div class="gidc-build">Tools 3.10.3 · 27 Nov 2026</div>
 </body>
 </html>

@@ -86,11 +86,12 @@ function reset(){
   PALLETS = [{pallet_id:'p0', name:'Old', day:'2026-10-01', doors:5, foam_in:500},
              {pallet_id:'p1', name:'SFD 1', day:'2026-11-12', doors:10, foam_in:9200},
              {pallet_id:'p2', name:'Chicago 3', day:'2026-11-18', doors:6, foam_in:5800}];
-  // dealer orders not on a pallet yet, by ship date: one overdue, one in the
-  // next two weeks, one after. Pallets of the last 90 days carried 7 doors.
-  AHEAD = [{dealer_id:'d1', ship_on:'2026-11-18', orders:1, doors:8, foam_in:736},
-           {dealer_id:'d2', ship_on:'2026-11-30', orders:2, doors:14, foam_in:1288},
-           {dealer_id:'d1', ship_on:'2026-12-10', orders:1, doors:3, foam_in:276}];
+  // dealer orders not on a pallet yet, by Access Packaging Date: Pittsburgh
+  // has 22 doors overdue (one pallet today) and 3 more on Dec 10 (under 20,
+  // still one more pallet); South Florida 50 on Nov 30 (two pallets, 45 most)
+  AHEAD = [{dealer_id:'d1', pack_on:'2026-11-18', orders:1, doors:22, foam_in:2024},
+           {dealer_id:'d2', pack_on:'2026-11-30', orders:2, doors:50, foam_in:4600},
+           {dealer_id:'d1', pack_on:'2026-12-10', orders:1, doors:3, foam_in:276}];
   ORDERS = [{id:'00000000-0000-0000-0000-00000000000a', category:'shop', po_no:'SHP00001', supplier_id:'s1', supplier_name:'Lumber Yard',
              needed_by:null, note:null, status:'requested', requested_at:'2026-11-18T15:00:00Z', requested_by:'Andrew',
              sent_to:'orders@lumber.ca', copied_to:'ashley@grinyer.ca', emailed_at:'2026-11-18T15:00:01Z', received_on:null,
@@ -381,12 +382,12 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   c = await card(page, 'Corner protectors');
   check(/12 pieces in stock/.test(c) && /less 8 used since/.test(c),
     'corner protectors: 20 counted Nov 10, two pallets since at 4 each (' + c + ')');
-  check(/Next 2 weeks 16 \(4 pallets, 22 doors shipping\)/.test(c),
-    'the next two weeks come from the orders shipping: 8 doors overdue and 14 on Nov 30, at 7 doors a pallet, 2 + 2 pallets, 16 corners (' + c + ')');
+  check(/Next 2 weeks 12 \(3 pallets, 72 doors to pack\)/.test(c),
+    'the next two weeks come from the Packaging Dates: 22 doors today is one pallet, 50 on Nov 30 is two, 12 corners (' + c + ')');
   check(posted.some(x => x[0] === 'ahead' && x[1].p_to === '2026-12-17'), 'it reads the orders waiting for a pallet, four weeks ahead');
   const ah = await text(page, '#ahead');
-  check(/Fri Nov 20 1 8 2 61\.3/.test(ah) && /Mon Nov 30 2 14 2 107\.3/.test(ah) && /Thu Dec 10 1 3 1 23/.test(ah) && /Four weeks 4 25 5 191\.7/.test(ah),
-    'Waiting for a pallet: by ship date, the overdue one as today, doors, pallets and foam (' + ah + ')');
+  check(/Fri Nov 20 1 22 1 168\.7/.test(ah) && /Mon Nov 30 2 50 2 383\.3/.test(ah) && /Thu Dec 10 1 3 1 \(under 20 so far\) 23/.test(ah) && /Four weeks 4 75 4 575/.test(ah),
+    'Waiting for a pallet: by Packaging Date, the overdue one as today, doors, pallets and foam (' + ah + ')');
   check(/Comes in carton of 30 pieces/.test(c) && /Price \$4\.27 a piece/.test(c) && /Stock value \$51\.24/.test(c),
     'the pack, the price of one piece and the stock value, 12 at 4.27 (' + c + ')');
   c = await card(page, 'Door foam');
@@ -395,9 +396,9 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   c = await card(page, 'Strap guards');
   check(/Price \$0\.147 a piece/.test(c), 'a price under a dollar keeps its places (' + c + ')');
   c = await card(page, 'Shipping pallet');
-  check(/Not counted yet/.test(c) && /Next 2 weeks 4 \(4 pallets/.test(c) && /Price not set/.test(c), 'pallets: not counted, four in the next two weeks, no price yet (' + c + ')');
+  check(/Not counted yet/.test(c) && /Next 2 weeks 3 \(3 pallets/.test(c) && /Price not set/.test(c), 'pallets: not counted, three in the next two weeks, no price yet (' + c + ')');
   c = await card(page, 'Packing tape');
-  check(/Next 2 weeks 1\.2 \(4 pallets/.test(c) && /case of 36 rolls/.test(c), 'tape: 50 ft of a 165 ft roll a pallet, four pallets, cases of 36 (' + c + ')');
+  check(/Next 2 weeks 0\.9 \(3 pallets/.test(c) && /case of 36 rolls/.test(c), 'tape: 50 ft of a 165 ft roll a pallet, three pallets, cases of 36 (' + c + ')');
   check(!(await page.$eval('#pal-wrap', e => e.classList.contains('hide'))) &&
         /Wed Nov 18 Chicago 3 6 483\.3/.test(await text(page, '#pals')) && /Four weeks 2 pallets 16 1,?250/.test(await text(page, '#pals')),
     'Pallets packed lists the last four weeks with doors and feet of foam (' + await text(page, '#pals') + ')');
@@ -411,7 +412,7 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(posted.some(x => x[0] === 'itemedit' && x[1].price === 1150.5 && x[1].order_step === 30 && x[1].pack_name === 'carton' && x[1].warn_qty === 40),
     'Edit saves the price, typed with a dollar sign and a comma');
   c = await card(page, 'Corner protectors');
-  check(/Suggest ordering 60 pieces \(2 cartons\)/.test(c), 'short, it suggests whole cartons: 4 short after two weeks, 44 to reach 40, so 60 (' + c + ')');
+  check(/Suggest ordering 60 pieces \(2 cartons\)/.test(c), 'below the minimum, it suggests whole cartons: none left after two weeks, 40 to reach 40, so 60 (' + c + ')');
   await page.click('[data-edit="k6"]');
   await page.fill('#i-per', '200/1500'); await page.click('#i-save'); await page.waitForTimeout(300);
   check(posted.some(x => x[0] === 'itemedit' && x[1].per_unit === 0.1333), 'a part of a roll can be typed as 200/1500');

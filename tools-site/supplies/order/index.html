@@ -222,7 +222,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.4.2 &middot; 27 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.4.3 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -427,16 +427,15 @@ function unitsFor(it, rows){
    Each pallet from the dealer portal becomes two rows of the same shape
    as the Access schedule: one pallet, and the inches of foam its doors
    take, on the day it was built. That is what is used.
-   What is coming (Andrew, 27 November) is the portal's own orders: those
-   ordered or further on, not on a pallet yet, by their estimated ship
-   date, per dealer, since a pallet carries one dealer. Their doors and
-   foam are known exactly; how many pallets they fill is their doors
-   over what the pallets of the last 90 days carried on average, rounded
-   up. These are marked ahead and only ever count as need to come. */
-function doorsPerPallet(){
-  var from = addDays(TODAY, -90), recent = (PALLETS || []).filter(function(p){ return p.day >= from && Number(p.doors) > 0; });
-  return recent.length ? sum(recent, function(p){ return p.doors; }) / recent.length : 20;
-}
+   What is coming is in two parts (Andrew, 27 November). An order not
+   on a pallet yet is forecast from its Packaging Date in Access: its
+   doors and foam exactly, and pallets by packing each dealer's doors in
+   date order, a pallet going once at least 20 doors are waiting and none
+   carrying more than 45. Whatever is left under 20 at the end counts as
+   one more pallet. Once an order is on a pallet in the portal, the
+   pallet itself counts it, above. Forecast rows are marked ahead and only
+   ever count as need to come. */
+var PALLET_MIN = 20, PALLET_MAX = 45;
 function palletRows(list, ahead){
   var out = [];
   list.forEach(function(p){
@@ -445,13 +444,22 @@ function palletRows(list, ahead){
     out.push(Object.assign({}, base, {uses: 'pallet', amount: 1}));
     if(Number(p.foam_in) > 0) out.push(Object.assign({}, base, {uses: 'door_foam', amount: Number(p.foam_in)}));
   });
-  var per = doorsPerPallet();
-  (ahead || []).forEach(function(a, i){
-    var day = a.ship_on < TODAY ? TODAY : a.ship_on;
-    var base = {access_order_id: 'A' + i, order_no: '', job: 'Shipping', spec: '', cuts: [], need_on: day,
-                doors: Number(a.doors) || 0, orders: Number(a.orders) || 0, pulled_at: null, pallet: true, ahead: true};
-    out.push(Object.assign({}, base, {uses: 'pallet', amount: Math.max(1, Math.ceil((Number(a.doors) || 0) / per - 1e-9))}));
-    if(Number(a.foam_in) > 0) out.push(Object.assign({}, base, {uses: 'door_foam', amount: Number(a.foam_in)}));
+  var by = {};
+  (ahead || []).forEach(function(a){ (by[a.dealer_id] = by[a.dealer_id] || []).push(a); });
+  Object.keys(by).forEach(function(d){
+    var waiting = 0, last = null;
+    by[d].sort(function(x, y){ return x.pack_on < y.pack_on ? -1 : x.pack_on > y.pack_on ? 1 : 0; }).forEach(function(a, i){
+      var day = a.pack_on < TODAY ? TODAY : a.pack_on, doors = Number(a.doors) || 0;
+      var base = {access_order_id: 'A' + d + i, order_no: '', job: 'Packaging', spec: '', cuts: [], need_on: day,
+                  doors: doors, orders: Number(a.orders) || 0, pulled_at: null, pallet: true, ahead: true};
+      out.push(Object.assign({}, base, {uses: 'door_foam', amount: Number(a.foam_in) || 0}));
+      waiting += doors; last = base;
+      if(waiting >= PALLET_MIN){
+        out.push(Object.assign({}, base, {uses: 'pallet', amount: Math.ceil(waiting / PALLET_MAX - 1e-9), doors: waiting}));
+        waiting = 0;
+      }
+    });
+    if(waiting > 0 && last) out.push(Object.assign({}, last, {uses: 'pallet', amount: 1, doors: waiting, short: true}));
   });
   return out;
 }
@@ -459,7 +467,7 @@ function palletRows(list, ahead){
 function aheadText(){
   var rows = SCHED.filter(function(s){ return s.ahead && s.uses === 'pallet' && s.need_on <= addDays(TODAY, 13); });
   var p = sum(rows, function(s){ return s.amount; }), d = sum(rows, function(s){ return s.doors; });
-  return p ? p + ' pallet' + (p === 1 ? '' : 's') + ', ' + d + ' door' + (d === 1 ? '' : 's') + ' shipping' : 'nothing shipping';
+  return p ? p + ' pallet' + (p === 1 ? '' : 's') + ', ' + d + ' door' + (d === 1 ? '' : 's') + ' to pack' : 'nothing to pack';
 }
 /* what the stock is taken down by: real pallets and jobs only */
 function realRows(rows){ return rows.filter(function(s){ return !s.ahead; }); }
@@ -687,19 +695,24 @@ function drawPallets(){
     '<tr class="tot"><td>Four weeks</td><td>' + list.length + ' pallet' + (list.length === 1 ? '' : 's') + '</td><td>' + n1(doors) + '</td><td>' + n1(foam / 12) + '</td></tr></tbody>';
   drawAhead();
 }
-/* the orders still to go on a pallet, by ship date */
+/* the orders still to go on a pallet, by Packaging Date */
 function drawAhead(){
-  var rows = SCHED.filter(function(s){ return s.ahead && s.uses === 'pallet'; });
-  var foam = {}; SCHED.forEach(function(s){ if(s.ahead && s.uses === 'door_foam') foam[s.access_order_id] = s.amount; });
-  $('aheadsub').textContent = 'Dealer orders ordered or further on, not on a pallet yet, by their estimated ship date in the next four weeks. ' +
-    'A ship date already past shows as today. Pallets are the doors over ' + n1(doorsPerPallet()) + ', what the last 90 days of pallets carried on average.';
-  if(!rows.length){ $('ahead').innerHTML = '<tr><td><div class="empty">No dealer orders waiting for a pallet with a ship date in the next four weeks.</div></td></tr>'; return; }
-  $('ahead').innerHTML = '<thead><tr><th>Ships</th><th>Orders</th><th>Doors</th><th>Pallets</th><th>Foam, feet</th></tr></thead><tbody>' +
-    rows.map(function(s){
-      return '<tr><td>' + esc(nice(s.need_on, true)) + '</td><td>' + n1(s.orders) + '</td><td>' + n1(s.doors) + '</td><td>' + n1(s.amount) + '</td><td>' + n1((foam[s.access_order_id] || 0) / 12) + '</td></tr>';
+  var foam = SCHED.filter(function(s){ return s.ahead && s.uses === 'door_foam'; });
+  var pals = SCHED.filter(function(s){ return s.ahead && s.uses === 'pallet'; });
+  $('aheadsub').textContent = 'Dealer orders not on a pallet yet, by their Packaging Date in Access, the next four weeks. A date already past shows as today. ' +
+    'Each dealer\u2019s doors fill a pallet once 20 are waiting, and no pallet carries more than 45. Once the orders go on a pallet, the pallet above counts them instead.';
+  if(!foam.length){ $('ahead').innerHTML = '<tr><td><div class="empty">No dealer orders waiting for a pallet with a Packaging Date in the next four weeks.</div></td></tr>'; return; }
+  var days = {};
+  foam.forEach(function(s){ var x = days[s.need_on] = days[s.need_on] || {orders: 0, doors: 0, foam: 0, pals: 0, short: false}; x.orders += s.orders; x.doors += s.doors; x.foam += s.amount; });
+  pals.forEach(function(s){ var x = days[s.need_on]; if(x){ x.pals += s.amount; if(s.short) x.short = true; } });
+  var keys = Object.keys(days).sort(), t = {orders: 0, doors: 0, foam: 0, pals: 0};
+  $('ahead').innerHTML = '<thead><tr><th>Packaging</th><th>Orders</th><th>Doors</th><th>Pallets</th><th>Foam, feet</th></tr></thead><tbody>' +
+    keys.map(function(k){
+      var x = days[k]; t.orders += x.orders; t.doors += x.doors; t.foam += x.foam; t.pals += x.pals;
+      return '<tr><td>' + esc(nice(k, true)) + '</td><td>' + n1(x.orders) + '</td><td>' + n1(x.doors) + '</td><td>' +
+        (x.pals ? n1(x.pals) + (x.short ? ' <span class="tiny">(under 20 so far)</span>' : '') : '<span class="z">&middot;</span>') + '</td><td>' + n1(x.foam / 12) + '</td></tr>';
     }).join('') +
-    '<tr class="tot"><td>Four weeks</td><td>' + n1(sum(rows, function(s){ return s.orders; })) + '</td><td>' + n1(sum(rows, function(s){ return s.doors; })) + '</td><td>' +
-      n1(sum(rows, function(s){ return s.amount; })) + '</td><td>' + n1(sum(Object.keys(foam), function(k){ return foam[k]; }) / 12) + '</td></tr></tbody>';
+    '<tr class="tot"><td>Four weeks</td><td>' + n1(t.orders) + '</td><td>' + n1(t.doors) + '</td><td>' + n1(t.pals) + '</td><td>' + n1(t.foam / 12) + '</td></tr></tbody>';
 }
 
 /* ---- orders ------------------------------------------------------------- */
@@ -764,7 +777,7 @@ function drawFresh(){
     el.className = 'fresh' + (PALLETS ? '' : ' stale');
     el.textContent = PALLETS ? 'Taken down by the pallets packed in the dealer portal: one shipping pallet, 4 corner protectors, 10 strap guards, ' +
       '2 cones, the wrap and the tape for each pallet, and foam for each door on it at its height plus 12" (a double is two doors). ' +
-      'What is coming is the dealer orders not on a pallet yet, by their estimated ship date, at about ' + n1(doorsPerPallet()) + ' doors a pallet.'
+      'What is coming is the dealer orders not on a pallet yet, by their Packaging Date in Access, 20 to 45 doors a pallet.'
       : 'Could not read the pallets from the dealer portal' + (PALLET_ERR ? ': ' + PALLET_ERR : '') + '. Has supplies.sql been run again?';
     return;
   }

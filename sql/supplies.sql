@@ -539,45 +539,51 @@ end $$;
 revoke all on function public.supply_pallet_use(date) from public, anon;
 grant execute on function public.supply_pallet_use(date) to authenticated;
 
--- WHAT THE PALLETS WILL USE (Andrew, 27 November: from the portal's own
--- orders, not a guess). Every dealer order that is ordered or further on
--- (doors ordered, in production, invoiced, ready to ship), not shipped,
--- not on hold, not on a pallet yet, and with an estimated ship date up
--- to p_to, counted the same way as supply_pallet_use: its doors, and the
--- foam they take. One row per dealer and ship date, since a pallet holds
--- one dealer's orders. A ship date already past counts as today. The
--- page turns doors into pallets at the size the recent pallets ran.
+-- WHAT THE PALLETS WILL USE (Andrew, 27 November). Two parts: an order
+-- is forecast from its Packaging Date in Access until it goes on a pallet
+-- in the portal, and from then on the pallet itself counts it (see
+-- supply_pallet_use). Here: every dealer order linked to its Access job,
+-- not shipped, not a draft, not on hold, not on a pallet yet, whose Access
+-- Packaging Date (access_dealer_orders.packed_on, sent hourly by the
+-- dealer sync) is on or before p_to. Counted the same way as on a pallet:
+-- its doors, and the foam they take. One row per dealer and packaging
+-- date, since a pallet carries one dealer; a date already past counts as
+-- today. The page packs the doors into pallets of 20 to 45.
 create or replace function public.supply_pallet_ahead(p_to date)
 returns jsonb language plpgsql stable security definer set search_path = public as $$
 declare out jsonb;
 begin
   if not public.can_use_supplies() then raise exception 'not allowed'; end if;
-  if to_regclass('public.dealer_orders') is null or to_regclass('public.pallet_orders') is null then return '[]'::jsonb; end if;
+  if to_regclass('public.dealer_orders') is null or to_regclass('public.pallet_orders') is null
+     or to_regclass('public.access_dealer_orders') is null then
+    return '[]'::jsonb;
+  end if;
   if not exists (select 1 from information_schema.columns
-                  where table_schema = 'public' and table_name = 'dealer_orders' and column_name = 'est_ship_date') then
+                  where table_schema = 'public' and table_name = 'dealer_orders' and column_name = 'access_order_id') then
     return '[]'::jsonb;
   end if;
   execute $q$
     with o as (
-      select o.id, o.dealer_id, greatest(o.est_ship_date, current_date) as ship_on, o.form
+      select o.id, o.dealer_id, greatest(s.packed_on, current_date) as pack_on, o.form
         from dealer_orders o
-       where o.est_ship_date is not null and o.est_ship_date <= $1
-         and o.status::text in ('doors_ordered', 'in_production', 'complete_invoiced', 'ready_to_ship')
+        join access_dealer_orders s on s.order_id = o.access_order_id
+       where s.packed_on is not null and s.packed_on <= $1
+         and o.status::text not in ('draft', 'shipped', 'on_hold')
          and not exists (select 1 from pallet_orders po where po.order_id::text = o.id::text)
     ), lines as (
-      select o.id, o.dealer_id, o.ship_on, r
+      select o.id, o.dealer_id, o.pack_on, r
         from o left join lateral jsonb_array_elements(
                case when jsonb_typeof(o.form::jsonb -> 'rows') = 'array' then o.form::jsonb -> 'rows' else '[]'::jsonb end) r on true
     )
-    select coalesce(jsonb_agg(jsonb_build_object('dealer_id', g.dealer_id::text, 'ship_on', g.ship_on,
-                     'orders', g.orders, 'doors', g.doors, 'foam_in', g.foam) order by g.ship_on, g.dealer_id::text), '[]'::jsonb)
-      from (select dealer_id, ship_on, count(distinct id) as orders,
+    select coalesce(jsonb_agg(jsonb_build_object('dealer_id', g.dealer_id::text, 'pack_on', g.pack_on,
+                     'orders', g.orders, 'doors', g.doors, 'foam_in', g.foam) order by g.dealer_id::text, g.pack_on), '[]'::jsonb)
+      from (select dealer_id, pack_on, count(distinct id) as orders,
                    sum(case when r is null then 0
                             else greatest(1, coalesce(substring(r->>'qty' from '^\s*(\d+)')::int, 1)) end) as doors,
                    sum(case when r is null then 0
                             else greatest(1, coalesce(substring(r->>'qty' from '^\s*(\d+)')::int, 1))
                                * (coalesce(substring(r->>'height' from '^\s*(\d+(?:\.\d+)?)')::numeric, 80) + 12) end) as foam
-              from lines group by dealer_id, ship_on) g
+              from lines group by dealer_id, pack_on) g
      where g.doors > 0
   $q$ into out using p_to;
   return out;
