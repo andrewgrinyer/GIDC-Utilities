@@ -28,6 +28,11 @@
 //   SUPPLY_EMAIL_FROM   optional, falls back to ORDER_EMAIL_FROM, then
 //                       to Resend's test address
 //
+// Andrew, 27 November: everything ordered the same day from the same
+// supplier goes on one PO, so lines can be added after the PO was first
+// emailed. Each line keeps when it was emailed, and each email carries
+// only the lines not sent yet; a later one says it adds to the PO.
+//
 // No imports, for the same reason as the others: plain HTTP with a
 // deadline on every call.
 
@@ -89,7 +94,7 @@ const dayName = (v: unknown) => {
 const addresses = (v: unknown) =>
   String(v ?? "").split(",").map((s) => s.trim()).filter((s) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s));
 
-type Line = { shop_name: string; supplier_item: string | null; unit: string; qty: number | string };
+type Line = { id: string; emailed_at?: string | null; shop_name: string; supplier_item: string | null; unit: string; qty: number | string };
 type Order = {
   id: string;
   po_no: string;
@@ -111,11 +116,13 @@ const qtyText = (l: Line) => {
   return `${n} ${n === 1 ? unit : unit.replace(/(s|x|ch|sh)$/, "$1e").replace(/y$/, "ie") + "s"}`;
 };
 
-function emailFor(o: Order) {
+function emailFor(o: Order, lines: Line[], more: boolean) {
   const cat = o.supply_categories?.name ?? "Supplies";
-  const subject = `PURCHASE ORDER ${o.po_no} FROM GRINYER` +
+  const subject = `PURCHASE ORDER ${o.po_no} FROM GRINYER` + (more ? ", MORE ITEMS" : "") +
     (o.needed_by ? `, NEEDED BY ${dayName(o.needed_by).toUpperCase()}` : "");
-  const lines = o.supply_order_lines ?? [];
+  const moreHtml = more
+    ? `<p style="margin:0 0 14px;font-size:15px"><b>Please add these to PO ${esc(o.po_no)}</b>, sent earlier today. ` +
+      `The items already sent are not repeated here.</p>` : "";
 
   const rows = lines.map((l) =>
     `<tr><td style="padding:8px 12px 8px 0;border-bottom:1px solid #EFEFF2;font-size:15px;color:#17171A">` +
@@ -132,7 +139,7 @@ function emailFor(o: Order) {
         `<p style="margin:0 0 18px;color:#6E6E76;font-size:13px">` +
           `Grinyer, ${esc(cat)}, ${esc(when(o.requested_at))}` +
           (o.supplier_name ? `, for ${esc(o.supplier_name)}` : "") +
-        `</p>` +
+        `</p>` + moreHtml +
         `<table style="border-collapse:collapse;width:100%">` +
           `<tr><th style="text-align:left;font-size:12px;color:#6E6E76;padding:0 0 6px;font-weight:600">Item</th>` +
           `<th style="text-align:right;font-size:12px;color:#6E6E76;padding:0 0 6px;font-weight:600">Quantity</th></tr>` +
@@ -148,8 +155,9 @@ function emailFor(o: Order) {
     `</div>`;
 
   const text = [
-    `PURCHASE ORDER ${o.po_no}`,
+    `PURCHASE ORDER ${o.po_no}` + (more ? ", MORE ITEMS" : ""),
     `Grinyer, ${cat}, ${when(o.requested_at)}`,
+    more ? `Please add these to PO ${o.po_no}, sent earlier today. The items already sent are not repeated here.` : "",
     "",
     ...lines.map((l) => `${qtyText(l)}  ${l.supplier_item || l.shop_name}` +
       (l.supplier_item ? `  (our name: ${l.shop_name})` : "")),
@@ -203,9 +211,15 @@ Deno.serve(async (req) => {
       return json({ error: "That order is not there, or is not yours to send" }, 404);
     const o = rows[0] as Order;
 
-    if (o.emailed_at) return json({ ok: true, already: true });
+    // Lines from before lines kept their own email time count as sent
+    // when the order was.
+    const all = o.supply_order_lines ?? [];
+    const lineStamps = all.length > 0 && all.every((l) => "emailed_at" in l);
+    const fresh = lineStamps ? all.filter((l) => !l.emailed_at) : (o.emailed_at ? [] : all);
+    if (!fresh.length && o.emailed_at) return json({ ok: true, already: true });
     if (o.status !== "requested") return json({ error: "That order is no longer open" }, 409);
-    if (!o.supply_order_lines?.length) return json({ error: "That order has nothing on it" }, 409);
+    if (!fresh.length) return json({ error: "That order has nothing on it" }, 409);
+    const more = !!o.emailed_at || (lineStamps && all.some((l) => !!l.emailed_at));
 
     const copy = addresses(o.supply_categories?.copy_to);
     let to = addresses(o.supply_suppliers?.email);
@@ -219,7 +233,7 @@ Deno.serve(async (req) => {
       ?? Deno.env.get("ORDER_EMAIL_FROM")
       ?? "onboarding@resend.dev";
 
-    const mail = emailFor(o);
+    const mail = emailFor(o, fresh, more);
     console.log(`sending "${mail.subject}" to ${to.join(", ")}${cc.length ? ", copy " + cc.join(", ") : ""}`);
     const sent = await call("resend", "https://api.resend.com/emails", {
       method: "POST",
@@ -236,12 +250,24 @@ Deno.serve(async (req) => {
         "Send it to the supplier directly." }, 502);
     }
 
-    await call("stamp it as sent",
-      `${url}/rest/v1/supply_orders?id=eq.${id}`,
-      { method: "PATCH", headers: { ...asAdmin, "Content-Type": "application/json" },
-        body: JSON.stringify({ emailed_at: new Date().toISOString(),
-                               sent_to: to.join(", "), copied_to: cc.join(", ") || null }) })
-      .catch(() => { /* the email went, which is what matters */ });
+    const stamp = new Date().toISOString();
+    if (!o.emailed_at) {
+      await call("stamp it as sent",
+        `${url}/rest/v1/supply_orders?id=eq.${id}`,
+        { method: "PATCH", headers: { ...asAdmin, "Content-Type": "application/json" },
+          body: JSON.stringify({ emailed_at: stamp, sent_to: to.join(", "), copied_to: cc.join(", ") || null }) })
+        .catch(() => { /* the email went, which is what matters */ });
+    }
+    if (lineStamps) {
+      const ids = fresh.map((l) => l.id).filter((x) => /^[0-9a-f-]{36}$/i.test(x));
+      if (ids.length) {
+        await call("stamp the lines as sent",
+          `${url}/rest/v1/supply_order_lines?id=in.(${ids.join(",")})`,
+          { method: "PATCH", headers: { ...asAdmin, "Content-Type": "application/json" },
+            body: JSON.stringify({ emailed_at: stamp }) })
+          .catch(() => { /* the email went */ });
+      }
+    }
 
     return json({ ok: true, to, cc });
   } catch (e) {

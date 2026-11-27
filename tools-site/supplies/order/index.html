@@ -118,6 +118,10 @@ button.small{min-height:32px;padding:6px 10px;font-size:13px}
 .row .what{flex:1 1 260px;min-width:0}
 .row .t{font-weight:600}
 .row .meta{color:var(--muted);font-size:13.5px}
+.row .pl{margin:3px 0}
+.row .pl .qty{width:70px;padding:4px 6px}
+.row .day{padding:4px 6px;border:1px solid var(--rule);border-radius:7px;font:inherit;font-size:13px;background:var(--card);color:var(--ink)}
+button.linkish{background:none;border:0;padding:0;color:var(--info);text-decoration:underline;cursor:pointer;font:inherit;font-size:12.5px}
 .row .acts{display:flex;gap:6px;flex:none;flex-wrap:wrap;align-items:center}
 .row.none{opacity:.6}
 
@@ -165,8 +169,8 @@ table.ord{border-collapse:collapse;width:100%;font-size:14px}
 .back{display:inline-block;margin:16px 0 0;font-size:14px;color:var(--brass);text-decoration:none;font-weight:600}
 .back:hover{text-decoration:underline}
 .tiny{font-size:12.5px;color:var(--muted)}
-.find{display:flex;gap:8px;align-items:center;margin:14px 0 0}
-.find input{flex:1;max-width:420px;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;font:inherit;background:var(--card,#fff);color:inherit}
+.find{display:flex;gap:8px;align-items:center;margin:14px 0 0;flex-wrap:wrap}
+.find input{flex:1 1 200px;min-width:0;max-width:420px;padding:9px 12px;border:1px solid var(--rule);border-radius:8px;font:inherit;background:var(--card,#fff);color:inherit}
 .find .tiny{white-space:nowrap}
 h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
 </style>
@@ -180,7 +184,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
   <div id="msg" class="hide"></div>
   <div id="panel"></div>
 
-  <div class="find"><input id="find" type="search" placeholder="Search items: name, supplier, size, colour" aria-label="Search items" autocomplete="off"><span class="tiny" id="findn"></span></div>
+  <div class="find"><input id="find" type="search" placeholder="Search items: name, supplier, size, colour" aria-label="Search items" autocomplete="off"><button class="plain small" id="lowonly" aria-pressed="false" title="Only items below their minimum, or that run short in the next two weeks">Low or running out</button><span class="tiny" id="findn"></span></div>
 
   <h2 class="withbtn">Stock <button class="plain small" id="newitem">New item</button></h2>
   <div class="stock" id="stock"><div class="empty">Loading&hellip;</div></div>
@@ -199,6 +203,15 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
   </div>
   <div class="groups" id="groups"></div>
 
+  <div id="pal-wrap" class="hide">
+    <h2>Pallets packed</h2>
+    <p class="sub" id="palsub"></p>
+    <div class="tablewrap"><table class="sched" id="pals"></table></div>
+    <h2>Waiting for a pallet</h2>
+    <p class="sub" id="aheadsub"></p>
+    <div class="tablewrap"><table class="sched" id="ahead"></table></div>
+  </div>
+
   <div id="sched-wrap">
     <h2 class="withbtn">Coming up <button class="plain small" id="showjobs">Show jobs</button></h2>
     <p class="sub" id="schedsub"></p>
@@ -213,7 +226,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.3 &middot; 23 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.5 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -268,18 +281,31 @@ var USES = {
   roller_set:    {label: 'Extra roller sets for bypass', per: 'Roller sets per unit', cut: false, group: 'Bypass tracks and rollers'},
   floor_guide:   {label: 'Floor guides for bypass', per: 'Floor guides per unit', cut: false, group: 'Bypass tracks and rollers'},
   finger_pull:   {label: 'Finger pulls, by shape and colour', per: 'Finger pulls per unit', cut: false, spec: true, group: 'Finger pulls'},
-  flush_bolt:    {label: 'Flush bolts, by colour', per: 'Flush bolts per unit', cut: false, spec: true, group: 'Flush bolts'}
+  flush_bolt:    {label: 'Flush bolts, by colour', per: 'Flush bolts per unit', cut: false, spec: true, group: 'Flush bolts'},
+  /* Andrew, 27 November: Packaging Materials, from the pallets in the
+     dealer portal, not from Access. A pallet item says how much of its
+     unit each pallet uses (4 corner protectors, 0.1333 of a 1,500 ft
+     roll of wrap); foam is every door's height plus 12", in inches,
+     against the length of one roll. */
+  pallet:        {label: 'Every pallet packed in the dealer portal', per: 'Used on each pallet, in this item\u2019s unit', cut: false, pallet: true, times: true},
+  door_foam:     {label: 'Foam: every door on a pallet, its height plus 12"', per: 'Length of one roll, inches', cut: false, pallet: true}
 };
+function isPallet(it){ return !!(it && USES[it.uses] && USES[it.uses].pallet); }
 /* "size=3.5; radius=0.25; finish=Black" read as "3.5, 0.25, Black" */
 function niceSpec(sp){ return String(sp || '').split(';').map(function(b){ return b.split('=').pop().trim(); }).filter(Boolean).join(', '); }
 
 /* ---- what was read ------------------------------------------------------ */
 var ME = null, CAT = null, ITEMS = [], SUPPLIERS = [], COUNTS = [], ORDERS = [], SCHED = [];
+var PALLETS = null, AHEAD = [], PALLET_ERR = '';  // pallets from the dealer portal, for Packaging Materials
 var QTY = {};              // what is typed in the new order, by item id
 var panel = null;          // which little form is open
 var askRemove = null;      // item or supplier about to be removed
 var showJobs = false;
 var FIND = '';
+/* Andrew, 27 November: a filter for what is below its minimum or will
+   run short, from the same arithmetic as the chips on each card. */
+var LOWONLY = false;
+function isLow(it){ var st = stockOf(it).state; return st === 'low' || st === 'short'; }
 var busy = false;
 
 function message(kind, text){
@@ -337,15 +363,23 @@ function load(){
       get('/rest/v1/supply_suppliers?select=*&order=name.asc'),
       get('/rest/v1/supply_counts?select=*,supply_items!inner(category)&supply_items.category=eq.' + encodeURIComponent(CODE) +
           '&order=counted_on.desc,created_at.desc&limit=500'),
-      get('/rest/v1/supply_orders?select=*,supply_order_lines(*)&category=eq.' + encodeURIComponent(CODE) +
-          '&order=requested_at.desc&limit=300'),
+      get('/rest/v1/supply_orders?select=*,supply_order_lines(*,supply_receipts(*))&category=eq.' + encodeURIComponent(CODE) +
+          '&order=requested_at.desc&limit=300')
+        .catch(function(){ return get('/rest/v1/supply_orders?select=*,supply_order_lines(*)&category=eq.' + encodeURIComponent(CODE) +
+          '&order=requested_at.desc&limit=300'); }),
       getAll('/rest/v1/supply_schedule?select=*&need_on=gte.' + addDays(TODAY, -400) + '&order=need_on.asc,access_order_id.asc')
     ]);
   }).then(function(r){
     ITEMS = r[0] || []; SUPPLIERS = r[1] || []; COUNTS = r[2] || []; ORDERS = r[3] || []; SCHED = r[4] || [];
+    if(!ITEMS.some(isPallet)){ PALLETS = null; return; }
+    return Promise.all([rpc('supply_pallet_use', {p_from: addDays(TODAY, -400)}), rpc('supply_pallet_ahead', {p_to: addDays(TODAY, 27)})])
+      .then(function(r){ PALLETS = r[0] || []; AHEAD = r[1] || []; })
+      .catch(function(err){ PALLETS = null; AHEAD = []; PALLET_ERR = err.message; });
+  }).then(function(){
+    if(PALLETS) SCHED = SCHED.concat(palletRows(PALLETS, AHEAD));
     draw();
   }).catch(function(err){
-    message('bad', err.message);
+    message('bad', err.message); reportValue(err.message);
     ['stock','orders'].forEach(function(id){ $(id).innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
   });
 }
@@ -353,6 +387,7 @@ function load(){
 /* Search: every word typed must appear somewhere in the item's names,
    supplier, or size and colour. Picked items stay in the order table. */
 function matches(it){
+  if(LOWONLY && !isLow(it)) return false;
   if(!FIND) return true;
   var sup = supplierOf(it);
   var hay = [it.shop_name, it.supplier_item, sup ? sup.name : '', it.spec ? niceSpec(it.spec) : '', groupOf(it)].join(' ').toLowerCase();
@@ -361,7 +396,8 @@ function matches(it){
 function shown(){ return ITEMS.filter(matches); }
 function drawFind(){
   var n = shown().length;
-  $('findn').textContent = FIND ? (n ? n + ' of ' + ITEMS.length + ' items' : 'No item matches') : '';
+  $('findn').textContent = FIND || LOWONLY ? (n ? n + ' of ' + ITEMS.length + ' items' : LOWONLY && !FIND ? 'Nothing is low or running out' : 'No item matches') : '';
+  $('lowonly').classList.toggle('on', LOWONLY); $('lowonly').setAttribute('aria-pressed', LOWONLY ? 'true' : 'false');
 }
 function supplierOf(it){ return SUPPLIERS.filter(function(s){ return s.id === it.supplier_id; })[0] || null; }
 function itemById(id){ return ITEMS.filter(function(i){ return i.id === id; })[0] || null; }
@@ -395,14 +431,108 @@ function unitsFor(it, rows){
     rows.forEach(function(s){ (s.cuts || []).forEach(function(c){ cuts.push(Number(c)); }); });
     return pack(cuts, per) * waste;
   }
+  if(USES[it.uses] && USES[it.uses].times) return sum(rows, function(s){ return s.amount; }) * per * waste;
   return sum(rows, function(s){ return s.amount; }) / per * waste;
 }
+
+/* ---- pallets -----------------------------------------------------------------
+   Each pallet from the dealer portal becomes two rows of the same shape
+   as the Access schedule: one pallet, and the inches of foam its doors
+   take, on the day it was built. That is what is used.
+   What is coming is in two parts (Andrew, 27 November). An order not
+   on a pallet yet is forecast from its Packaging Date in Access: its
+   doors and foam exactly, and pallets by packing each dealer's doors in
+   date order, a pallet going once at least 20 doors are waiting and none
+   carrying more than 45. Whatever is left under 20 at the end counts as
+   one more pallet. Once an order is on a pallet in the portal, the
+   pallet itself counts it, above. Forecast rows are marked ahead and only
+   ever count as need to come. */
+var PALLET_MIN = 20, PALLET_MAX = 45;
+function palletRows(list, ahead){
+  var out = [];
+  list.forEach(function(p){
+    var base = {access_order_id: 'P' + p.pallet_id, order_no: '', job: 'Pallet ' + (p.name || ''), spec: '', cuts: [],
+                need_on: p.day, doors: Number(p.doors) || 0, pulled_at: null, pallet: true};
+    out.push(Object.assign({}, base, {uses: 'pallet', amount: 1}));
+    if(Number(p.foam_in) > 0) out.push(Object.assign({}, base, {uses: 'door_foam', amount: Number(p.foam_in)}));
+  });
+  var by = {};
+  (ahead || []).forEach(function(a){ (by[a.dealer_id] = by[a.dealer_id] || []).push(a); });
+  Object.keys(by).forEach(function(d){
+    var waiting = 0, last = null;
+    by[d].sort(function(x, y){ return x.pack_on < y.pack_on ? -1 : x.pack_on > y.pack_on ? 1 : 0; }).forEach(function(a, i){
+      var day = a.pack_on < TODAY ? TODAY : a.pack_on, doors = Number(a.doors) || 0;
+      var base = {access_order_id: 'A' + d + i, order_no: '', job: 'Packaging', spec: '', cuts: [], need_on: day,
+                  doors: doors, orders: Number(a.orders) || 0, pulled_at: null, pallet: true, ahead: true};
+      out.push(Object.assign({}, base, {uses: 'door_foam', amount: Number(a.foam_in) || 0}));
+      waiting += doors; last = base;
+      if(waiting >= PALLET_MIN){
+        out.push(Object.assign({}, base, {uses: 'pallet', amount: Math.ceil(waiting / PALLET_MAX - 1e-9), doors: waiting}));
+        waiting = 0;
+      }
+    });
+    if(waiting > 0 && last) out.push(Object.assign({}, last, {uses: 'pallet', amount: 1, doors: waiting, short: true}));
+  });
+  return out;
+}
+/* "3 pallets, 41 doors shipping", for the next two weeks */
+function aheadText(){
+  var rows = SCHED.filter(function(s){ return s.ahead && s.uses === 'pallet' && s.need_on <= addDays(TODAY, 13); });
+  var p = sum(rows, function(s){ return s.amount; }), d = sum(rows, function(s){ return s.doors; });
+  return p ? p + ' pallet' + (p === 1 ? '' : 's') + ', ' + d + ' door' + (d === 1 ? '' : 's') + ' to pack' : 'nothing to pack';
+}
+/* what the stock is taken down by: real pallets and jobs only */
+function realRows(rows){ return rows.filter(function(s){ return !s.ahead; }); }
+
+/* ---- packs and prices ---------------------------------------------------------
+   Andrew, 27 November: Uline sells by the carton, bundle and case, and
+   every item gets a price for the inventory value tool to come. The
+   price is always for one of the item's unit: a gallon, a roll of foam,
+   a corner protector, a piece of pine. */
+function stepOf(it){ return Number(it.order_step) > 0 ? Number(it.order_step) : 0; }
+function packText(it){
+  var st = stepOf(it);
+  return st ? (it.pack_name || 'pack') + ' of ' + n1(st) + ' ' + plural(st, it.unit) : '';
+}
+/* Andrew, 27 November: a piece is either a length (pine, rerail, valance:
+   16 ft, 12 ft) or comes in packs. A predicted cut keeps its length in
+   per_unit already; a counted only piece keeps it there too. */
+function isPiece(unit){ return /^(piece|pieces|pc|pcs)$/i.test(String(unit || 'piece').trim()); }
+function lengthOf(it){
+  if(!isPiece(it.unit) || !(Number(it.per_unit) > 0)) return 0;
+  if(it.uses && !USES[it.uses].cut) return 0;
+  return Number(it.per_unit);
+}
+function lengthText(inches){
+  var n = Number(inches);
+  return n % 12 === 0 ? n / 12 + ' ft' : n1(n) + '"';
+}
+function roundUp(it, q){ var st = stepOf(it); return st && q > 0 ? Math.ceil(q / st - 1e-9) * st : q; }
+function money(n, places){ return '$' + (Number(n) || 0).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: places || 2}); }
+function unitPrice(it){ var p = Number(it.price); return it.price != null && it.price !== '' && p >= 0 ? p : null; }
 
 /* ---- stock ----------------------------------------------------------------
    As paint: the last count (stock at the end of that day), plus what was
    received after it, less what the schedule used on every day after it up
    to yesterday. Today's need is still to come. */
-function received(o){ return o.status === 'received'; }
+/* Andrew, 27 November: a supplier may ship part of a PO, so each
+   delivery of a line is a receipt with its own day. Stock adds each
+   receipt on its day; what has not come yet stays on order. A line from
+   before receipts existed, on a PO marked received, counts as all of it
+   on the day the PO was received. */
+function receiptsOf(o, l){
+  if(Array.isArray(l.supply_receipts) && (l.supply_receipts.length || o.status !== 'received')) return l.supply_receipts;
+  return o.status === 'received' ? [{qty: l.qty, received_on: o.received_on, legacy: true}] : [];
+}
+function gotOf(o, l){ return sum(receiptsOf(o, l), function(r){ return r.qty; }); }
+function toCome(o, l){ return o.status === 'requested' ? Math.max(0, Math.round((Number(l.qty) - gotOf(o, l)) * 100) / 100) : 0; }
+function receiptsFor(it){
+  var out = [];
+  ORDERS.forEach(function(o){ (o.supply_order_lines || []).forEach(function(l){
+    if(l.item_id === it.id) receiptsOf(o, l).forEach(function(r){ if(r.received_on) out.push(r); });
+  }); });
+  return out;
+}
 function linesFor(it, test){
   var out = [];
   ORDERS.forEach(function(o){ if(test(o)) (o.supply_order_lines || []).forEach(function(l){ if(l.item_id === it.id) out.push({o: o, l: l}); }); });
@@ -412,11 +542,12 @@ function stockOf(it){
   var last = COUNTS.filter(function(x){ return x.item_id === it.id; })[0] || null;
   var since = last ? last.counted_on : null;
   var firstIn = null;
-  if(!last) linesFor(it, received).forEach(function(x){ if(x.o.received_on && (!firstIn || x.o.received_on < firstIn)) firstIn = x.o.received_on; });
+  var ins = receiptsFor(it);
+  if(!last) ins.forEach(function(r){ if(!firstIn || r.received_on < firstIn) firstIn = r.received_on; });
   if(!last && firstIn) since = addDays(firstIn, -1);
-  var got = sum(linesFor(it, function(o){ return received(o) && (!since || o.received_on > since); }), function(x){ return x.l.qty; });
-  var used = since ? unitsFor(it, rowsFor(it, addDays(since, 1), addDays(TODAY, -1))) : 0;
-  var onOrder = sum(linesFor(it, function(o){ return o.status === 'requested'; }), function(x){ return x.l.qty; });
+  var got = sum(ins.filter(function(r){ return !since || r.received_on > since; }), function(r){ return r.qty; });
+  var used = since ? unitsFor(it, realRows(rowsFor(it, addDays(since, 1), addDays(TODAY, -1)))) : 0;
+  var onOrder = sum(linesFor(it, function(o){ return o.status === 'requested'; }), function(x){ return toCome(x.o, x.l); });
   var now = last ? Number(last.qty) + got - used : firstIn ? got - used : null;
 
   var two = addDays(TODAY, 13);
@@ -437,7 +568,7 @@ function stockOf(it){
   var warn = Number(it.warn_qty) || 0, std = Number(it.standard_order) || 0;
   var after = now == null ? null : now + onOrder - need2;
   var state = now == null ? 'unknown' : after < 0 ? 'short' : after < warn ? 'low' : 'ok';
-  var suggest = state === 'short' || state === 'low' ? Math.max(std, Math.ceil(warn - after)) : 0;
+  var suggest = state === 'short' || state === 'low' ? roundUp(it, Math.max(std, Math.ceil(warn - after))) : 0;
   return {last: last, now: now, got: got, used: used, onOrder: onOrder, need2: need2,
           jobs2: Object.keys(jobs2).length, runsOut: runsOut, after: after, state: state, suggest: suggest};
 }
@@ -461,20 +592,28 @@ function card(it){
     '<div class="min">Minimum on hand <b>' + (Number(it.warn_qty) ? esc(qtyText(it.warn_qty, u)) : 'not set') + '</b></div>' +
     '<div class="how">' + how + '</div>' +
     '<dl>' +
-      (it.uses ? '<dt>Next 2 weeks</dt><dd>' + n1(s.need2) + (s.jobs2 ? ' <span style="color:var(--muted)">(' + s.jobs2 + ' job' + (s.jobs2 === 1 ? '' : 's') + ')</span>' : '') + '</dd>'
-               : '<dt>Next 2 weeks</dt><dd><span class="tiny">not in Access</span></dd>') +
+      (isPallet(it) ? '<dt>Next 2 weeks</dt><dd>' + n1(s.need2) + ' <span style="color:var(--muted)">(' + aheadText() + ')</span></dd>'
+       : it.uses ? '<dt>Next 2 weeks</dt><dd>' + n1(s.need2) + (s.jobs2 ? ' <span style="color:var(--muted)">(' + s.jobs2 + ' job' + (s.jobs2 === 1 ? '' : 's') + ')</span>' : '') + '</dd>'
+               : '<dt>Next 2 weeks</dt><dd><span class="tiny">' + (CODE === 'packaging' ? 'not predicted' : 'not in Access') + '</span></dd>') +
       '<dt>On order</dt><dd>' + (s.onOrder ? n1(s.onOrder) : 'none') + '</dd>' +
       (s.after == null ? '' : '<dt>Left after 2 weeks</dt><dd>' + n1(s.after) + '</dd>') +
       '<dt>Standard order</dt><dd>' + (Number(it.standard_order) ? n1(it.standard_order) : 'not set') + '</dd>' +
+      (lengthOf(it) ? '<dt>Length</dt><dd>' + esc(lengthText(lengthOf(it))) + ' a piece</dd>' : '') +
+      (stepOf(it) ? '<dt>Comes in</dt><dd>' + esc(packText(it)) + '</dd>' : '') +
+      '<dt>Price</dt><dd>' + (unitPrice(it) == null ? 'not set'
+        : esc(money(it.price, 4)) + ' a ' + esc(it.unit)) + '</dd>' +
+      (unitPrice(it) != null && s.now != null ? '<dt>Stock value</dt><dd>' + esc(money(Math.max(0, s.now) * unitPrice(it))) + '</dd>' : '') +
     '</dl>' +
-    (s.suggest ? '<div class="suggest">Suggest ordering ' + esc(qtyText(s.suggest, u)) + ', to stay at or above the minimum</div>' : '') +
+    (s.suggest ? '<div class="suggest">Suggest ordering ' + esc(qtyText(s.suggest, u)) +
+      (stepOf(it) ? ' (' + n1(s.suggest / stepOf(it)) + ' ' + esc(plural(n1(s.suggest / stepOf(it)), it.pack_name || 'pack')) + ')' : '') +
+      ', to stay at or above the minimum</div>' : '') +
     (askRemove === it.id
       ? '<div class="areyousure">Take ' + esc(it.shop_name) + ' off the list, with its counts? Orders keep their record.' +
         '<div class="acts"><button class="save small" data-removeyes="' + esc(it.id) + '">Yes, remove it</button>' +
         '<button class="plain small" data-removeno>No</button></div></div>'
       : '') +
     '<div class="acts"><button class="plain small" data-count="' + esc(it.id) + '">Count</button>' +
-      '<button class="save small" data-add="' + esc(it.id) + '" data-q="' + (s.suggest || Number(it.standard_order) || 1) + '">Add to order</button>' +
+      '<button class="save small" data-add="' + esc(it.id) + '" data-q="' + (s.suggest || Number(it.standard_order) || stepOf(it) || 1) + '">Add to order</button>' +
       '<button class="plain small" data-edit="' + esc(it.id) + '">Edit</button></div>' +
     '</div>';
 }
@@ -485,7 +624,7 @@ function drawStock(){
      long hardware list reads in sections. */
   drawFind();
   var list = shown();
-  if(!list.length){ $('stock').innerHTML = '<div class="empty">No item matches that search.</div>'; return; }
+  if(!list.length){ $('stock').innerHTML = '<div class="empty">' + (LOWONLY && !FIND ? 'Nothing is below its minimum or running short in the next two weeks.' : 'No item matches that search.') + '</div>'; return; }
   var groups = [], by = {};
   list.forEach(function(it){ var g = groupOf(it); if(!by[g]){ by[g] = []; groups.push(g); } by[g].push(it); });
   if(groups.length === 1 && !groups[0]){ $('stock').innerHTML = list.map(card).join(''); return; }
@@ -508,7 +647,14 @@ function groupsOf(list){
   });
   return order.map(function(k){ return g[k]; });
 }
-function copyList(){ return String(CAT && CAT.copy_to || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean); }
+/* Andrew, 27 November: Ashley is copied on ALL orders, whatever the list
+   has saved (the database puts her back if she is taken off). */
+var ASHLEY = 'ashley@grinyer.ca';
+function copyList(){
+  var l = String(CAT && CAT.copy_to || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  if(!l.some(function(a){ return a.toLowerCase() === ASHLEY; })) l.unshift(ASHLEY);
+  return l;
+}
 function drawOrderForm(){
   if(!ITEMS.length){ $('ord').innerHTML = '<tr><td><div class="empty">Add items first.</div></td></tr>'; drawGroups(); return; }
   $('ord').innerHTML = '<thead><tr><th>Item</th><th>Supplier</th><th style="text-align:right">In stock</th>' +
@@ -521,7 +667,9 @@ function drawOrderForm(){
         '<td class="n">' + (s.now == null ? '?' : n1(s.now)) + '</td>' +
         '<td class="n">' + (s.suggest ? n1(s.suggest) : '<span class="tiny">none</span>') + '</td>' +
         '<td class="n"><input class="qty" data-qty="' + esc(it.id) + '" inputmode="decimal" value="' + esc(q == null ? '' : q) + '" aria-label="How many ' + esc(it.shop_name) + '"> ' +
-          '<span class="tiny">' + esc(plural(2, it.unit)) + '</span></td></tr>';
+          '<span class="tiny">' + esc(plural(2, it.unit)) + '</span>' +
+          (lengthOf(it) ? '<small>' + esc(lengthText(lengthOf(it))) + ' lengths</small>' : '') +
+          (stepOf(it) ? '<small>' + esc(packText(it)) + '</small>' : '') + '</td></tr>';
     }).join('') + '</tbody>';
   drawGroups();
 }
@@ -539,7 +687,8 @@ function drawGroups(){
 
 /* ---- coming up, by the day needed ------------------------------------------- */
 function drawSchedule(){
-  var used = ITEMS.filter(function(it){ return it.uses && Number(it.per_unit) > 0; });
+  var used = ITEMS.filter(function(it){ return it.uses && Number(it.per_unit) > 0 && !isPallet(it); });
+  drawPallets();
   $('sched-wrap').classList.toggle('hide', !used.length);
   if(!used.length) return;
   var to = addDays(TODAY, 27);
@@ -578,27 +727,84 @@ function drawSchedule(){
   $('showjobs').classList.toggle('on', showJobs);
 }
 
+/* the last four weeks of pallets from the dealer portal, so the numbers
+   taken off stock can be checked against the floor */
+function drawPallets(){
+  var on = ITEMS.some(isPallet) && PALLETS;
+  $('pal-wrap').classList.toggle('hide', !on);
+  if(!on) return;
+  var from = addDays(TODAY, -27);
+  var list = PALLETS.filter(function(p){ return p.day >= from; }).slice().reverse();
+  $('palsub').textContent = 'The last four weeks from the dealer portal, by the day each pallet was started. ' +
+    'Foam is each door\u2019s height on the order plus 12".';
+  if(!list.length){ $('pals').innerHTML = '<tr><td><div class="empty">No pallets in the last four weeks.</div></td></tr>'; drawAhead(); return; }
+  var doors = sum(list, function(p){ return p.doors; }), foam = sum(list, function(p){ return p.foam_in; });
+  $('pals').innerHTML = '<thead><tr><th>Day</th><th>Pallet</th><th>Doors</th><th>Foam, feet</th></tr></thead><tbody>' +
+    list.map(function(p){
+      return '<tr' + (p.day === TODAY ? ' class="today"' : '') + '><td>' + esc(nice(p.day, true)) + '</td><td>' + esc(p.name || '') + '</td>' +
+        '<td>' + n1(p.doors) + '</td><td>' + n1((Number(p.foam_in) || 0) / 12) + '</td></tr>';
+    }).join('') +
+    '<tr class="tot"><td>Four weeks</td><td>' + list.length + ' pallet' + (list.length === 1 ? '' : 's') + '</td><td>' + n1(doors) + '</td><td>' + n1(foam / 12) + '</td></tr></tbody>';
+  drawAhead();
+}
+/* the orders still to go on a pallet, by Packaging Date */
+function drawAhead(){
+  var foam = SCHED.filter(function(s){ return s.ahead && s.uses === 'door_foam'; });
+  var pals = SCHED.filter(function(s){ return s.ahead && s.uses === 'pallet'; });
+  $('aheadsub').textContent = 'Dealer orders not on a pallet yet, by their Packaging Date in Access, the next four weeks. A date already past shows as today. ' +
+    'Each dealer\u2019s doors fill a pallet once 20 are waiting, and no pallet carries more than 45. Once the orders go on a pallet, the pallet above counts them instead.';
+  if(!foam.length){ $('ahead').innerHTML = '<tr><td><div class="empty">No dealer orders waiting for a pallet with a Packaging Date in the next four weeks.</div></td></tr>'; return; }
+  var days = {};
+  foam.forEach(function(s){ var x = days[s.need_on] = days[s.need_on] || {orders: 0, doors: 0, foam: 0, pals: 0, short: false}; x.orders += s.orders; x.doors += s.doors; x.foam += s.amount; });
+  pals.forEach(function(s){ var x = days[s.need_on]; if(x){ x.pals += s.amount; if(s.short) x.short = true; } });
+  var keys = Object.keys(days).sort(), t = {orders: 0, doors: 0, foam: 0, pals: 0};
+  $('ahead').innerHTML = '<thead><tr><th>Packaging</th><th>Orders</th><th>Doors</th><th>Pallets</th><th>Foam, feet</th></tr></thead><tbody>' +
+    keys.map(function(k){
+      var x = days[k]; t.orders += x.orders; t.doors += x.doors; t.foam += x.foam; t.pals += x.pals;
+      return '<tr><td>' + esc(nice(k, true)) + '</td><td>' + n1(x.orders) + '</td><td>' + n1(x.doors) + '</td><td>' +
+        (x.pals ? n1(x.pals) + (x.short ? ' <span class="tiny">(under 20 so far)</span>' : '') : '<span class="z">&middot;</span>') + '</td><td>' + n1(x.foam / 12) + '</td></tr>';
+    }).join('') +
+    '<tr class="tot"><td>Four weeks</td><td>' + n1(t.orders) + '</td><td>' + n1(t.doors) + '</td><td>' + n1(t.pals) + '</td><td>' + n1(t.foam / 12) + '</td></tr></tbody>';
+}
+
 /* ---- orders ------------------------------------------------------------- */
 function drawOrders(){
   var cut = addDays(TODAY, -90);
   var list = ORDERS.filter(function(o){ return o.status === 'requested' || o.requested_at.slice(0, 10) >= cut; });
   $('orders').innerHTML = list.map(function(o){
-    var lines = (o.supply_order_lines || []).map(function(l){ return qtyText(l.qty, l.unit) + ' ' + l.shop_name; }).join(', ');
+    var ls = o.supply_order_lines || [];
+    var open = o.status === 'requested';
+    var part = open && ls.some(function(l){ return gotOf(o, l) > 0; });
+    var lines = ls.map(function(l){
+      var got = gotOf(o, l), come = toCome(o, l), rs = receiptsOf(o, l).filter(function(r){ return !r.legacy; });
+      return '<div class="pl">' + esc(qtyText(l.qty, l.unit) + ' ' + l.shop_name) +
+        (rs.length && (open || got < Number(l.qty)) ? ' <span class="tiny">' + rs.map(function(r){
+          return esc(n1(r.qty) + ' in ' + nice(r.received_on)) + (open ? ' <button class="linkish" data-unreceive="' + esc(r.id) + '" title="Typed wrong? Take it back">take back</button>' : '');
+        }).join(', ') + '</span>' : '') +
+        (open && come > 0 ? ' <span class="tiny">' + esc(n1(come)) + ' to come</span>' +
+          ' <input class="qty" data-recvqty="' + esc(l.id) + '" inputmode="decimal" value="' + esc(n1(come)) + '" aria-label="How many of ' + esc(l.shop_name) + ' came">' +
+          ' <button class="plain small" data-recvline="' + esc(l.id) + '" data-order="' + esc(o.id) + '">Received</button>' : '') +
+        (open && come <= 0 ? ' <span class="chip ok">All in</span>' : '') + '</div>';
+    }).join('');
     var chip = o.status === 'received' ? '<span class="chip ok">Received ' + esc(nice(o.received_on)) + '</span>'
              : o.status === 'cancelled' ? '<span class="chip grey">Cancelled</span>'
+             : part ? '<span class="chip low">Part received</span>'
              : '<span class="chip info">On order</span>';
-    var mail = o.emailed_at ? 'Emailed to ' + esc(o.sent_to || 'the supplier') + (o.copied_to ? ', copy ' + esc(o.copied_to) : '')
+    var unsent = ls.some(function(l){ return 'emailed_at' in l ? !l.emailed_at : !o.emailed_at; });
+    var mail = o.emailed_at ? 'Emailed to ' + esc(o.sent_to || 'the supplier') + (o.copied_to ? ', copy ' + esc(o.copied_to) : '') +
+                              (unsent ? '. <b style="color:var(--brass)">Items added since, not emailed</b>' : '')
                             : '<b style="color:var(--brass)">Email not sent</b>';
     return '<div class="row' + (o.status === 'cancelled' ? ' none' : '') + '"><div class="what">' +
       '<div class="t">' + esc(o.po_no) + ' &nbsp;' + esc(o.supplier_name || 'No supplier') + '</div>' +
-      '<div>' + esc(lines) + '</div>' +
+      '<div>' + lines + '</div>' +
       '<div class="meta">' + (o.needed_by ? 'Needed by ' + esc(nice(o.needed_by, true)) + '. ' : '') +
         'Asked by ' + esc(o.requested_by || 'someone') + ' ' + esc(nice(o.requested_at.slice(0, 10))) + '. ' + mail +
         (o.note ? '. ' + esc(o.note) : '') + '</div></div>' +
       '<div class="acts">' + chip +
         (o.status === 'requested'
-          ? (o.emailed_at ? '' : ' <button class="plain small" data-resend="' + o.id + '">Send email</button>') +
-            ' <button class="save small" data-received="' + o.id + '">Received</button>' +
+          ? (unsent ? ' <button class="plain small" data-resend="' + o.id + '">Send email</button>' : '') +
+            ' <label class="tiny">Came on <input type="date" class="day" data-recvday="' + o.id + '" value="' + TODAY + '" max="' + TODAY + '"></label>' +
+            ' <button class="save small" data-received="' + o.id + '" title="Everything still to come arrived">All arrived</button>' +
             ' <button class="plain small" data-cancel="' + o.id + '">Cancel</button>'
           : '') +
       '</div></div>';
@@ -626,7 +832,7 @@ function drawSettings(){
   }).join('');
   $('setbody').innerHTML =
     '<h2>Who is copied on every order</h2><div class="form">' +
-      '<div class="wide"><label for="s-copy">Purchasing manager, commas for several</label><input id="s-copy" value="' + esc(CAT && CAT.copy_to || '') + '" placeholder="ashley@grinyer.ca"></div>' +
+      '<div class="wide"><label for="s-copy">Copied on every order, commas for several (Ashley always is)</label><input id="s-copy" value="' + esc(CAT && CAT.copy_to || '') + '" placeholder="ashley@grinyer.ca"></div>' +
       '<div class="acts"><button class="save" id="s-savecopy">Save</button><span class="total">Copied on every ' + esc(CAT ? CAT.po_prefix : '') + ' PO, and where the supplier’s reply goes.</span></div></div>' +
     '<h2 class="withbtn">Suppliers <button class="plain small" id="newsupplier">New supplier</button></h2>' +
     '<p class="sub">Shared by Shop, Sanding and Install Supplies. Each PO is emailed to the supplier’s address.</p>' +
@@ -636,6 +842,14 @@ function drawSettings(){
 
 function drawFresh(){
   var el = $('fresh');
+  if(ITEMS.some(isPallet) && !ITEMS.some(function(it){ return it.uses && !isPallet(it); })){
+    el.className = 'fresh' + (PALLETS ? '' : ' stale');
+    el.textContent = PALLETS ? 'Taken down by the pallets packed in the dealer portal: one shipping pallet, 4 corner protectors, 10 strap guards, ' +
+      '2 cones, the wrap and the tape for each pallet, and foam for each door on it at its height plus 12" (a double is two doors). ' +
+      'What is coming is the dealer orders not on a pallet yet, by their Packaging Date in Access, 20 to 45 doors a pallet.'
+      : 'Could not read the pallets from the dealer portal' + (PALLET_ERR ? ': ' + PALLET_ERR : '') + '. Has supplies.sql been run again?';
+    return;
+  }
   if(!ITEMS.some(function(it){ return it.uses && it.uses !== 'doors'; })){ el.className = 'fresh'; el.textContent = ''; return; }
   var last = SCHED.reduce(function(m, s){ return s.pulled_at > m ? s.pulled_at : m; }, '');
   if(!last){ el.className = 'fresh stale'; el.textContent = 'Nothing has come from Access yet. The server sync sends what each job needs every hour once it is set up.'; return; }
@@ -644,6 +858,20 @@ function drawFresh(){
   el.textContent = 'Jobs from Access, last updated ' +
     new Date(last).toLocaleString('en-CA', {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}).replace(/\.$/, '') +
     (age > 3 ? '. That is over three hours ago: the server sync may have stopped.' : '.');
+}
+
+/* ---- for the Inventory Value screen ----------------------------------------
+   Andrew, 27 November. That screen opens this page out of sight, one list
+   at a time, and reads what it worked out, so stock on hand is the same
+   number on both. Nothing happens when the page is opened on its own. */
+function reportValue(err){
+  if(window.parent === window) return;
+  var name = CAT ? CAT.name : CODE;
+  var msg = err ? {list: name, code: CODE, error: err} : {list: name, code: CODE, rows: ITEMS.map(function(it){
+    var s = stockOf(it);
+    return {name: it.shop_name, unit: it.unit, now: s.now, counted: !!s.last, price: unitPrice(it)};
+  })};
+  try{ window.parent.postMessage({gidcValue: msg}, location.origin); }catch(e){}
 }
 
 function draw(){
@@ -656,11 +884,13 @@ function draw(){
       ? 'Hinges, bypass tracks and rollers, floor guides, finger pulls and flush bolts: in stock, what the jobs coming up will use, and purchase orders (' + CAT.po_prefix + ').'
       : CODE === 'painting'
       ? 'Paint pockets, floor paper, acetone, filters, waste barrels and sprayer tips: in stock, minimums and purchase orders (' + CAT.po_prefix + '). Every order goes to Ashley.'
+      : CODE === 'packaging'
+      ? 'Shipping pallets from Grand River Pallets and foam, corner protectors, strap guards, cones, wrap and tape from Uline: in stock, what the pallets use, and purchase orders (' + CAT.po_prefix + '). Every order goes to Ashley.'
       : CODE === 'sanding'
       ? 'Mirka discs, square sheets, pads and bags from Abrasive Supply, and fillers through Ashley: in stock, minimums and purchase orders (' + CAT.po_prefix + '). The 240 and 320 discs are predicted from the doors coming up: a 240 disc does about 4 doors, a 320 about 10.'
       : 'What is in stock and purchase orders (' + CAT.po_prefix + '). Add the items you keep, their suppliers and standard orders.';
   }
-  drawFresh(); drawStock(); drawOrderForm(); drawSchedule(); drawOrders(); drawSettings(); drawPanel();
+  drawFresh(); drawStock(); drawOrderForm(); drawSchedule(); drawOrders(); drawSettings(); drawPanel(); reportValue();
 }
 
 /* ---- the little forms --------------------------------------------------------- */
@@ -692,12 +922,18 @@ function drawPanel(){
   /* an item, new or edited */
   var e = panel.id ? itemById(panel.id) || {} : {unit: 'piece', waste_pct: 10};
   var uses = e.uses || '';
+  var cut = !!(uses && USES[uses].cut), piece = isPiece(e.unit || 'piece');
+  var how = cut || (!uses && Number(e.per_unit) > 0) ? 'length' : stepOf(e) ? 'packs' : 'one';
   p.innerHTML = '<div class="panel"><h3>' + (panel.id ? 'Edit ' + esc(e.shop_name) : 'New item for ' + esc(CAT ? CAT.name : 'this list')) + '</h3><div class="form">' +
     '<div class="wide"><label for="i-name">Shop name</label><input id="i-name" value="' + esc(e.shop_name || '') + '" placeholder="What the shop calls it"></div>' +
     '<div class="wide"><label for="i-sitem">Supplier’s name for it</label><input id="i-sitem" value="' + esc(e.supplier_item || '') + '" placeholder="As it is on their invoice; goes on the PO"></div>' +
     '<div><label for="i-sup">Supplier</label><select id="i-sup">' + opt('', 'None yet', e.supplier_id || '') +
       SUPPLIERS.map(function(s){ return opt(s.id, s.name, e.supplier_id); }).join('') + '</select></div>' +
     '<div><label for="i-unit">Unit</label><input id="i-unit" value="' + esc(e.unit || 'piece') + '" placeholder="piece, box, roll"></div>' +
+    '<div id="i-howwrap"' + (piece ? '' : ' class="hide"') + '><label for="i-how">A piece is</label><select id="i-how">' +
+      opt('one', 'One at a time', how) + opt('length', 'A length', how) + opt('packs', 'Sold in packs of', how) + '</select></div>' +
+    '<div id="i-lenwrap"' + (piece && how === 'length' && !cut ? '' : ' class="hide"') + '><label for="i-len">Length of one piece, inches</label>' +
+      '<input id="i-len" inputmode="decimal" value="' + esc(!uses && Number(e.per_unit) > 0 ? n1(e.per_unit) : '') + '" placeholder="192 for 16 ft"></div>' +
     '<div><label for="i-warn">Minimum on hand</label><input id="i-warn" inputmode="decimal" value="' + esc(e.warn_qty == null ? '' : e.warn_qty) + '"></div>' +
     '<div><label for="i-std">Standard order</label><input id="i-std" inputmode="decimal" value="' + esc(e.standard_order == null ? '' : e.standard_order) + '"></div>' +
     '<div class="wide"><label for="i-uses">Predicted from</label><select id="i-uses">' + opt('', 'Not predicted: counted only', uses) +
@@ -708,18 +944,28 @@ function drawPanel(){
       '<input id="i-spec" list="i-specs" value="' + esc(e.spec || '') + '" placeholder="Pick from the list">' +
       '<datalist id="i-specs">' + specsFor(uses).map(function(x){ return '<option value="' + esc(x) + '">'; }).join('') + '</datalist></div>' +
     '<div id="i-wastewrap"' + (uses ? '' : ' class="hide"') + '><label for="i-waste">Waste allowance, %</label><input id="i-waste" inputmode="decimal" value="' + esc(e.waste_pct == null ? 10 : e.waste_pct) + '"></div>' +
+    '<div class="packwrap' + (piece && how === 'one' ? ' hide' : '') + '"><label for="i-step">Comes in packs of</label><input id="i-step" inputmode="decimal" value="' + esc(e.order_step == null ? '' : n1(e.order_step)) + '" placeholder="Blank if sold one at a time"></div>' +
+    '<div class="packwrap' + (piece && how === 'one' ? ' hide' : '') + '"><label for="i-pack">Pack is called</label><input id="i-pack" value="' + esc(e.pack_name || '') + '" placeholder="carton, bundle, case"></div>' +
+    '<div><label for="i-price">Price for one ' + esc(e.unit || 'piece') + '</label><input id="i-price" inputmode="decimal" value="' + esc(e.price == null ? '' : String(Number(e.price))) + '" placeholder="$"></div>' +
     (panel.id && askRemove !== e.id ? '' : '') +
     '<div class="acts"><button class="save" id="i-save">' + (panel.id ? 'Save' : 'Add item') + '</button><button class="plain" data-close>Cancel</button>' +
       (panel.id ? '<button class="plain" data-remove="' + esc(e.id) + '">Remove item</button>' : '') +
       '<span class="total">Add suppliers under Settings.</span></div></div></div>';
-  $('i-name').focus();
+  $('i-name').focus(); pieceFields();
 }
 function specsFor(uses){
   var seen = {}; SCHED.forEach(function(s){ if(s.uses === uses && s.spec) seen[s.spec] = 1; });
   ITEMS.forEach(function(it){ if(it.uses === uses && it.spec) seen[it.spec] = 1; });
   return Object.keys(seen).sort();
 }
-function numOf(id){ var t = String($(id) && $(id).value || '').trim().replace(',', '.'); if(t === '') return null; var v = Number(t); return isFinite(v) ? v : NaN; }
+function numOf(id){
+  var t = String($(id) && $(id).value || '').trim().replace(/^\$/, '').replace(/,(?=\d{3}\b)/g, '').replace(',', '.');
+  if(t === '') return null;
+  /* "200/1500" for 200 ft of a 1,500 ft roll */
+  var f = t.match(/^(\d+(?:\.\d+)?)\s*\/\s*(\d+(?:\.\d+)?)$/);
+  if(f) return Number(f[2]) > 0 ? Math.round(Number(f[1]) / Number(f[2]) * 10000) / 10000 : NaN;
+  var v = Number(t); return isFinite(v) ? v : NaN;
+}
 
 function saveCount(){
   var q = numOf('c-qty'), day = $('c-day').value;
@@ -756,12 +1002,23 @@ function saveItem(){
   var warn = numOf('i-warn'), std = numOf('i-std'), per = numOf('i-per'), waste = numOf('i-waste');
   if(!name) return message('bad', 'Type the shop name.');
   if(isNaN(warn) || warn < 0 || isNaN(std) || std < 0) return message('bad', 'Minimum on hand and standard order should be numbers, or left blank.');
-  if(uses && !(per > 0)) return message('bad', USES[uses].cut ? 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.' : 'Type how many doors one unit covers.');
+  var step = numOf('i-step'), price = numOf('i-price');
+  var piece = isPiece($('i-unit').value), how = piece ? $('i-how').value : 'packs';
+  var len = piece && how === 'length' && !uses ? numOf('i-len') : null;
+  if(piece && how === 'length' && !uses && !(len > 0 && len < 100000)) return message('bad', 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.');
+  if(piece && how === 'one') step = null;
+  if(isNaN(step) || (step != null && step <= 0)) return message('bad', 'Packs of should be a number above 0, or left blank.');
+  if(isNaN(price) || (price != null && price < 0)) return message('bad', 'The price should be a number, or left blank.');
+  if(uses && !(per > 0)) return message('bad', USES[uses].cut ? 'Type the length of one piece, in inches: 192 for 16 feet, 144 for 12 feet.'
+    : USES[uses].times ? 'Type how much one pallet uses, in this item\u2019s unit. For part of a roll, feet a pallet / feet a roll, like 200/1500.'
+    : uses === 'door_foam' ? 'Type the length of one roll in inches: 15000 for 1,250 feet.' : 'Type how many doors one unit covers.');
   if(uses && (waste == null || isNaN(waste) || waste < 0 || waste > 100)) return message('bad', 'The waste allowance is a percentage from 0 to 100.');
   var row = {shop_name: name, supplier_item: $('i-sitem').value.trim() || null, supplier_id: $('i-sup').value || null,
              unit: $('i-unit').value.trim() || 'piece', warn_qty: warn, standard_order: std,
-             uses: uses, per_unit: uses ? per : null, waste_pct: uses ? waste : 0,
-             spec: uses && USES[uses].spec ? $('i-spec').value.trim() : ''};
+             uses: uses, per_unit: uses ? per : len, waste_pct: uses ? waste : 0,
+             spec: uses && USES[uses].spec ? $('i-spec').value.trim() : '',
+             order_step: step, pack_name: step ? ($('i-pack').value.trim() || null) : null,
+             price: price == null ? null : Math.round(price * 10000) / 10000};
   if(!panel.id){ row.category = CODE; row.sort = (ITEMS.reduce(function(m, i){ return Math.max(m, i.sort || 0); }, 0) || 0) + 10; }
   busy = true;
   (panel.id ? send('PATCH', '/rest/v1/supply_items?id=eq.' + encodeURIComponent(panel.id), row) : send('POST', '/rest/v1/supply_items', row))
@@ -792,7 +1049,7 @@ function saveCopy(){
   if(v && !/^[^@\s,]+@[^@\s,]+\.[^@\s,]+(\s*,\s*[^@\s,]+@[^@\s,]+\.[^@\s,]+)*$/.test(v)) return message('bad', 'That email address does not look right. Use commas between several.');
   busy = true;
   send('PATCH', '/rest/v1/supply_categories?code=eq.' + encodeURIComponent(CODE), {copy_to: v || null})
-    .then(function(row){ CAT = row; draw(); $('settings').open = true; message('good', v ? 'Every order will copy ' + v + '.' : 'Nobody will be copied.'); })
+    .then(function(row){ CAT = row; draw(); $('settings').open = true; message('good', 'Every order will copy ' + copyList().join(', ') + '.'); })
     .catch(function(err){ message('bad', err.message); })
     .then(function(){ busy = false; });
 }
@@ -852,12 +1109,40 @@ function resend(id){
                  function(err){ message('bad', err.message); })
     .then(function(){ busy = false; });
 }
+function dayFor(orderId){
+  var d = document.querySelector('[data-recvday="' + orderId + '"]');
+  return d && d.value ? d.value : TODAY;
+}
+function receiveLine(lineId, orderId){
+  var q = numOf2(document.querySelector('[data-recvqty="' + lineId + '"]'));
+  if(!(q > 0)) return message('bad', 'Type how many came.');
+  var day = dayFor(orderId);
+  if(day > TODAY) return message('bad', 'Pick the day it came, today or earlier.');
+  busy = true;
+  send('POST', '/rest/v1/supply_receipts', {line_id: lineId, qty: Math.round(q * 100) / 100, received_on: day})
+    .then(function(){ return load(); })
+    .then(function(){ message('good', 'Received ' + n1(q) + ', and added to stock.'); })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function unreceive(id){
+  busy = true;
+  send('DELETE', '/rest/v1/supply_receipts?id=eq.' + encodeURIComponent(id))
+    .then(function(){ return load(); })
+    .then(function(){ message('good', 'Taken back. It is on order again.'); })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function numOf2(el){ var v = Number(String(el && el.value || '').trim().replace(',', '.')); return isFinite(v) ? v : NaN; }
 function setStatus(id, status){
   busy = true;
-  send('PATCH', '/rest/v1/supply_orders?id=eq.' + encodeURIComponent(id) + '&select=*,supply_order_lines(*)', {status: status})
+  var body = {status: status};
+  if(status === 'received'){ body.received_on = dayFor(id); if(body.received_on > TODAY) { busy = false; return message('bad', 'Pick the day it came, today or earlier.'); } }
+  send('PATCH', '/rest/v1/supply_orders?id=eq.' + encodeURIComponent(id), body)
     .then(function(row){
-      ORDERS = ORDERS.map(function(o){ return o.id === row.id ? row : o; }); draw();
-      message('good', status === 'received' ? row.po_no + ' received, and added to stock.' : row.po_no + ' cancelled.');
+      return load().then(function(){
+        message('good', status === 'received' ? row.po_no + ': the rest received, and added to stock.' : row.po_no + ' cancelled. Anything already received stays in stock.');
+      });
     })
     .catch(function(err){ message('bad', err.message); })
     .then(function(){ busy = false; });
@@ -900,8 +1185,11 @@ document.addEventListener('click', function(e){
   if(t.closest('#clearorder')){ QTY = {}; drawOrderForm(); return; }
   if(t.closest('#o-send')){ sendOrder(); return; }
   if(t.closest('#showjobs')){ showJobs = !showJobs; drawSchedule(); return; }
+  if(t.closest('#lowonly')){ LOWONLY = !LOWONLY; drawStock(); drawOrderForm(); return; }
   if(t.closest('#s-savecopy')){ saveCopy(); return; }
   if((el = t.closest('[data-received]'))){ setStatus(el.dataset.received, 'received'); return; }
+  if((el = t.closest('[data-recvline]'))){ receiveLine(el.dataset.recvline, el.dataset.order); return; }
+  if((el = t.closest('[data-unreceive]'))){ unreceive(el.dataset.unreceive); return; }
   if((el = t.closest('[data-cancel]'))){ setStatus(el.dataset.cancel, 'cancelled'); return; }
   if((el = t.closest('[data-resend]'))){ resend(el.dataset.resend); return; }
   if((el = t.closest('[data-uncount]'))){
@@ -923,14 +1211,28 @@ document.addEventListener('input', function(e){
     drawGroups();
   }
 });
+function pieceFields(){
+  if(!$('i-how')) return;
+  var piece = isPiece($('i-unit').value), how = $('i-how').value, u = $('i-uses').value;
+  var cut = !!(u && USES[u].cut);
+  $('i-howwrap').classList.toggle('hide', !piece);
+  $('i-lenwrap').classList.toggle('hide', !(piece && how === 'length' && !u));
+  [].forEach.call(document.querySelectorAll('.packwrap'), function(w){ w.classList.toggle('hide', piece && how === 'one'); });
+  if(cut && piece && how === 'one') $('i-how').value = 'length';
+  /* a pallet or door count prediction keeps its own number in per_unit */
+  var lo = $('i-how').querySelector('option[value="length"]'); lo.disabled = !!(u && !cut);
+  if(lo.disabled && $('i-how').value === 'length') $('i-how').value = 'packs';
+}
+document.addEventListener('input', function(e){ if(e.target.id === 'i-unit') pieceFields(); });
 document.addEventListener('change', function(e){
+  if(e.target.id === 'i-how' || e.target.id === 'i-uses') pieceFields();
   if(e.target.id === 'i-uses'){
     var u = e.target.value;
     $('i-perwrap').classList.toggle('hide', !u); $('i-wastewrap').classList.toggle('hide', !u);
     $('i-specwrap').classList.toggle('hide', !(u && USES[u].spec));
     if(u){
       $('i-perlabel').textContent = USES[u].per;
-      if(!$('i-per').value) $('i-per').value = USES[u].cut ? 192 : 1;
+      if(!$('i-per').value) $('i-per').value = USES[u].cut ? 192 : u === 'door_foam' ? 15000 : 1;
       if(!USES[u].cut && $('i-waste').value === '10') $('i-waste').value = 0;
       $('i-specs').innerHTML = specsFor(u).map(function(x){ return '<option value="' + esc(x) + '">'; }).join('');
     }

@@ -141,6 +141,9 @@ table.sched{border-collapse:collapse;width:100%;font-size:14px;font-variant-nume
 .sched .z{color:#C5C5CB}
 .jobs ul{margin:2px 0 4px;padding-left:18px}
 .nocol{color:var(--warn);font-weight:600}
+.row .pn{width:52px;padding:4px 6px;border:1px solid var(--rule);border-radius:7px;font:inherit;text-align:right;background:var(--card);color:var(--ink)}
+.row .day{padding:4px 6px;border:1px solid var(--rule);border-radius:7px;font:inherit;font-size:13px;background:var(--card);color:var(--ink)}
+button.linkish{background:none;border:0;padding:0;color:var(--info);text-decoration:underline;cursor:pointer;font:inherit;font-size:12.5px}
 
 details.set{margin-top:26px}
 details.set summary{cursor:pointer;font-weight:600;font-size:15px}
@@ -185,7 +188,7 @@ table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var
     <div id="msg" class="hide"></div>
     <div id="panel"></div>
 
-    <h2>Stock</h2>
+    <h2 class="withbtn">Stock <button class="plain small" id="lowonly" aria-pressed="false" title="Only colours below their minimum, or that run short in the next two weeks">Low or running out</button></h2>
     <div class="stock" id="stock"><div class="empty">Loading&hellip;</div></div>
 
     <h2 class="withbtn">Other colours in stock <button class="plain small" id="newcolour">New paint colour</button></h2>
@@ -223,7 +226,7 @@ table.cov{border-collapse:collapse;font-size:14px;margin-top:10px;background:var
     </details>
   </div>
 </div>
-<div class="gidc-build">Paint 1.4 &middot; 23 Nov 2026</div>
+<div class="gidc-build">Paint 1.7 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -319,13 +322,14 @@ function load(){
     get('/rest/v1/paint_colours?select=*&order=sort.asc'),
     getAll('/rest/v1/paint_schedule_lines?select=*&order=access_order_id.asc'),
     get('/rest/v1/paint_counts?select=*&order=counted_on.desc,created_at.desc&limit=500'),
-    get('/rest/v1/paint_orders?select=*&order=requested_at.desc&limit=500')
+    get('/rest/v1/paint_orders?select=*,paint_receipts(*)&order=requested_at.desc&limit=500')
+      .catch(function(){ return get('/rest/v1/paint_orders?select=*&order=requested_at.desc&limit=500'); })
   ]).then(function(r){
     COLOURS = r[0] || []; LINES = r[1] || []; COUNTS = r[2] || []; ORDERS = r[3] || [];
     BYNAME = {}; COLOURS.forEach(function(c){ BYNAME[c.name] = c; });
     build(); draw();
   }).catch(function(err){
-    message('bad', err.message);
+    message('bad', err.message); reportValue(err.message);
     ['stock','custom','orders'].forEach(function(id){ $(id).innerHTML = '<div class="empty">' + esc(err.message) + '</div>'; });
     $('sched').innerHTML = '';
   });
@@ -360,6 +364,28 @@ function sum(list, f){ return list.reduce(function(a, x){ return a + (Number(f(x
 /* The colour on the shelf an order adds to, set by the database. An order
    from before that was recorded adds to a stocked colour of its name. */
 function shelfOf(o){ return o.stock_colour || (o.custom ? null : o.colour); }
+/* Andrew, 27 November: the supplier may ship part of an order, so each
+   delivery is a receipt with its own day, and stock adds each on its
+   day. An order received before receipts existed counts as all of it on
+   the day it was received. */
+function receiptsOf(o){
+  if(Array.isArray(o.paint_receipts) && (o.paint_receipts.length || o.status !== 'received')) return o.paint_receipts;
+  return o.status === 'received' ? [{pails_5: o.pails_5, pails_1: o.pails_1, gallons: o.gallons, received_on: o.received_on, legacy: true}] : [];
+}
+function cameOf(o){
+  var rs = receiptsOf(o);
+  return {p5: sum(rs, function(r){ return r.pails_5; }), p1: sum(rs, function(r){ return r.pails_1; }), gal: sum(rs, function(r){ return r.gallons; })};
+}
+function toComeOf(o){
+  if(o.status !== 'requested') return {p5: 0, p1: 0, gal: 0};
+  var c = cameOf(o), p5 = Math.max(0, o.pails_5 - c.p5), p1 = Math.max(0, o.pails_1 - c.p1);
+  return {p5: p5, p1: p1, gal: p5 * 5 + p1};
+}
+function receiptsAt(name){
+  var out = [];
+  ORDERS.forEach(function(o){ if(shelfOf(o) === name) receiptsOf(o).forEach(function(r){ if(r.received_on) out.push(r); }); });
+  return out;
+}
 function stockOf(c){
   var counts = COUNTS.filter(function(x){ return x.colour === c.name; })
     .sort(function(a, b){ return a.counted_on < b.counted_on ? 1 : a.counted_on > b.counted_on ? -1 : (a.created_at < b.created_at ? 1 : -1); });
@@ -368,16 +394,15 @@ function stockOf(c){
   /* An other colour that arrived and was never counted starts from
      nothing the day before it first came in. */
   var firstIn = null;
+  var ins = receiptsAt(c.name);
   if(!last && c.kind === 'other'){
-    ORDERS.forEach(function(o){ if(shelfOf(o) === c.name && o.status === 'received' && o.received_on &&
-                                  (!firstIn || o.received_on < firstIn)) firstIn = o.received_on; });
+    ins.forEach(function(r){ if(!firstIn || r.received_on < firstIn) firstIn = r.received_on; });
     if(firstIn) since = addDays(firstIn, -1);
   }
   var mine = EVENTS.filter(function(e){ return e.item === c.name; });
-  var received = sum(ORDERS.filter(function(o){ return shelfOf(o) === c.name && o.status === 'received' &&
-                                              (!since || o.received_on > since); }), function(o){ return o.gallons; });
+  var received = sum(ins.filter(function(r){ return !since || r.received_on > since; }), function(r){ return r.gallons; });
   var used = sum(mine.filter(function(e){ return (!since || e.day > since) && e.day < TODAY; }), function(e){ return e.gal; });
-  var onOrder = sum(ORDERS.filter(function(o){ return shelfOf(o) === c.name && o.status === 'requested'; }), function(o){ return o.gallons; });
+  var onOrder = sum(ORDERS.filter(function(o){ return shelfOf(o) === c.name && o.status === 'requested'; }), function(o){ return toComeOf(o).gal; });
   var now = last ? Number(last.gallons) + received - used : firstIn ? received - used : null;
 
   var two = addDays(TODAY, 13);
@@ -436,10 +461,16 @@ function card(c){
         : '<button class="save small" data-order="' + esc(c.name) + '" data-p5="' + (s.suggest5 || 1) + '">Order</button>') +
     '</div></div>';
 }
+/* Andrew, 27 November: a filter for what is below its minimum or will
+   run short, from the same arithmetic as the chips on each card. */
+var LOWONLY = false;
+function lowFilter(c){ if(!LOWONLY) return true; var st = stockOf(c).state; return st === 'low' || st === 'short'; }
 function drawStock(){
-  $('stock').innerHTML = stocked().map(card).join('') || '<div class="empty">No colours set up.</div>';
-  $('others').innerHTML = others().map(card).join('') ||
-    '<div class="empty">None yet. Press New paint colour to add one, or order a custom colour.</div>';
+  $('lowonly').classList.toggle('on', LOWONLY); $('lowonly').setAttribute('aria-pressed', LOWONLY ? 'true' : 'false');
+  $('stock').innerHTML = stocked().filter(lowFilter).map(card).join('') ||
+    '<div class="empty">' + (LOWONLY ? 'Nothing is below its minimum or running short in the next two weeks.' : 'No colours set up.') + '</div>';
+  $('others').innerHTML = others().filter(lowFilter).map(card).join('') ||
+    '<div class="empty">' + (LOWONLY ? 'No other colour is low or running out.' : 'None yet. Press New paint colour to add one, or order a custom colour.') + '</div>';
 }
 
 /* ---- custom colours from today on ---------------------------------------
@@ -603,20 +634,33 @@ function drawOrders(){
   $('orders').innerHTML = list.map(function(o){
     var p = [];
     if(o.pails_5) p.push(o.pails_5 + ' x 5 gal'); if(o.pails_1) p.push(o.pails_1 + ' x 1 gal');
+    var open = o.status === 'requested', come = toComeOf(o), rs = receiptsOf(o).filter(function(r){ return !r.legacy; });
+    var part = open && rs.length > 0;
     var chip = o.status === 'received' ? '<span class="chip ok">Received ' + esc(nice(o.received_on)) + '</span>'
              : o.status === 'cancelled' ? '<span class="chip grey">Cancelled</span>'
+             : part ? '<span class="chip low">Part received</span>'
              : '<span class="chip info">On order</span>';
     var mail = o.emailed_at ? 'Emailed to Ashley' : '<b style="color:var(--brass)">Email not sent</b>';
+    var pails = function(a, b){ var t = []; if(a) t.push(a + ' x 5 gal'); if(b) t.push(b + ' x 1 gal'); return t.join(' and ') || 'nothing'; };
+    var recv = (rs.length && (open || o.status === 'cancelled') ? '<div class="meta">' + rs.map(function(r){
+        return esc(pails(r.pails_5, r.pails_1) + ' came ' + nice(r.received_on)) +
+          (open ? ' <button class="linkish" data-unreceive="' + esc(r.id) + '" title="Typed wrong? Take it back">take back</button>' : '');
+      }).join(', ') + '</div>' : '') +
+      (open ? '<div class="meta">Still to come ' + esc(pails(come.p5, come.p1)) + '. Came now:' +
+        (come.p5 ? ' <input class="pn" data-recv5="' + o.id + '" inputmode="numeric" value="' + come.p5 + '" aria-label="5 gallon pails that came"> x 5 gal' : '') +
+        (come.p1 ? ' <input class="pn" data-recv1="' + o.id + '" inputmode="numeric" value="' + come.p1 + '" aria-label="1 gallon cans that came"> x 1 gal' : '') +
+        ' on <input type="date" class="day" data-recvday="' + o.id + '" value="' + TODAY + '" max="' + TODAY + '">' +
+        ' <button class="plain small" data-recvpart="' + o.id + '">Received</button></div>' : '');
     return '<div class="row' + (o.status === 'cancelled' ? ' none' : '') + '"><div class="what">' +
       '<div class="t">' + (o.po_no ? esc(o.po_no) + ' &nbsp;' : '') + esc(o.colour) + (o.custom ? ' <span class="chip grey">custom</span>' : '') + ', ' + p.join(' and ') + ' (' + g1(o.gallons) + ' gal)</div>' +
       '<div class="meta">' + (o.for_job ? 'Customer ' + esc(o.for_job) + '. ' : '') +
         (o.needed_by ? 'Needed by ' + esc(nice(o.needed_by, true)) + '. ' : '') +
         'Asked by ' + esc(o.requested_by || 'someone') + ' ' + esc(nice(o.requested_at.slice(0, 10))) + '. ' + mail +
-        (o.note ? '. ' + esc(o.note) : '') + '</div></div>' +
+        (o.note ? '. ' + esc(o.note) : '') + '</div>' + recv + '</div>' +
       '<div class="acts">' + chip +
         (o.status === 'requested'
           ? (o.emailed_at ? '' : ' <button class="plain small" data-resend="' + o.id + '">Send email</button>') +
-            ' <button class="save small" data-received="' + o.id + '">Received</button>' +
+            ' <button class="save small" data-received="' + o.id + '" title="Everything still to come arrived">All arrived</button>' +
             ' <button class="plain small" data-cancel="' + o.id + '">Cancel</button>'
           : '') +
       '</div></div>';
@@ -629,7 +673,9 @@ function drawSettings(){
     return '<tr><td>' + esc(c.kind === 'custom' ? 'Custom colours' : c.name) + '</td>' +
       '<td><input data-cov="' + esc(c.name) + '" inputmode="numeric" value="' + esc(c.doors_per_pail) + '"></td>' +
       '<td>' + (c.kind === 'custom' ? '<span class="z">bought per job</span>'
-               : '<input data-warn="' + esc(c.name) + '" inputmode="decimal" value="' + esc(c.warn_gallons == null ? '' : c.warn_gallons) + '">') + '</td></tr>';
+               : '<input data-warn="' + esc(c.name) + '" inputmode="decimal" value="' + esc(c.warn_gallons == null ? '' : c.warn_gallons) + '">') + '</td>' +
+      '<td>' + (c.kind === 'custom' ? '<span class="z">bought per job</span>'
+               : '<input data-price="' + esc(c.name) + '" inputmode="decimal" value="' + esc(c.price_per_gallon == null ? '' : Number(c.price_per_gallon)) + '" placeholder="$">') + '</td></tr>';
   }).join('');
   var counts = COUNTS.slice(0, 15).map(function(x){
     return '<div class="row"><div class="what"><span class="t">' + esc(x.colour) + '</span> ' + g1(x.gallons) + ' gal on ' +
@@ -637,7 +683,7 @@ function drawSettings(){
       '<div class="acts"><button class="plain small" data-uncount="' + x.id + '">Remove</button></div></div>';
   }).join('');
   $('setbody').innerHTML =
-    '<table class="cov"><thead><tr><th></th><th>Doors per 5 gal pail</th><th>Minimum on hand (gal)</th></tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<table class="cov"><thead><tr><th></th><th>Doors per 5 gal pail</th><th>Minimum on hand (gal)</th><th>Price a gallon, $</th></tr></thead><tbody>' + rows + '</tbody></table>' +
     '<p><button class="save" id="savecov">Save coverage and minimums</button></p>' +
     '<p class="sub">Minimum on hand: stock is never planned below it. When the next two weeks of the schedule, with what is on order, ' +
     'would take a colour below its minimum, the card says so and suggests enough pails to keep it.</p>' +
@@ -655,7 +701,20 @@ function drawFresh(){
     (age > 3 ? '. That is over three hours ago: the server sync may have stopped.' : '.');
 }
 
-function draw(){ drawFresh(); drawStock(); drawCustom(); drawSchedule(); drawOrders(); drawSettings(); drawPanel(); }
+/* ---- for the Inventory Value screen ----------------------------------------
+   Andrew, 27 November. That screen opens this page out of sight and reads
+   what it worked out, so stock on hand is the same number on both, from
+   the same arithmetic. Nothing happens when the page is opened on its own. */
+function reportValue(err){
+  if(window.parent === window) return;
+  var msg = err ? {list: 'Paint', error: err} : {list: 'Paint', rows: COLOURS.filter(function(c){ return c.kind !== 'custom'; }).map(function(c){
+    var s = stockOf(c);
+    return {name: c.name, unit: 'gal', now: s.now, counted: !!s.last,
+            price: c.price_per_gallon == null ? null : Number(c.price_per_gallon)};
+  })};
+  try{ window.parent.postMessage({gidcValue: msg}, location.origin); }catch(e){}
+}
+function draw(){ drawFresh(); drawStock(); drawCustom(); drawSchedule(); drawOrders(); drawSettings(); drawPanel(); reportValue(); }
 
 /* ---- the little forms: count and order ------------------------------------ */
 function drawPanel(){
@@ -788,12 +847,38 @@ function email(o){
       draw(); message('bad', 'The order is saved, but the email to Ashley did not go. Use Send email on it under Orders, or tell Ashley.');
     });
 }
-function setStatus(id, status){
+function dayFor(id){ var d = $$('[data-recvday="' + id + '"]'); return d && d.value ? d.value : TODAY; }
+function receivePart(id){
+  var o = ORDERS.filter(function(x){ return x.id === id; })[0]; if(!o) return;
+  var a = $$('[data-recv5="' + id + '"]'), b = $$('[data-recv1="' + id + '"]');
+  var p5 = a ? Number(a.value.trim() || 0) : 0, p1 = b ? Number(b.value.trim() || 0) : 0, day = dayFor(id);
+  if(!(Number.isInteger(p5) && Number.isInteger(p1) && p5 >= 0 && p1 >= 0 && p5 + p1 > 0)) return message('bad', 'Type how many pails came, in whole pails.');
+  if(day > TODAY) return message('bad', 'Pick the day it came, today or earlier.');
   busy = true;
-  send('PATCH', '/rest/v1/paint_orders?id=eq.' + encodeURIComponent(id), {status: status})
+  send('POST', '/rest/v1/paint_receipts', {order_id: id, pails_5: p5, pails_1: p1, received_on: day})
+    .then(function(){ return load(); })
+    .then(function(){ message('good', o.colour + ': ' + g1(p5 * 5 + p1) + ' gal received and added to stock.'); })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function unreceive(id){
+  busy = true;
+  send('DELETE', '/rest/v1/paint_receipts?id=eq.' + encodeURIComponent(id))
+    .then(function(){ return load(); })
+    .then(function(){ message('good', 'Taken back. It is on order again.'); })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function setStatus(id, status){
+  var body = {status: status};
+  if(status === 'received'){ body.received_on = dayFor(id); if(body.received_on > TODAY) return message('bad', 'Pick the day it came, today or earlier.'); }
+  var before = ORDERS.filter(function(x){ return x.id === id; })[0], come = before ? toComeOf(before).gal : 0;
+  busy = true;
+  send('PATCH', '/rest/v1/paint_orders?id=eq.' + encodeURIComponent(id), body)
     .then(function(row){
-      ORDERS = ORDERS.map(function(o){ return o.id === row.id ? row : o; }); build(); draw();
-      message('good', status === 'received' ? row.colour + ' received: ' + g1(row.gallons) + ' gal added to stock.' : 'Order cancelled.');
+      return load().then(function(){
+        message('good', status === 'received' ? row.colour + ' received: ' + g1(come || row.gallons) + ' gal added to stock.' : 'Order cancelled. Anything already received stays in stock.');
+      });
     })
     .catch(function(err){ message('bad', err.message); })
     .then(function(){ busy = false; });
@@ -804,8 +889,15 @@ function saveCoverage(){
     var cov = Number($$('[data-cov="' + c.name + '"]').value), w = $$('[data-warn="' + c.name + '"]');
     var warn = w ? (w.value.trim() === '' ? 0 : Number(w.value)) : c.warn_gallons;
     if(!(Number.isInteger(cov) && cov > 0) || !(warn == null || warn >= 0)){ jobs.push(Promise.reject(new Error(c.name + ': coverage must be a whole number of doors, and the minimum a number of gallons.'))); return; }
-    if(cov === Number(c.doors_per_pail) && warn == c.warn_gallons) return;
-    jobs.push(send('PATCH', '/rest/v1/paint_colours?name=eq.' + encodeURIComponent(c.name), {doors_per_pail: cov, warn_gallons: warn}));
+    /* Andrew, 27 November: a price a gallon, for the Inventory Value screen */
+    var pr = $$('[data-price="' + c.name + '"]'), pt = pr ? pr.value.trim().replace(/^\$/, '').replace(/,/g, '') : '';
+    var price = pt === '' ? null : Number(pt);
+    if(pt !== '' && !(price >= 0)){ jobs.push(Promise.reject(new Error(c.name + ': the price a gallon should be dollars, or blank.'))); return; }
+    var priceSame = !pr || (price == null ? c.price_per_gallon == null : Number(c.price_per_gallon) === price);
+    if(cov === Number(c.doors_per_pail) && warn == c.warn_gallons && priceSame) return;
+    var body = {doors_per_pail: cov, warn_gallons: warn};
+    if(!priceSame) body.price_per_gallon = price == null ? null : Math.round(price * 10000) / 10000;
+    jobs.push(send('PATCH', '/rest/v1/paint_colours?name=eq.' + encodeURIComponent(c.name), body));
   });
   Promise.all(jobs).then(function(){ message('good', 'Saved.'); return load(); }).catch(function(err){ message('bad', err.message); });
 }
@@ -823,6 +915,7 @@ document.addEventListener('click', function(e){
   if(t.closest('#prev')){ shift(-1); return; }
   if(t.closest('#next')){ shift(1); return; }
   if(t.closest('#showjobs')){ showJobs = !showJobs; drawSchedule(); return; }
+  if(t.closest('#lowonly')){ LOWONLY = !LOWONLY; drawStock(); return; }
   if(t.closest('#print')){ window.print(); return; }
   if((el = t.closest('[data-count]'))){ panel = {type: 'count', colour: el.dataset.count}; message(null); drawPanel(); scrollTo(0, 0); return; }
   if((el = t.closest('[data-order]'))){ panel = {type: 'order', colour: el.dataset.order, p5: el.dataset.p5}; message(null); drawPanel(); scrollTo(0, 0); return; }
@@ -845,6 +938,8 @@ document.addEventListener('click', function(e){
   if((el = t.closest('[data-removeyes]'))){ removeColour(el.dataset.removeyes); return; }
   if(t.closest('#o-save')){ saveOrder(); return; }
   if((el = t.closest('[data-received]'))){ setStatus(el.dataset.received, 'received'); return; }
+  if((el = t.closest('[data-recvpart]'))){ receivePart(el.dataset.recvpart); return; }
+  if((el = t.closest('[data-unreceive]'))){ unreceive(el.dataset.unreceive); return; }
   if((el = t.closest('[data-cancel]'))){ setStatus(el.dataset.cancel, 'cancelled'); return; }
   if((el = t.closest('[data-resend]'))){ var o = ORDERS.filter(function(x){ return x.id === el.dataset.resend; })[0]; if(o) email(o); return; }
   if((el = t.closest('[data-uncount]'))){

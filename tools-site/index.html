@@ -104,6 +104,8 @@ h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:
 .grid.gated{display:none}
 .grid.gated.show{display:grid}
 .grid{display:grid;gap:14px;grid-template-columns:1fr}
+.grid h2.grp{grid-column:1 / -1;margin:14px 0 -4px;font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.06em}
+.grid h2.grp:first-child{margin-top:0}
 @media(min-width:620px){.grid{grid-template-columns:1fr 1fr}}
 @media(min-width:900px){.grid{grid-template-columns:1fr 1fr 1fr}}
 
@@ -203,6 +205,7 @@ a.tile:active{transform:translateY(0)}
 const APPS = [
   {
     name: 'Go Back Required',
+    group: 'Installation',
     desc: 'Raise a go back from site: who was there, what went wrong, what is needed to finish.',
     url:  './goback/',
     icon: 'back',
@@ -210,6 +213,7 @@ const APPS = [
   },
   {
     name: 'Company Dashboard',
+    group: '',
     desc: 'Leads, sales, production and installation by GIDC month, against target.',
     url:  './dashboard/',
     icon: 'gauge',
@@ -222,6 +226,7 @@ const APPS = [
   },
   {
     name: 'Daily Production',
+    group: 'Shop',
     desc: 'The shop\u2019s numbers for the day: doors cut, painted, packed, and remakes.',
     url:  './production/',
     icon: 'doors',
@@ -229,6 +234,7 @@ const APPS = [
   },
   {
     name: 'Go Backs',
+    group: 'Installation',
     desc: 'Every installation somebody has to return to, and whether the repair is booked or done.',
     url:  './gobacks/',
     icon: 'list',
@@ -236,6 +242,7 @@ const APPS = [
   },
   {
     name: 'Door Inventory',
+    group: 'Shop',
     desc: 'Doors on the shelf. A dealer order with a matching door says so in the order email.',
     url:  './inventory/',
     icon: 'doors',
@@ -245,7 +252,8 @@ const APPS = [
   },
   {
     name: 'Order Supplies',
-    desc: 'Paint, shop, sanding and install supplies: stock, what the schedule needs, and purchase orders.',
+    group: 'Shop',
+    desc: 'Paint, shop, hardware, sanding, install supplies and packaging materials: stock, what the schedule needs, and purchase orders.',
     url:  './supplies/',
     icon: 'cart',
     /* Andrew, 20 November: Paint moves under Order Supplies, beside Shop,
@@ -255,6 +263,7 @@ const APPS = [
   },
   {
     name: 'Sales Map',
+    group: 'Sales',
     desc: 'Every retail customer on a map by estimate date, coloured by how far they got, with the close rate by distance from the showrooms.',
     url:  './salesmap/',
     icon: 'map',
@@ -264,6 +273,7 @@ const APPS = [
   },
   {
     name: 'Web Leads',
+    group: 'Sales',
     desc: 'Every lead from the website form as it comes in: follow up, set the status, write notes, link it to Access once booked.',
     url:  './webleads/',
     icon: 'phone',
@@ -273,46 +283,39 @@ const APPS = [
   },
   {
     name: 'In Home Measurement',
+    group: 'Sales',
     desc: 'Measure a job on site, quote it, and download the sales contract workbook.',
     url:  'https://measurement.gidc.ca/?v=2',
     icon: 'ruler'
   },
   {
-    name: 'Summary Estimate',
-    desc: 'Turn a contract workbook into a customer facing estimate to print or send as a PDF.',
-    url:  './estimate/',
-    icon: 'papers'
+    name: 'Inventory Value',
+    group: 'Accounting',
+    desc: 'Everything on the shelf with a value: doors, paint and every supplies list, on hand times the price of one, with totals.',
+    url:  './value/',
+    icon: 'chart',
+    /* Andrew, 27 November. Administrators only: the page says the same. */
+    who:  'admin'
   },
   {
     name: 'Contract to QuickBooks',
+    group: 'Accounting',
     desc: 'Pull the line items off a signed contract and export the invoice and customer CSVs.',
     url:  './invoice/',
     icon: 'receipt'
   },
   {
-    name: 'Proliner Door Analysis',
-    desc: 'Check a Proliner measurement file against the sales order and flag anything that does not line up.',
-    url:  './proliner/',
-    icon: 'chart'
-  },
-  {
-    name: 'Door Packing Sequencer',
-    desc: 'Merge several orders into one bottom to top stacking order for loading the truck.',
-    url:  './packing/',
-    icon: 'boxes'
-  },
-  {
     name: 'Wholesale Order to QuickBooks',
+    group: 'Accounting',
     desc: 'Convert a wholesale dealer order into a QuickBooks Online import in US dollars, with discount and tariff applied.',
     url:  './wholesale/',
     icon: 'tag'
-  },
-  {
-    name: 'Export Documents',
-    desc: 'Build the proforma invoice, Lacey PPQ 505 and TSCA certification for a US shipment.',
-    url:  './exportdocs/',
-    icon: 'globe'
   }
+  /* Andrew, 27 November: Summary Estimate, Proliner Door Analysis, Door
+     Packing Sequencer and Export Documents are done inside the dealer
+     portal now, so their tiles are gone. Their folders stay on the site:
+     the portal's export documents are copied from exportdocs/ by
+     scripts/port-export-docs.js, and an old bookmark still opens. */
 ];
 
 const ICONS = {
@@ -340,10 +343,22 @@ function esc(s){
 
 /* Drawn once the site knows who is looking, rather than at load, because
    what is on it depends on that. An installer sees one tile. */
+/* Andrew, 27 November: the tools in groups by what they are for. A
+   group shows only when it has a tool this login may open. The
+   dashboard sits on its own at the top. */
+const GROUPS = ['', 'Sales', 'Shop', 'Installation', 'Accounting'];
 function drawGrid(me){
-  document.getElementById('grid').innerHTML = APPS.filter(function(a){
-    return GIDCAuth.mayOpen(me, a.who || 'staff');
-  }).map(a => {
+  const mine = APPS.filter(function(a){ return GIDCAuth.mayOpen(me, a.who || 'staff'); });
+  const order = GROUPS.concat(mine.map(a => a.group || '').filter(g => GROUPS.indexOf(g) < 0));
+  const many = order.filter(g => g && mine.some(a => (a.group || '') === g)).length > 1;
+  document.getElementById('grid').innerHTML = order.map(g => {
+    const list = mine.filter(a => (a.group || '') === g);
+    if(!list.length) return '';
+    return (g && many ? '<h2 class="grp">' + esc(g) + '</h2>' : '') + list.map(tileHtml).join('');
+  }).join('');
+}
+function tileHtml(a){
+  {
     const live = !!a.url;
     const tag  = live ? '<a class="tile" href="' + esc(a.url) + '">' : '<div class="tile soon">';
     const end  = live ? '</a>' : '</div>';
@@ -354,7 +369,7 @@ function drawGrid(me){
       '<span class="foot"><span class="chip">' + (live ? 'Open' : 'Not connected yet') + '</span>' +
       '<span class="go" aria-hidden="true">&rarr;</span></span>' +
       end;
-  }).join('');
+  }
 }
 
 /* ---- sign in ------------------------------------------------------------
@@ -815,6 +830,6 @@ GIDCAuth.whoami().then(function(me){
   showSignIn();
 });
 </script>
-<div class="gidc-build">Tools 3.9 · 26 Nov 2026</div>
+<div class="gidc-build">Tools 3.11.4 · 27 Nov 2026</div>
 </body>
 </html>

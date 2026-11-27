@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Grinyer · Inventory Value</title>
+
+<!-- gidc-guard
+     who: admin. Andrew, 27 November: one screen that lists and totals
+     everything on the shelf with a value: the door inventory, paint, and
+     every supplies list (Shop, Hardware, Painting, Sanding, Install,
+     Packaging Materials).
+
+     Value is what is on hand times the price of one: a door's value on
+     the door inventory, the price a gallon of paint, the price of one of
+     a supplies item's unit (one roll of foam, one corner protector, one
+     piece of pine). The prices are typed on those pages; this one only
+     reads.
+
+     WHERE "ON HAND" COMES FROM. Paint and supplies stock is worked out on
+     their own pages: the last count, plus what was received, less what
+     the schedule or the pallets used since. Rather than a second copy of
+     that arithmetic that could drift, this page opens each of those pages
+     out of sight and takes the numbers they worked out (reportValue() on
+     each). So a number here is always the number on that page. The door
+     inventory is a plain count, read straight from the table. -->
+<script>window.GIDC_TOOL = {who: 'admin'};</script>
+<script src="/gate.js"></script>
+<script src="/guard.js"></script>
+
+<style>
+:root{
+  --paper:#F6F6F7; --card:#FFFFFF; --ink:#17171A; --muted:#6E6E76;
+  --rule:#E2E2E6; --rule-soft:#EFEFF2;
+  --brass:#C80000; --brass-soft:#FCECEC;
+  --warn:#A55A00; --warn-soft:#FFF3E0;
+  --pad:16px;
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{background:var(--paper);color:var(--ink);
+  font:15px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  -webkit-text-size-adjust:100%}
+.wrap{max-width:1000px;margin:0 auto;padding:28px var(--pad) 72px}
+.back{display:inline-block;margin:0 0 12px;font-size:14px;color:var(--brass);text-decoration:none;font-weight:600}
+h1{font-size:27px;line-height:1.2;margin:0 0 6px;font-weight:700;letter-spacing:-.01em}
+h2{font-size:18px;margin:28px 0 8px;display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h2 .sum{margin-left:auto;font-variant-numeric:tabular-nums}
+.sub{color:var(--muted);font-size:14px;margin:0 0 16px;max-width:72ch}
+.tiles{display:grid;gap:10px;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));margin:18px 0 6px}
+.tile{background:var(--card);border:1px solid var(--rule);border-radius:12px;padding:12px 14px}
+.tile small{display:block;color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+.tile b{font-size:19px;font-variant-numeric:tabular-nums}
+.tile.total{border-color:var(--brass);background:var(--brass-soft)}
+.tile .note{font-size:12px;color:var(--warn)}
+.acts{display:flex;gap:8px;flex-wrap:wrap;margin:10px 0 0}
+button{font:inherit;font-size:14px;padding:7px 14px;border-radius:9px;border:1px solid var(--rule);background:var(--card);color:var(--ink);cursor:pointer}
+button:hover{border-color:var(--brass)}
+.tablewrap{overflow-x:auto;background:var(--card);border:1px solid var(--rule);border-radius:12px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{padding:7px 10px;border-bottom:1px solid var(--rule-soft);text-align:right;white-space:nowrap;font-variant-numeric:tabular-nums}
+th{font-size:12px;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);font-weight:600;background:#FAFAFB}
+th:first-child,td:first-child{text-align:left;white-space:normal}
+tr.tot td{font-weight:700;border-top:2px solid var(--ink);border-bottom:0}
+.flag{display:inline-block;font-size:11.5px;font-weight:600;padding:1px 7px;border-radius:999px;background:var(--warn-soft);color:var(--warn);margin-left:6px}
+.z{color:#B5B5BC}
+.empty{padding:20px 16px;text-align:center;color:var(--muted);font-size:14px}
+.bad{color:var(--brass);font-weight:600}
+.hide{display:none}
+#frames{position:absolute;left:-10000px;top:0;width:1200px;height:900px;overflow:hidden;visibility:hidden}
+#frames iframe{width:1200px;height:900px;border:0}
+.gidc-build{position:fixed;right:10px;bottom:8px;z-index:60;font-size:11px;line-height:1;
+  color:#8E8E99;opacity:.7;pointer-events:none;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+@media print{.back,.acts,.gidc-build{display:none}body{background:#fff}.wrap{padding:0}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <a class="back" href="/">&lsaquo; All tools</a>
+  <h1>Inventory Value</h1>
+  <p class="sub">Everything on the shelf with a value: on hand times the price of one. Doors, paint and every supplies list.
+    Prices are typed where each thing is kept: Door Inventory, Paint, and Edit on each supplies item.</p>
+  <p class="sub" id="status">Reading every list&hellip;</p>
+  <div class="tiles" id="tiles"></div>
+  <div class="acts"><button id="csv">Download for a spreadsheet</button><button id="print">Print</button></div>
+  <div id="lists"></div>
+</div>
+<div id="frames" aria-hidden="true"></div>
+<div class="gidc-build">Inventory Value 1.0 &middot; 27 Nov 2026</div>
+
+<script>
+(function(){
+'use strict';
+var $ = function(id){ return document.getElementById(id); };
+function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+function money(n){ return '$' + (Number(n) || 0).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
+function price(n){ return '$' + (Number(n) || 0).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 4}); }
+function n1(n){ n = Number(n) || 0; var r = Math.round(n * 10) / 10; return r % 1 ? r.toFixed(1) : String(r); }
+function unitText(n, u){
+  u = u || ''; if(!u || n1(n) === '1' || /s$|^gal/.test(u)) return u;
+  return /(ch|sh|x)$/.test(u) ? u + 'es' : u + 's';
+}
+function inch(n){ n = Number(n); return n % 1 ? String(Math.round(n * 1000) / 1000) : String(n); }
+
+/* Each list, in the order shown: doors first, then paint, then the
+   supplies lists in their own order. */
+var LISTS = [];          // {key, name, rows:[{name, unit, now, counted, price}], error, done}
+var WAIT_MS = 30000;
+
+function api(path){
+  return GIDCAuth.api(path, {headers: GIDCAuth.headers()}).then(function(r){
+    if(!r.ok) return r.text().then(function(t){ throw new Error(t || ('The database said ' + r.status)); });
+    return r.json();
+  });
+}
+
+function doors(){
+  var L = {key: 'doors', name: 'Door Inventory', rows: [], done: false};
+  LISTS.push(L);
+  return api('/rest/v1/door_inventory?select=*&qty=gt.0&order=style.asc,width_in.asc,height_in.asc').then(function(rows){
+    if(rows.length && !rows.some(function(d){ return 'unit_value' in d; }))
+      L.note = 'Run inventory-value.sql to give doors a value.';
+    L.rows = rows.map(function(d){
+      var size = inch(d.width_in) + (d.height_in == null ? '' : ' x ' + inch(d.height_in));
+      return {name: d.style + ' ' + size + (d.core ? ' ' + d.core : ''), unit: 'door', now: Number(d.qty) || 0, counted: true,
+              price: d.unit_value == null ? null : Number(d.unit_value)};
+    });
+  }).catch(function(err){ L.error = err.message; }).then(function(){ L.done = true; draw(); });
+}
+
+/* A page opened out of sight posts back what it worked out. */
+var waiting = {};
+window.addEventListener('message', function(e){
+  if(e.origin !== location.origin || !e.data || !e.data.gidcValue) return;
+  var v = e.data.gidcValue, key = v.code || 'paint';
+  var L = waiting[key]; if(!L || L.done) return;
+  L.name = v.list || L.name; L.rows = v.rows || []; L.error = v.error || null; L.done = true;
+  var f = document.querySelector('[data-frame="' + key + '"]'); if(f) f.remove();
+  draw();
+});
+function viaPage(key, name, url){
+  var L = {key: key, name: name, rows: [], done: false};
+  LISTS.push(L); waiting[key] = L;
+  var f = document.createElement('iframe');
+  f.setAttribute('data-frame', key); f.setAttribute('tabindex', '-1'); f.src = url;
+  $('frames').appendChild(f);
+  setTimeout(function(){
+    if(L.done) return;
+    L.error = 'Did not answer in time. Open ' + name + ' to check it, then reload this page.'; L.done = true;
+    if(f.parentNode) f.remove();
+    draw();
+  }, WAIT_MS);
+}
+
+function valueOf(r){ return r.now != null && r.now > 0 && r.price != null ? r.now * r.price : 0; }
+function totals(L){
+  var t = {value: 0, noPrice: 0, notCounted: 0};
+  L.rows.forEach(function(r){
+    t.value += valueOf(r);
+    if(r.now == null) t.notCounted++;
+    else if(r.now > 0 && r.price == null) t.noPrice++;
+  });
+  return t;
+}
+
+function draw(){
+  var done = LISTS.filter(function(L){ return L.done; }).length;
+  var grand = 0, noPrice = 0, notCounted = 0;
+  LISTS.forEach(function(L){ var t = totals(L); grand += t.value; noPrice += t.noPrice; notCounted += t.notCounted; });
+  $('status').innerHTML = done < LISTS.length
+    ? 'Reading every list&hellip; ' + done + ' of ' + LISTS.length + ' in.'
+    : 'As of ' + esc(new Date().toLocaleString('en-CA', {weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit'}).replace(/\.$/, '')) + '.' +
+      (noPrice ? ' ' + noPrice + ' item' + (noPrice === 1 ? ' has' : 's have') + ' stock but no price, so count as nothing.' : '') +
+      (notCounted ? ' ' + notCounted + ' item' + (notCounted === 1 ? ' has' : 's have') + ' never been counted.' : '');
+
+  $('tiles').innerHTML = '<div class="tile total"><small>Everything</small><b>' + money(grand) + '</b></div>' +
+    LISTS.map(function(L){
+      var t = totals(L);
+      return '<div class="tile"><small>' + esc(L.name) + '</small><b>' + (L.done ? (L.error ? '<span class="bad">?</span>' : money(t.value)) : '&hellip;') + '</b>' +
+        (L.done && !L.error && t.noPrice ? '<div class="note">' + t.noPrice + ' without a price</div>' : '') + '</div>';
+    }).join('');
+
+  $('lists').innerHTML = LISTS.map(function(L){
+    var t = totals(L);
+    var head = '<h2>' + esc(L.name) + '<span class="sum">' + (L.done && !L.error ? money(t.value) : '') + '</span></h2>';
+    if(!L.done) return head + '<div class="tablewrap"><div class="empty">Reading&hellip;</div></div>';
+    if(L.error) return head + '<div class="tablewrap"><div class="empty bad">' + esc(L.error) + '</div></div>';
+    if(!L.rows.length) return head + '<div class="tablewrap"><div class="empty">Nothing on this list.</div></div>';
+    return head + (L.note ? '<p class="sub bad">' + esc(L.note) + '</p>' : '') +
+      '<div class="tablewrap"><table><thead><tr><th>Item</th><th>On hand</th><th>Price of one</th><th>Value</th></tr></thead><tbody>' +
+      L.rows.map(function(r){
+        var flag = r.now == null ? '<span class="flag">Not counted</span>'
+                 : r.now > 0 && r.price == null ? '<span class="flag">No price</span>' : '';
+        return '<tr><td>' + esc(r.name) + flag + '</td>' +
+          '<td>' + (r.now == null ? '<span class="z">?</span>' : esc(n1(r.now) + ' ' + unitText(r.now, r.unit))) + '</td>' +
+          '<td>' + (r.price == null ? '<span class="z">not set</span>' : esc(price(r.price))) + '</td>' +
+          '<td>' + (valueOf(r) ? esc(money(valueOf(r))) : '<span class="z">&middot;</span>') + '</td></tr>';
+      }).join('') +
+      '<tr class="tot"><td>' + esc(L.name) + '</td><td></td><td></td><td>' + money(t.value) + '</td></tr></tbody></table></div>';
+  }).join('');
+}
+
+function csv(){
+  var q = function(v){ v = v == null ? '' : String(v); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+  var out = [['List', 'Item', 'On hand', 'Unit', 'Price of one', 'Value'].join(',')];
+  LISTS.forEach(function(L){
+    L.rows.forEach(function(r){
+      out.push([L.name, r.name, r.now == null ? '' : Math.round(r.now * 100) / 100, r.unit || '',
+                r.price == null ? '' : r.price, Math.round(valueOf(r) * 100) / 100].map(q).join(','));
+    });
+  });
+  var blob = new Blob([out.join('\r\n') + '\r\n'], {type: 'text/csv'});
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'inventory-value-' + new Date().toISOString().slice(0, 10) + '.csv';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+$('csv').addEventListener('click', csv);
+$('print').addEventListener('click', function(){ window.print(); });
+
+GIDCAuth.load();
+GIDCAuth.whoami().then(function(me){
+  if(!me) return;              /* the guard is already holding the page */
+  doors();
+  viaPage('paint', 'Paint', '/paint/');
+  api('/rest/v1/supply_categories?select=code,name,sort&order=sort.asc').then(function(cats){
+    cats.forEach(function(c){ viaPage(c.code, c.name, '/supplies/order/?c=' + encodeURIComponent(c.code)); });
+    draw();
+  }).catch(function(err){
+    LISTS.push({key: 'supplies', name: 'Supplies', rows: [], done: true, error: err.message});
+    draw();
+  });
+  draw();
+});
+})();
+</script>
+</body>
+</html>

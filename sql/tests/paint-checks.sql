@@ -85,7 +85,7 @@ select name, doors_per_pail from paint_colours where doors_per_pail = 1;
 select paint_colour_of('PURE WHITE (OC-64)'), paint_colour_of('Katie Chantilly'), paint_colour_of('Chantilly Lae'), paint_colour_of('PRIMER ONLY'), paint_colour_of('Prime only'), paint_colour_of('TBD'), paint_colour_of('Null'),
        paint_colour_of(' Sea Salt '), paint_colour_of('  ');
 
-\echo -- PO numbers: want PD00001, PD00002, PD00003 with no gaps from the refused tries above; a page cannot pick or change one
+\echo -- PO numbers: want PD00001 on all three, ordered the same day (Andrew, 27 November), none taken by the refused tries above; a page cannot pick or change one
 set role authenticated; select pg_temp.as_who('manufacturing');
 insert into paint_orders(colour, pails_5, po_no) values ('Pure White', 1, 'PD99999');
 insert into paint_orders(colour, custom, pails_1, for_job) values ('Hale Navy', true, 2, '  Abraham ');
@@ -93,7 +93,7 @@ update paint_orders set po_no = 'PD12345' where colour = 'Pure White';
 reset role;
 select po_no, colour, for_job from paint_orders order by po_no;
 
-\echo -- a custom colour with no customer is refused, a stocked colour with none is fine (want: violates, then PD00004)
+\echo -- a custom colour with no customer is refused, a stocked colour with none is fine (want: violates, then PD00001, still the same day)
 set role authenticated; select pg_temp.as_who('manufacturing');
 insert into paint_orders(colour, custom, pails_1, for_job) values ('Sea Salt', true, 1, '   ');
 insert into paint_orders(colour, pails_1) values ('Pearly', 1) returning po_no;
@@ -136,3 +136,35 @@ delete from paint_colours where name = 'Pearly' returning name;
 update paint_colours set kind = 'other' where name = 'Pearly' returning kind;
 reset role;
 select count(*) as oxford_counts from paint_counts where colour = 'Oxford White';
+
+\echo -- the next day starts a new PO: want PD00002
+set session_replication_role = replica;
+update paint_orders set requested_at = requested_at - interval '1 day';
+set session_replication_role = origin;
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into paint_orders(colour, pails_5, pails_1) values ('Primer', 4, 2) returning po_no;
+\echo -- receiving in parts: 1 x 5 gal yesterday, the order stays on order
+insert into paint_receipts(order_id, pails_5, received_on) select id, 1, current_date - 1 from paint_orders where po_no = 'PD00002';
+\echo -- want refused: only 3 x 5 gal and 2 x 1 gal still to come; and a day to come refused
+insert into paint_receipts(order_id, pails_5) select id, 4 from paint_orders where po_no = 'PD00002';
+insert into paint_receipts(order_id, pails_1, received_on) select id, 1, current_date + 1 from paint_orders where po_no = 'PD00002';
+reset role;
+select po_no, status from paint_orders where po_no = 'PD00002';
+\echo -- the rest with Received on the order: want received, two receipts 5 gal and 17 gal
+set role authenticated; select pg_temp.as_who('manufacturing');
+update paint_orders set status = 'received' where po_no = 'PD00002';
+reset role;
+select o.status, o.received_by, r.gallons, r.received_by from paint_orders o join paint_receipts r on r.order_id = o.id where o.po_no = 'PD00002' order by r.gallons;
+\echo -- taking the big one back puts it on order again
+set role authenticated; select pg_temp.as_who('manufacturing');
+delete from paint_receipts where gallons = 17;
+reset role;
+select po_no, status, received_on from paint_orders where po_no = 'PD00002';
+\echo -- older orders received before receipts each got one (want the received ones covered)
+select count(*) filter (where status = 'received') as received,
+       count(*) filter (where status = 'received' and exists (select 1 from paint_receipts r where r.order_id = o.id)) as with_receipt
+  from paint_orders o;
+\echo -- a stranger sees no receipts
+set role authenticated; select pg_temp.as_who('stranger');
+select count(*) from paint_receipts;
+reset role;

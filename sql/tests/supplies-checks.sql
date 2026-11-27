@@ -30,7 +30,7 @@ select supply_schedule_load('[{"order_id":5069,"order_no":"5067","job":"Aris","u
 reset role;
 select job, uses, amount from supply_schedule order by job, uses;
 
-\echo -- who can see the items (want admin and manufacturing 95: 7 shop, 66 hardware, 8 painting, 14 sanding; everybody else 0)
+\echo -- who can see the items (want admin and manufacturing 102: 7 shop, 66 hardware, 8 painting, 14 sanding, 7 packaging; everybody else 0)
 do $$ declare n text; c int; begin
   foreach n in array array['admin','user','sales','manufacturing','installer','dealer','dadmin','cdealer','stranger'] loop
     perform set_config('request.jwt.claim.sub', md5(n)::text, false);
@@ -69,10 +69,15 @@ insert into supply_items(category, shop_name, unit, uses) values ('shop', 'Bad',
 update supply_categories set copy_to = 'buyer@grinyer.ca', po_prefix = 'XX', name = 'Changed' where code = 'shop';
 insert into supply_counts(item_id, qty, counted_on, created_by) select id, 12, '2026-11-18', 'someone else' from supply_items where shop_name like 'Pine%';
 reset role;
-\echo -- want: Lumber Yard orders@lumber.ca, duplicate refused, bad email refused, Bad refused, shop copy buyer@ prefix SHP name Shop Supplies, count by manufacturing
+\echo -- want: Lumber Yard orders@lumber.ca, duplicate refused, bad email refused, Bad refused, shop copy buyer@ and ashley@ prefix SHP name Shop Supplies, count by manufacturing
 select name, email, updated_by from supply_suppliers order by name;
 select shop_name, supplier_item, updated_by from supply_items where supplier_id is not null order by sort limit 2;
 select code, name, po_prefix, copy_to from supply_categories where code = 'shop';
+\echo -- want: Ashley cannot be taken off; blank puts her back alone
+set role authenticated; select pg_temp.as_who('manufacturing');
+update supply_categories set copy_to = '' where code = 'hardware';
+reset role;
+select code, copy_to from supply_categories where code in ('shop', 'hardware') order by code;
 select qty, created_by from supply_counts;
 
 \echo -- orders: one per supplier, numbered SHP00001, SHP00002; a refused one leaves no gap
@@ -103,6 +108,47 @@ update supply_orders set status = 'received', po_no = 'SHP12345', needed_by = '2
 reset role;
 \echo -- want SHP00001 received today by manufacturing, needed 2026-11-28, emailed_at blank
 select po_no, status, received_on = current_date as today, received_by, needed_by, emailed_at, sent_to from supply_orders where po_no = 'SHP00001';
+\echo -- want: whole PO received makes one receipt a line, for what was ordered (5 and 5)
+select r.qty, r.received_by, r.received_on = current_date as today from supply_receipts r join supply_orders o on o.id = r.order_id where o.po_no = 'SHP00001' order by r.qty;
+
+\echo -- same day, same supplier: one PO (Andrew, 27 November). Glue again goes on SHP00002, adding to the line not yet emailed
+set role authenticated; select pg_temp.as_who('manufacturing');
+select po_no from supply_place_order('shop', null, (select jsonb_agg(jsonb_build_object('item_id', id, 'qty', 3)) from supply_items where shop_name = 'Glue'), null, 'More glue');
+reset role;
+update supply_order_lines set emailed_at = now() where order_id = (select id from supply_orders where po_no = 'SHP00002');
+set role authenticated; select pg_temp.as_who('manufacturing');
+\echo -- want SHP00002 again; once emailed, more glue is a new line
+select po_no from supply_place_order('shop', null, (select jsonb_agg(jsonb_build_object('item_id', id, 'qty', 4)) from supply_items where shop_name = 'Glue'));
+reset role;
+\echo -- want two glue lines on SHP00002: 5 emailed, 4 not; note More glue
+select l.qty, l.emailed_at is not null as emailed, o.note from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' order by l.qty desc;
+
+\echo -- receiving in parts: 2 of the 5 now, the PO stays on order
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into supply_receipts (line_id, qty, received_on) select l.id, 2, current_date - 1 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 5;
+\echo -- want refused: only 3 still to come
+insert into supply_receipts (line_id, qty) select l.id, 4 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 5;
+\echo -- want refused: a day still to come
+insert into supply_receipts (line_id, qty, received_on) select l.id, 1, current_date + 1 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 5;
+reset role;
+select po_no, status from supply_orders where po_no = 'SHP00002';
+\echo -- the rest of both lines: the PO is received, on the last day
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into supply_receipts (line_id, qty) select l.id, 3 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 5;
+insert into supply_receipts (line_id, qty) select l.id, 4 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 4;
+reset role;
+\echo -- want received today by manufacturing
+select po_no, status, received_on = current_date as today, received_by from supply_orders where po_no = 'SHP00002';
+\echo -- taking a receipt back puts it on order again
+set role authenticated; select pg_temp.as_who('manufacturing');
+delete from supply_receipts where qty = 4 and order_id = (select id from supply_orders where po_no = 'SHP00002');
+reset role;
+select po_no, status, received_on from supply_orders where po_no = 'SHP00002';
+\echo -- a stranger sees no receipts and cannot add one
+set role authenticated; select pg_temp.as_who('stranger');
+select count(*) from supply_receipts;
+insert into supply_receipts (line_id, qty) select id, 1 from supply_order_lines limit 1;
+reset role;
 
 \echo -- removing an item keeps the order lines, drops its counts
 set role authenticated; select pg_temp.as_who('manufacturing');
@@ -122,3 +168,55 @@ select supply_schedule_load('[
 reset role;
 select uses, spec, amount from supply_schedule where access_order_id = 6001 order by amount desc;
 
+
+\echo -- packaging: no pallet tables yet, so nothing used (want [])
+select pg_temp.as_who('admin');
+set role authenticated;
+select supply_pallet_use('2026-01-01');
+reset role;
+
+\echo -- packaging: two pallets, one empty. Pallet A: a single 80 in door, a bifold pair 79.5 in (1 level), 2 doors of 96 in on one line
+create table if not exists public.pallets(id uuid primary key default gen_random_uuid(), dealer_id uuid, name text, max_rows int, closed_at timestamptz, built_on date default current_date);
+create table if not exists public.pallet_orders(order_id uuid primary key, pallet_id uuid, position int);
+create table if not exists public.dealer_orders(id uuid primary key default gen_random_uuid(), form jsonb);
+insert into dealer_orders(id, form) values
+  (md5('o1')::uuid, '{"rows":[{"doorType":"Single Swing","qty":"1","height":"80"},{"doorType":"Bifold","qty":"1","height":"79.5"}]}'),
+  (md5('o2')::uuid, '{"rows":[{"doorType":"Bypass","qty":"2","height":"96"}]}');
+insert into pallets(id, name, built_on) values (md5('pa')::uuid, 'SFD 1', '2026-11-20'), (md5('pb')::uuid, 'Empty', '2026-11-21');
+insert into pallet_orders values (md5('o1')::uuid, md5('pa')::uuid, 1), (md5('o2')::uuid, md5('pa')::uuid, 2);
+\echo -- want one pallet, 4 doors, foam 92 + 91.5 + 2 x 108 = 399.5
+select pg_temp.as_who('admin');
+set role authenticated;
+select supply_pallet_use('2026-01-01');
+\echo -- want 0 rows from a date after it
+select supply_pallet_use('2026-11-21');
+reset role;
+\echo -- a stranger may not read it (want not allowed)
+select pg_temp.as_who('stranger');
+set role authenticated;
+select supply_pallet_use('2026-01-01');
+reset role;
+\echo -- coming up: no Access staging table yet (want [])
+select pg_temp.as_who('admin');
+set role authenticated;
+select supply_pallet_ahead(current_date + 13);
+reset role;
+\echo -- coming up: orders not on a pallet, by Access Packaging Date (want one row: today, 2 orders, 5 doors, foam 460; on a pallet, draft, shipped, unlinked and next month left out)
+create table if not exists public.access_dealer_orders(order_id integer primary key, order_no text, packed_on date);
+alter table dealer_orders add column if not exists dealer_id uuid, add column if not exists status text, add column if not exists access_order_id integer;
+insert into access_dealer_orders values (1, '1', current_date - 2), (2, '2', current_date), (3, '3', current_date), (4, '4', current_date), (5, '5', current_date + 30), (6, '6', current_date);
+insert into dealer_orders(id, dealer_id, status, access_order_id, form) values
+  (md5('a1')::uuid, md5('d1')::uuid, 'in_production', 1, '{"rows":[{"doorType":"Double Swing","qty":"2","height":"80"}]}'),
+  (md5('a2')::uuid, md5('d1')::uuid, 'ready_to_ship', 2, '{"rows":[{"doorType":"Single Swing","qty":"3","height":"80"}]}'),
+  (md5('a3')::uuid, md5('d1')::uuid, 'draft',         3, '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
+  (md5('a4')::uuid, md5('d1')::uuid, 'shipped',       4, '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
+  (md5('a5')::uuid, md5('d1')::uuid, 'in_production', 5, '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}'),
+  (md5('a6')::uuid, md5('d1')::uuid, 'in_production', null, '{"rows":[{"doorType":"Single Swing","qty":"9","height":"80"}]}');
+update dealer_orders set status = 'in_production', access_order_id = 6 where id = md5('o1')::uuid;
+select pg_temp.as_who('admin');
+set role authenticated;
+select replace(supply_pallet_ahead(current_date + 13)::text, current_date::text, 'TODAY') as ahead;
+reset role;
+
+\echo -- packaging list seeded (want 7 items, Uline packs, tape counted only)
+select shop_name, unit, uses, per_unit, order_step, pack_name from supply_items where category = 'packaging' order by sort;

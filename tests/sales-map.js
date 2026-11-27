@@ -90,7 +90,7 @@ const check = (ok, what) => { console.log((ok ? 'ok   ' : 'FAIL ') + what); if(!
   const landing = await page.evaluate(() => fetch('/').then(r => r.text()));
   check(/Sales Map/.test(landing) && /\.\/salesmap\//.test(landing) && /who:\s*'admin'/.test(landing.split('Sales Map')[1] || ''),
         'landing page has a Sales Map tile for admins');
-  check(/Tools 3\.(8|9)/.test(landing), 'landing page says Tools 3.8 or later');
+  check(/Tools 3\.(8|9|[1-9][0-9])/.test(landing), 'landing page says Tools 3.8 or later');
 
   // what should be there in the last 12 months
   const from = await page.$eval('#from', e => e.value);

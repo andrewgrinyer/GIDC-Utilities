@@ -119,7 +119,10 @@ insert into public.supply_categories (code, name, po_prefix, copy_to, sort) valu
   ('sanding', 'Sanding Supplies', 'SND',  'ashley@grinyer.ca', 20),
   ('install', 'Install Supplies', 'INST', 'ashley@grinyer.ca', 30),
   -- Andrew, 23 November: painting supplies, all ordered through Ashley.
-  ('painting','Painting Supplies','PNT',  'ashley@grinyer.ca', 5)
+  ('painting','Painting Supplies','PNT',  'ashley@grinyer.ca', 5),
+  -- Andrew, 27 November: pallets from Grand River Pallets and packing
+  -- materials from Uline, all ordered through Ashley.
+  ('packaging','Packaging Materials','PKG','ashley@grinyer.ca', 40)
 on conflict (code) do nothing;
 
 create table if not exists public.supply_suppliers (
@@ -148,7 +151,7 @@ create table if not exists public.supply_items (
   supplier_id     uuid references public.supply_suppliers(id) on delete set null,
   unit            text not null default 'piece',
   uses            text,
-  per_unit        numeric(9,2),
+  per_unit        numeric(12,4),
   waste_pct       numeric(5,1) not null default 10,
   warn_qty        numeric(9,2),
   standard_order  numeric(9,2),
@@ -156,17 +159,44 @@ create table if not exists public.supply_items (
   updated_at      timestamptz not null default now(),
   updated_by      text
 );
+-- PRICES AND PACKS (Andrew, 27 November: a price on every item, for an
+-- inventory value tool to come, and Uline sells by the carton, bundle
+-- and case). order_step is how many of the item's unit come in one pack
+-- (30 corner protectors a carton); pack_name is what the pack is called.
+-- price is for one of the item's unit (Andrew, 27 November: per gallon
+-- of paint, per roll of foam, per corner protector, per piece of pine),
+-- never per pack. Blank until somebody types it.
+-- per_unit takes four places now: stretch wrap is 200 ft of a 1,500 ft
+-- roll on each pallet, 0.1333 of a roll.
+alter table public.supply_items add column if not exists price      numeric(12,4);
+alter table public.supply_items add column if not exists order_step numeric(9,2);
+alter table public.supply_items add column if not exists pack_name  text;
+do $$
+begin
+  if (select numeric_scale from information_schema.columns
+       where table_schema = 'public' and table_name = 'supply_items' and column_name = 'per_unit') < 4 then
+    alter table public.supply_items alter column per_unit type numeric(12,4);
+  end if;
+  -- a strap guard is about 15 cents, so a price per item takes four places
+  if (select numeric_scale from information_schema.columns
+       where table_schema = 'public' and table_name = 'supply_items' and column_name = 'price') < 4 then
+    alter table public.supply_items alter column price type numeric(12,4);
+  end if;
+end $$;
 alter table public.supply_items drop constraint if exists supply_items_ok;
 alter table public.supply_items add constraint supply_items_ok
   check (btrim(shop_name) <> '' and btrim(unit) <> ''
          and (uses is null or uses in ('rerail', 'pine', 'valance_small', 'valance_large', 'doors',
                                        'astragal_7', 'astragal_8', 'hinge', 'track', 'roller_set',
-                                       'floor_guide', 'finger_pull', 'flush_bolt'))
+                                       'floor_guide', 'finger_pull', 'flush_bolt',
+                                       'pallet', 'door_foam'))
          and (uses is null or coalesce(per_unit, 0) > 0)
          and (per_unit is null or per_unit < 100000)
          and waste_pct >= 0 and waste_pct <= 100
          and (warn_qty is null or warn_qty >= 0)
-         and (standard_order is null or standard_order >= 0));
+         and (standard_order is null or standard_order >= 0)
+         and (price is null or (price >= 0 and price < 10000000))
+         and (order_step is null or (order_step > 0 and order_step < 100000)));
 -- Andrew, 23 November: hardware comes in sizes and colours, so an item
 -- is matched to what Access asks for by its spec as well as its use:
 -- for a hinge 'size=3.5; radius=0.25; finish=Satin Nickel', for a track
@@ -340,6 +370,61 @@ update public.supply_items set uses = 'doors', per_unit = 500, waste_pct = 0
  where category = 'sanding' and uses is null
    and lower(regexp_replace(shop_name, '[^A-Za-z0-9]', '', 'g')) = 'sandingdisc320grit';
 
+-- PACKAGING MATERIALS (Andrew, 27 November). Pallets from Grand River
+-- Pallets and everything else from Uline, all ordered through Ashley,
+-- so neither supplier has an email here and their POs go to her alone.
+-- What a pallet uses, from the pallets in the dealer portal:
+--   every pallet: one shipping pallet, 4 corner protectors, 10 strap
+--     guards, 2 No Stack cones, about 200 ft of stretch wrap, 50 ft of tape
+--   every door on it: one layer of foam, the door's height plus 12"
+-- Uline's packs (uline.com, 27 November): foam S-1098 2 rolls a bundle
+-- (Andrew orders rolls in pairs), corner protectors S-14337 30 a carton,
+-- strap guards S-765 1,000 a carton, cones S-22361 50 a bundle, stretch
+-- wrap S-2187 4 rolls a case, tape S-200 (2" x 55 yds, 165 ft a roll)
+-- 36 rolls a case. Only dealer orders are packed on pallets; a double
+-- door is two doors, so two lengths of foam.
+-- per_unit for 'pallet' is how much of the item's unit one pallet uses;
+-- for 'door_foam' it is the length of one roll in inches (1,250 ft).
+insert into public.supply_suppliers (name, email, note)
+select v.n, null, v.note
+  from (values ('Grand River Pallets', 'Ashley places these orders.'),
+               ('Uline', 'Ashley places these orders.')) as v(n, note)
+ where not exists (select 1 from public.supply_suppliers s
+                    where lower(regexp_replace(s.name, '[^A-Za-z0-9]', '', 'g'))
+                        = lower(regexp_replace(v.n, '[^A-Za-z0-9]', '', 'g')));
+
+do $$
+declare grp uuid; ul uuid;
+begin
+  select id into grp from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'grandriverpallets' limit 1;
+  select id into ul  from public.supply_suppliers where lower(regexp_replace(name, '[^A-Za-z0-9]', '', 'g')) = 'uline' limit 1;
+  if not exists (select 1 from public.supply_items where category = 'packaging') then
+    insert into public.supply_items (category, shop_name, supplier_item, unit, uses, per_unit, waste_pct,
+                                     order_step, pack_name, standard_order, sort, supplier_id) values
+      ('packaging', 'Shipping pallet 99 x 40', '99" x 40" new block pallet, solid top',
+         'pallet', 'pallet', 1, 0, null, null, null, 10, grp),
+      ('packaging', 'Door foam', 'S-1098 Foam roll, non perforated, 1/16", 36" x 1,250''',
+         'roll', 'door_foam', 15000, 0, 2, 'bundle', 2, 20, ul),
+      ('packaging', 'Corner protectors', 'S-14337 Heavy duty edge protectors, .225" thick, 2 1/2 x 2 1/2 x 72"',
+         'piece', 'pallet', 4, 0, 30, 'carton', 30, 30, ul),
+      ('packaging', 'Strap guards', 'S-765 Strap guards, 2 1/2 x 2", white',
+         'piece', 'pallet', 10, 0, 1000, 'carton', 1000, 40, ul),
+      ('packaging', 'No Stack cones', 'S-22361 No Stack pallet cones, red',
+         'piece', 'pallet', 2, 0, 50, 'bundle', 50, 50, ul),
+      ('packaging', 'Stretch wrap', 'S-2187 Stretch wrap, cast, 70 gauge, 18" x 1,500''',
+         'roll', 'pallet', 0.1333, 0, 4, 'case', 4, 60, ul),
+      ('packaging', 'Packing tape', 'S-200 Uline industrial tape, 2 mil, 2" x 55 yds, clear',
+         'roll', 'pallet', 0.3030, 0, 36, 'case', 36, 70, ul);
+  end if;
+  -- a list filled before the tape's part number was known (3.10)
+  update public.supply_items
+     set supplier_item = 'S-200 Uline industrial tape, 2 mil, 2" x 55 yds, clear',
+         uses = 'pallet', per_unit = 0.3030, waste_pct = 0, order_step = 36, pack_name = 'case',
+         standard_order = coalesce(standard_order, 36)
+   where category = 'packaging' and uses is null
+     and supplier_item = 'Uline industrial tape (part number to confirm)';
+end $$;
+
 -- ---------- 4. the schedule from Access -----------------------------------
 create table if not exists public.supply_schedule (
   access_order_id  integer not null,
@@ -410,6 +495,102 @@ do $$ begin
 exception when undefined_object then null;
 end $$;
 
+-- WHAT THE PALLETS USED (Andrew, 27 November: one shipping pallet for
+-- every packed pallet, foam for every door on it, all of it known in the
+-- dealer portal). One row per pallet with at least one order on it, on
+-- the day it was built: its name, its doors and the foam they take.
+-- A door is a level on the pallet, as the portal counts them: one per
+-- door on the line, a bifold pair being one. Foam is the door's height
+-- on the order plus 12". Read by the Packaging Materials page, which
+-- takes stock down by it the way the Access schedule does. Empty when
+-- the portal's pallet tables are not in this database.
+create or replace function public.supply_pallet_use(p_from date)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare out jsonb;
+begin
+  if not public.can_use_supplies() then raise exception 'not allowed'; end if;
+  if to_regclass('public.pallets') is null or to_regclass('public.pallet_orders') is null
+     or to_regclass('public.dealer_orders') is null then
+    return '[]'::jsonb;
+  end if;
+  with lines as (
+    select po.pallet_id::text as pid, r
+      from pallet_orders po
+      join dealer_orders o on o.id::text = po.order_id::text
+      left join lateral jsonb_array_elements(
+             case when jsonb_typeof(o.form::jsonb -> 'rows') = 'array' then o.form::jsonb -> 'rows' else '[]'::jsonb end) r on true
+  ), doors as (
+    select pid,
+           sum(case when r is null then 0
+                    else greatest(1, coalesce(substring(r->>'qty' from '^\s*(\d+)')::int, 1)) end) as doors,
+           sum(case when r is null then 0
+                    else greatest(1, coalesce(substring(r->>'qty' from '^\s*(\d+)')::int, 1))
+                       * (coalesce(substring(r->>'height' from '^\s*(\d+(?:\.\d+)?)')::numeric, 80) + 12) end) as foam
+      from lines group by pid
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+           'pallet_id', p.id::text, 'name', p.name, 'day', p.built_on,
+           'doors', d.doors, 'foam_in', d.foam) order by p.built_on, p.name), '[]'::jsonb)
+    into out
+    from pallets p join doors d on d.pid = p.id::text
+   where p.built_on >= p_from;
+  return out;
+end $$;
+revoke all on function public.supply_pallet_use(date) from public, anon;
+grant execute on function public.supply_pallet_use(date) to authenticated;
+
+-- WHAT THE PALLETS WILL USE (Andrew, 27 November). Two parts: an order
+-- is forecast from its Packaging Date in Access until it goes on a pallet
+-- in the portal, and from then on the pallet itself counts it (see
+-- supply_pallet_use). Here: every dealer order linked to its Access job,
+-- not shipped, not a draft, not on hold, not on a pallet yet, whose Access
+-- Packaging Date (access_dealer_orders.packed_on, sent hourly by the
+-- dealer sync) is on or before p_to. Counted the same way as on a pallet:
+-- its doors, and the foam they take. One row per dealer and packaging
+-- date, since a pallet carries one dealer; a date already past counts as
+-- today. The page packs the doors into pallets of 20 to 45.
+create or replace function public.supply_pallet_ahead(p_to date)
+returns jsonb language plpgsql stable security definer set search_path = public as $$
+declare out jsonb;
+begin
+  if not public.can_use_supplies() then raise exception 'not allowed'; end if;
+  if to_regclass('public.dealer_orders') is null or to_regclass('public.pallet_orders') is null
+     or to_regclass('public.access_dealer_orders') is null then
+    return '[]'::jsonb;
+  end if;
+  if not exists (select 1 from information_schema.columns
+                  where table_schema = 'public' and table_name = 'dealer_orders' and column_name = 'access_order_id') then
+    return '[]'::jsonb;
+  end if;
+  execute $q$
+    with o as (
+      select o.id, o.dealer_id, greatest(s.packed_on, current_date) as pack_on, o.form
+        from dealer_orders o
+        join access_dealer_orders s on s.order_id = o.access_order_id
+       where s.packed_on is not null and s.packed_on <= $1
+         and o.status::text not in ('draft', 'shipped', 'on_hold')
+         and not exists (select 1 from pallet_orders po where po.order_id::text = o.id::text)
+    ), lines as (
+      select o.id, o.dealer_id, o.pack_on, r
+        from o left join lateral jsonb_array_elements(
+               case when jsonb_typeof(o.form::jsonb -> 'rows') = 'array' then o.form::jsonb -> 'rows' else '[]'::jsonb end) r on true
+    )
+    select coalesce(jsonb_agg(jsonb_build_object('dealer_id', g.dealer_id::text, 'pack_on', g.pack_on,
+                     'orders', g.orders, 'doors', g.doors, 'foam_in', g.foam) order by g.dealer_id::text, g.pack_on), '[]'::jsonb)
+      from (select dealer_id, pack_on, count(distinct id) as orders,
+                   sum(case when r is null then 0
+                            else greatest(1, coalesce(substring(r->>'qty' from '^\s*(\d+)')::int, 1)) end) as doors,
+                   sum(case when r is null then 0
+                            else greatest(1, coalesce(substring(r->>'qty' from '^\s*(\d+)')::int, 1))
+                               * (coalesce(substring(r->>'height' from '^\s*(\d+(?:\.\d+)?)')::numeric, 80) + 12) end) as foam
+              from lines group by dealer_id, pack_on) g
+     where g.doors > 0
+  $q$ into out using p_to;
+  return out;
+end $$;
+revoke all on function public.supply_pallet_ahead(date) from public, anon;
+grant execute on function public.supply_pallet_ahead(date) to authenticated;
+
 -- ---------- 5. counts -------------------------------------------------------
 create table if not exists public.supply_counts (
   id          uuid primary key default gen_random_uuid(),
@@ -465,6 +646,13 @@ create table if not exists public.supply_order_lines (
 alter table public.supply_order_lines drop constraint if exists supply_order_lines_ok;
 alter table public.supply_order_lines add constraint supply_order_lines_ok check (qty > 0 and qty < 100000);
 create index if not exists supply_order_lines_order on public.supply_order_lines (order_id);
+-- Andrew, 27 November: orders placed the same day to the same supplier go
+-- on one PO, so a line may be added after the PO was first emailed. Each
+-- line keeps when it went, so the next email sends only what is new.
+alter table public.supply_order_lines add column if not exists emailed_at timestamptz;
+update public.supply_order_lines l set emailed_at = o.emailed_at
+  from public.supply_orders o
+ where o.id = l.order_id and o.emailed_at is not null and l.emailed_at is null;
 comment on table public.supply_order_lines is
   'What is on each PO, with the names as they were when it was sent, so '
   'renaming or removing an item later leaves the record as it was.';
@@ -506,10 +694,25 @@ begin
   end if;
   select coalesce(nullif(p.name, ''), p.email) into who from profiles p where p.id = auth.uid();
 
-  insert into supply_orders (category, po_no, supplier_id, supplier_name, needed_by, note, requested_by)
-  values (cat.code, supply_next_po(cat.po_prefix), sup.id, sup.name, p_needed_by,
-          nullif(btrim(coalesce(p_note, '')), ''), who)
-  returning * into o;
+  -- Andrew, 27 November: everything ordered the same day from the same
+  -- supplier goes on one PO. An open PO from today takes the new lines;
+  -- otherwise a new PO. Under the PO lock, so two at once cannot both
+  -- make one.
+  perform pg_advisory_xact_lock(hashtext('gidc supply po ' || cat.po_prefix));
+  select * into o from supply_orders x
+   where x.category = cat.code and x.supplier_id is not distinct from p_supplier
+     and x.status = 'requested'
+     and (x.requested_at at time zone 'America/Toronto')::date = (now() at time zone 'America/Toronto')::date
+   order by x.requested_at limit 1;
+  if o.id is null then
+    insert into supply_orders (category, po_no, supplier_id, supplier_name, needed_by, note, requested_by)
+    values (cat.code, supply_next_po(cat.po_prefix), sup.id, sup.name, p_needed_by,
+            nullif(btrim(coalesce(p_note, '')), ''), who)
+    returning * into o;
+  elsif nullif(btrim(coalesce(p_note, '')), '') is not null then
+    update supply_orders set note = coalesce(note || '; ', '') || btrim(p_note) where id = o.id
+    returning * into o;
+  end if;
 
   for l in select * from jsonb_array_elements(p_lines) loop
     select * into it from supply_items where id = (l->>'item_id')::uuid;
@@ -519,14 +722,107 @@ begin
     end if;
     q := (l->>'qty')::numeric;
     if q is null or q <= 0 then raise exception 'Order more than nothing of %.', it.shop_name; end if;
-    insert into supply_order_lines (order_id, item_id, shop_name, supplier_item, unit, qty)
-    values (o.id, it.id, it.shop_name, it.supplier_item, it.unit, q);
+    -- the same item not yet emailed takes the extra; otherwise a new line
+    update supply_order_lines set qty = qty + q
+     where order_id = o.id and item_id = it.id and emailed_at is null;
+    if not found then
+      insert into supply_order_lines (order_id, item_id, shop_name, supplier_item, unit, qty)
+      values (o.id, it.id, it.shop_name, it.supplier_item, it.unit, q);
+    end if;
     n := n + 1;
   end loop;
   return o;
 end $$;
 revoke all on function public.supply_place_order(text, uuid, jsonb, date, text) from public, anon;
 grant execute on function public.supply_place_order(text, uuid, jsonb, date, text) to authenticated;
+
+-- RECEIVING IN PARTS (Andrew, 27 November): a supplier may ship part of
+-- an order. Each delivery of a line is a receipt, with its own day; stock
+-- adds each receipt on the day it came. The PO is received once every
+-- line has all of it, and stays on order until then. Received on the
+-- whole PO (All arrived) takes in whatever is still to come.
+create table if not exists public.supply_receipts (
+  id           uuid primary key default gen_random_uuid(),
+  line_id      uuid not null references public.supply_order_lines(id) on delete cascade,
+  order_id     uuid references public.supply_orders(id) on delete cascade,
+  item_id      uuid,
+  qty          numeric(9,2) not null,
+  received_on  date not null default current_date,
+  received_by  text,
+  created_at   timestamptz not null default now()
+);
+alter table public.supply_receipts drop constraint if exists supply_receipts_ok;
+alter table public.supply_receipts add constraint supply_receipts_ok check (qty > 0 and qty < 100000);
+create index if not exists supply_receipts_line on public.supply_receipts (line_id);
+create index if not exists supply_receipts_order on public.supply_receipts (order_id);
+comment on table public.supply_receipts is
+  'Each delivery of a PO line, with the day it came. Stock adds these. '
+  'Made on the page, or for everything still to come when the whole PO '
+  'is marked received.';
+
+-- what a receipt may be, and the PO it belongs to kept up to date
+create or replace function public.supply_receipt_stamp()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare l public.supply_order_lines; o public.supply_orders; got numeric; who text;
+begin
+  if tg_op = 'INSERT' then
+    select * into l from supply_order_lines where id = new.line_id;
+    select * into o from supply_orders where id = l.order_id;
+    if current_setting('gidc.receiving', true) is distinct from 'all' then
+      if o.status <> 'requested' then raise exception '% is not on order any more.', o.po_no; end if;
+      select coalesce(sum(qty), 0) into got from supply_receipts where line_id = l.id;
+      if new.qty > l.qty - got + 0.001 then
+        raise exception 'Only % of % is still to come on %.', round(l.qty - got, 2), l.shop_name, o.po_no;
+      end if;
+    end if;
+    if new.received_on > (now() at time zone 'America/Toronto')::date then
+      raise exception 'Pick the day it came, today or earlier.';
+    end if;
+    select coalesce(nullif(p.name, ''), p.email) into who from profiles p where p.id = auth.uid();
+    new.order_id := l.order_id; new.item_id := l.item_id;
+    new.received_by := coalesce(who, new.received_by); new.created_at := now();
+    return new;
+  end if;
+  return old;
+end $$;
+
+create or replace function public.supply_receipt_after()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare oid uuid := coalesce(new.order_id, old.order_id); short int; last date; st text;
+begin
+  if current_setting('gidc.receiving', true) = 'all' then return null; end if;
+  select count(*) into short from supply_order_lines l
+   where l.order_id = oid
+     and l.qty > coalesce((select sum(r.qty) from supply_receipts r where r.line_id = l.id), 0) + 0.001;
+  select max(received_on) into last from supply_receipts where order_id = oid;
+  select status into st from supply_orders where id = oid;
+  perform set_config('gidc.receiving', 'parts', true);
+  if short = 0 and st = 'requested' then
+    update supply_orders set status = 'received', received_on = last where id = oid;
+  elsif short > 0 and st = 'received' then
+    update supply_orders set status = 'requested' where id = oid;
+  end if;
+  perform set_config('gidc.receiving', '', true);
+  return null;
+end $$;
+
+-- Received on the whole PO: whatever is still to come arrives that day.
+create or replace function public.supply_order_after()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.status = 'received' and old.status <> 'received'
+     and coalesce(current_setting('gidc.receiving', true), '') = '' then
+    perform set_config('gidc.receiving', 'all', true);
+    insert into supply_receipts (line_id, qty, received_on)
+    select l.id, l.qty - coalesce((select sum(r.qty) from supply_receipts r where r.line_id = l.id), 0),
+           coalesce(new.received_on, current_date)
+      from supply_order_lines l
+     where l.order_id = new.id
+       and l.qty > coalesce((select sum(r.qty) from supply_receipts r where r.line_id = l.id), 0) + 0.001;
+    perform set_config('gidc.receiving', '', true);
+  end if;
+  return null;
+end $$;
 
 -- ---------- 7. who changed it, set by the database ----------------------
 create or replace function public.supply_stamp()
@@ -542,6 +838,11 @@ begin
     -- Only who is copied may change from a page.
     new.code := old.code; new.name := old.name; new.po_prefix := old.po_prefix; new.sort := old.sort;
     new.copy_to := nullif(btrim(coalesce(new.copy_to, '')), '');
+    -- Andrew, 27 November: Ashley is copied on ALL orders. Taking her
+    -- off on a page puts her straight back; anybody else may be added.
+    if coalesce(new.copy_to, '') !~* '(^|[\s,])ashley@grinyer\.ca($|[\s,])' then
+      new.copy_to := coalesce(new.copy_to || ', ', '') || 'ashley@grinyer.ca';
+    end if;
   elsif tg_table_name = 'supply_suppliers' then
     new.name := btrim(regexp_replace(coalesce(new.name, ''), '\s+', ' ', 'g'));
     new.email := nullif(lower(btrim(coalesce(new.email, ''))), '');
@@ -590,6 +891,35 @@ create trigger supply_counts_stamp before insert on public.supply_counts
 drop trigger if exists supply_orders_stamp on public.supply_orders;
 create trigger supply_orders_stamp before update on public.supply_orders
   for each row execute function public.supply_stamp();
+drop trigger if exists supply_orders_after on public.supply_orders;
+create trigger supply_orders_after after update on public.supply_orders
+  for each row execute function public.supply_order_after();
+drop trigger if exists supply_receipts_stamp on public.supply_receipts;
+create trigger supply_receipts_stamp before insert on public.supply_receipts
+  for each row execute function public.supply_receipt_stamp();
+drop trigger if exists supply_receipts_after on public.supply_receipts;
+create trigger supply_receipts_after after insert or delete on public.supply_receipts
+  for each row execute function public.supply_receipt_after();
+
+-- An order received before receipts existed gets one receipt a line, on
+-- the day it was marked received, so stock reads the same as before.
+do $$
+begin
+  perform set_config('gidc.receiving', 'all', true);
+  insert into public.supply_receipts (line_id, qty, received_on, received_by)
+  select l.id, l.qty, coalesce(o.received_on, o.requested_at::date), o.received_by
+    from public.supply_order_lines l join public.supply_orders o on o.id = l.order_id
+   where o.status = 'received'
+     and not exists (select 1 from public.supply_receipts r where r.order_id = o.id);
+  perform set_config('gidc.receiving', '', true);
+end $$;
+
+-- Ashley copied on every list there now (Andrew, 27 November: ALL
+-- orders). Anybody else already copied stays copied.
+update public.supply_categories
+   set copy_to = case when coalesce(btrim(copy_to), '') = '' then 'ashley@grinyer.ca'
+                      else copy_to || ', ashley@grinyer.ca' end
+ where coalesce(copy_to, '') !~* '(^|[\s,])ashley@grinyer\.ca($|[\s,])';
 
 -- ---------- 8. the rules ----------------------------------------------------
 alter table public.supply_categories  enable row level security;
@@ -599,12 +929,13 @@ alter table public.supply_schedule    enable row level security;
 alter table public.supply_counts      enable row level security;
 alter table public.supply_orders      enable row level security;
 alter table public.supply_order_lines enable row level security;
+alter table public.supply_receipts    enable row level security;
 
 do $$
 declare t text;
 begin
   foreach t in array array['supply_categories','supply_suppliers','supply_items','supply_schedule',
-                           'supply_counts','supply_orders','supply_order_lines'] loop
+                           'supply_counts','supply_orders','supply_order_lines','supply_receipts'] loop
     execute format('drop policy if exists %I on public.%I', t || '_read', t);
     execute format('create policy %I on public.%I for select to authenticated using (public.can_use_supplies())',
                    t || '_read', t);
@@ -631,12 +962,20 @@ create policy supply_counts_add on public.supply_counts
 create policy supply_counts_remove on public.supply_counts
   for delete to authenticated using (public.can_use_supplies());
 
+-- A delivery is typed on the page; one typed wrong can be taken back.
+drop policy if exists supply_receipts_add    on public.supply_receipts;
+drop policy if exists supply_receipts_remove on public.supply_receipts;
+create policy supply_receipts_add on public.supply_receipts
+  for insert to authenticated with check (public.can_use_supplies());
+create policy supply_receipts_remove on public.supply_receipts
+  for delete to authenticated using (public.can_use_supplies());
+
 drop policy if exists supply_orders_change on public.supply_orders;
 create policy supply_orders_change on public.supply_orders
   for update to authenticated using (public.can_use_supplies()) with check (public.can_use_supplies());
 
 revoke all on public.supply_categories, public.supply_suppliers, public.supply_items, public.supply_schedule,
-              public.supply_counts, public.supply_orders, public.supply_order_lines
+              public.supply_counts, public.supply_orders, public.supply_order_lines, public.supply_receipts
   from anon, public, authenticated;
 grant select, update                 on public.supply_categories  to authenticated;
 grant select, insert, update, delete on public.supply_suppliers   to authenticated;
@@ -645,9 +984,10 @@ grant select                         on public.supply_schedule    to authenticat
 grant select, insert, delete         on public.supply_counts      to authenticated;
 grant select, update                 on public.supply_orders      to authenticated;
 grant select                         on public.supply_order_lines to authenticated;
+grant select, insert, delete         on public.supply_receipts    to authenticated;
 do $$ begin
   execute 'grant all on public.supply_categories, public.supply_suppliers, public.supply_items, '
-          'public.supply_schedule, public.supply_counts, public.supply_orders, public.supply_order_lines to service_role';
+          'public.supply_schedule, public.supply_counts, public.supply_orders, public.supply_order_lines, public.supply_receipts to service_role';
 exception when undefined_object then null;
 end $$;
 
