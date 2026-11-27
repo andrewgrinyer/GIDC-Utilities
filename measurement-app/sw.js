@@ -6,7 +6,7 @@
    file cached whatever came back, so a single 403 from the edge could be kept
    and handed out afterwards, which is exactly what happened on 23 Sep 2026.
    A response already in the cache from that version is ignored and refetched. */
-const CACHE = 'gidc-12.7';  // 2.79, one initial on every page of the closet drawings
+const CACHE = 'gidc-12.8';  // 2.80, each closet design page shown on its own before the one initial
 const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.png', './icon-512.png',
                './apple-touch-icon.png', './manifest.webmanifest',
                './handle-hardware-selection.pdf', './bypass-door-overlap-guide.pdf',

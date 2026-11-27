@@ -51,7 +51,7 @@ const pdfText = bytes => {
   const design = Buffer.from(await page.evaluate(async () => {
     await loadScript(PDFLIB_SRC);
     const d = await PDFLib.PDFDocument.create(), f = await d.embedFont(PDFLib.StandardFonts.Helvetica);
-    [1, 2].forEach(n => { const p = d.addPage([792, 612]); p.drawText('Test closet design page ' + n, {x:60, y:500, size:24, font:f}); });
+    [1, 2, 3, 4].forEach(n => { const p = d.addPage([792, 612]); p.drawText('Test closet design page ' + n, {x:60, y:500, size:24, font:f}); });
     return Array.from(await d.save());
   }));
 
@@ -87,7 +87,7 @@ const pdfText = bytes => {
   await page.waitForFunction(() => state.job.closetFile, null, {timeout:10000});
   const cf = await page.evaluate(() => ({f:state.job.closetFile, price:clPriceNum(state.job), tear:state.job.closetTearOut,
     miss:missing(state.job), text:document.querySelector('.cl-order').innerText}));
-  check('the design PDF is on the job (2 pages)', cf.f.pages === 2 && cf.f.name === 'Cara closets.pdf' && /2 pages/.test(cf.text), cf);
+  check('the design PDF is on the job (4 pages)', cf.f.pages === 4 && cf.f.name === 'Cara closets.pdf' && /4 pages/.test(cf.text), cf);
   check('price and tear out saved, nothing missing', cf.price === 4250.5 && cf.tear === 'patch' && cf.miss.length === 0, cf);
   check('the card names the forms signed with it', /Closet Installation Details/.test(cf.text), cf.text);
   if(process.env.SHOT) await page.screenshot({path:process.env.SHOT, fullPage:true});
@@ -110,10 +110,18 @@ const pdfText = bytes => {
   // 3. sign in person
   await page.click('[data-sign]'); await page.waitForTimeout(200); await reviewed(page);
   await page.click('[data-sp="start"]');
-  let seenCloset = null, designSeen = null;
+  let seenCloset = null, designSeen = null; const dpages = [];
   for(let k = 0; k < fields.length; k++){
     const c = await page.$('.signpad canvas');
-    if(!c && await page.$('.signpad .sp-read')){ await page.click('[data-sp="next"]'); await page.waitForTimeout(40); continue; }   // 2.72: a term to read
+    if(!c && /^dpage-/.test(fields[k])){       // 2.80: each design page on its own, big
+      await page.waitForSelector('.sp-page img', {timeout:20000}).catch(() => {});
+      dpages.push(await page.evaluate(() => { const d = document.querySelector('.sp-doc'), im = document.querySelector('.sp-page img');
+        return {imgs:document.querySelectorAll('.sp-page img').length, w:im ? im.getBoundingClientRect().width : 0,
+                title:document.querySelector('.signpad h2').textContent, pad:!!document.querySelector('.signpad canvas'),
+                visible:im ? im.getBoundingClientRect().top >= d.getBoundingClientRect().top - 1 : false}; }));
+      if(process.env.SHOT && dpages.length === 2) await page.screenshot({path:process.env.SHOT.replace('.png', '-dpage.png')});
+    }
+    if(!c && await page.$('.signpad .sp-read, .signpad .sp-dpage')){ await page.click('[data-sp="next"]'); await page.waitForTimeout(40); continue; }   // 2.72: a term to read
     if(!c) break;
     if(fields[k] === 'ini-design'){        // 2.79: every drawing page on screen, one initial
       await page.waitForSelector('.sp-spot.on', {timeout:20000}).catch(() => {});
@@ -131,15 +139,19 @@ const pdfText = bytes => {
     await page.click('[data-sp="next"]'); await page.waitForTimeout(60);
   }
   check('the closet page and the closet form show while signing', seenCloset === 2, seenCloset);
-  check('the drawings initial shows both design pages, from the top', designSeen && designSeen.pages === 2 && designSeen.top === 0, designSeen);
+  check('each of the 4 design pages shows on its own, in order, before the initial', dpages.length === 4 &&
+    dpages.every((d, i) => d.imgs === 1 && !d.pad && d.visible && d.title === 'Closet design, page ' + (i + 1) + ' of 4') &&
+    fields.indexOf('dpage-4') === fields.indexOf('ini-design') - 1, dpages);
+  check('the design page fills the width of a phone screen', dpages.length && dpages[0].w > 280, dpages[0]);
+  check('the drawings initial shows all four design pages, from the top', designSeen && designSeen.pages === 4 && designSeen.top === 0, designSeen);
   await page.waitForTimeout(2500);
   const s = await page.evaluate(() => ({ok:signedOk(state.job), n:Object.keys(state.job.signed.marks).length}));
-  check('every field signed', s.ok && s.n === fields.filter(f => !/^read-/.test(f)).length, s);
+  check('every field signed', s.ok && s.n === fields.filter(f => !/^(read|dpage)-/.test(f)).length, s);
 
   // 4. the signed PDF
   const info = await page.evaluate(async () => { const b = await contractPdf(state.job); const d = await PDFLib.PDFDocument.load(b);
     return {bytes:Array.from(b), n:d.getPageCount(), forms:jobDocs(state.job).length}; });
-  check('PDF: order, terms, closet page, 2 design pages, form', info.n === 1 + 1 + 1 + 2 + info.forms && info.forms === 1, info.n);
+  check('PDF: order, terms, closet page, 4 design pages, form', info.n === 1 + 1 + 1 + 4 + info.forms && info.forms === 1, info.n);
   const txt = pdfText(info.bytes);
   if(txt === null) console.log('SKIP PDF text (no pdftotext here)');
   else {
@@ -148,8 +160,8 @@ const pdfText = bytes => {
     // 2.71, Andrew: the app's drawings, sizes, marks and notes are sales reference only
     check('PDF leaves out the measurement drawing, sizes, marks and notes', !['Ceiling height', 'Sizes:', 'Window on wall C', 'Bulkhead over the door']
       .some(w => txt.includes(w)), txt.slice(0, 1500));
-    check('the initial box is on every design page', (txt.match(/Customer initial/g) || []).length === 2, (txt.match(/Customer initial/g) || []).length);
-    check('PDF has both design pages', txt.includes('Test closet design page 1') && txt.includes('Test closet design page 2') && txt.includes('Closet design, page 2 of 2'));
+    check('the initial box is on every design page', (txt.match(/Customer initial/g) || []).length === 4, (txt.match(/Customer initial/g) || []).length);
+    check('PDF has both design pages', txt.includes('Test closet design page 1') && txt.includes('Test closet design page 4') && txt.includes('Closet design, page 4 of 4'));
     check('PDF order page says closets only', txt.includes('CLOSET ORGANIZERS ONLY'));
   }
 
@@ -177,7 +189,7 @@ const pdfText = bytes => {
   check('paint choice signs the paint form; condo adds both condo forms', mix.docs.includes('closetpaint') && !mix.docs.includes('closetpatch') &&
     mix.docs.includes('condo') && mix.docs.includes('condocloset'), mix.docs);
   const mixPdf = await page.evaluate(async () => (await PDFLib.PDFDocument.load(await contractPdf(state.job, {blank:true}))).getPageCount());
-  check('mixed PDF: order, terms, doors, closets, 2 design, 3 forms', mixPdf >= 1 + 1 + 1 + 1 + 2 + 3, mixPdf);
+  check('mixed PDF: order, terms, doors, closets, 2 design, 3 forms', mixPdf >= 1 + 1 + 1 + 1 + 4 + 3, mixPdf);
 
   // 7. printed: the closet page and the design pages are in the print
   await page.evaluate(() => { const d = document.querySelector('[data-revprint]'); d.click(); });
@@ -188,7 +200,7 @@ const pdfText = bytes => {
     imgs:document.querySelectorAll('.print-design img').length, sig:!!document.querySelector('.cl-order-print .print-sig'),
     svg:document.querySelectorAll('.cl-order-print svg.cl-svg').length}));
   check('the printed order has no measurement drawings', pr.svg === 0, pr);
-  check('print has the closet page with a signature line and both design pages', pr.cl === 'block' && pr.imgs === 2 && pr.sig, pr);
+  check('print has the closet page with a signature line and both design pages', pr.cl === 'block' && pr.imgs === 4 && pr.sig, pr);
   await page.emulateMedia({media:'screen'});
 
   // 8. closets only: Download workbook is on, and the job screen has Review order

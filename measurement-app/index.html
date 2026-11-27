@@ -675,6 +675,7 @@ body.signing{overflow:hidden}
 /* 2.27: the page being signed, above the pad */
 .sp-card.sp-withdoc{width:min(1000px,100%)}
 .sp-docwrap{position:relative;margin:0 0 12px}
+.sp-dpage .sp-doc{height:auto;max-height:min(70vh,900px)}
 .sp-doc{height:min(46vh,520px);overflow:auto;background:#5A5A60;border-radius:10px;padding:10px;-webkit-overflow-scrolling:touch}
 .sp-pages{display:flex;flex-direction:column;gap:10px;width:100%}
 .sp-doc.big .sp-pages{width:220%}
@@ -1644,8 +1645,13 @@ function signFields(job){
       (job.closetFile ? ', and the closet design (' + clPages(job.closetFile) + ')' : '') + '.'});
   /* 2.79, Andrew 27 Nov: every page of the closet drawings comes across the
      screen to review, then one initial goes on them all */
-  if(nc && job.closetFile) f.push({id:'ini-design', kind:'initial', title:'Review and initial the closet drawings',
-    note:'Look over every page of the closet design (' + clPages(job.closetFile) + '). Your initial goes on each page.'});
+  /* 2.80, Andrew 27 Nov: every page of the closet design is shown on its own,
+     full size, one after the other, before the one initial */
+  const dp = nc && job.closetFile ? Math.max(1, +job.closetFile.pages || 0) : 0;
+  for(let n = 1; n <= dp; n++) f.push({id:'dpage-' + n, kind:'read', title:'Closet design, page ' + n + ' of ' + dp,
+    note:'Look over this page of your closet design' + (n < dp ? ', then tap Next for the next page.' : '. Next, you initial once for all ' + dp + ' pages.')});
+  if(dp) f.push({id:'ini-design', kind:'initial', title:'Initial the closet drawings',
+    note:'You have looked over all ' + dp + ' page' + (dp === 1 ? '' : 's') + ' of the closet design. Initial once; your initial goes on every page.'});
   jobDocs(job).forEach(d => f.push({id:'form-' + d.id, kind:'sign', title:'Sign the ' + d.title, note:docFor(d) + '.'}));
   return f;
 }
@@ -1740,6 +1746,7 @@ function openSignPad(job, done){
       fields.filter(g => pv.spots[g.id] && pv.spots[g.id].p === pg.n).map(g => {
         const on = g === f, m = marks[g.id];
         if(g.kind === 'read' && !on) return '';
+        if(/^dpage-/.test(g.id)) return '';                          // 2.80: a whole page, nothing to point at
         if(!on && !m) return '';
         return '<div class="sp-spot' + (on ? ' on' : ' done') + '" style="' + spotBox(pv.spots[g.id]) + '">' +
           (on && f.kind === 'read' ? '' : on ? markIn({w:ini ? 300 : 600, h:ini ? 150 : 200, sw:3}, true) : markIn(m)) + '</div>'; }).join('') +
@@ -1748,7 +1755,7 @@ function openSignPad(job, done){
     draw();
     const s = el.querySelector('.sp-spot.on');
     // 2.79: the closet drawings are read from the first page down; the initial box is on the last
-    if(s && f.id === 'ini-design'){ el.scrollTop = 0; return; }
+    if(f.id === 'ini-design' || /^dpage-/.test(f.id)){ el.scrollTop = 0; return; }
     if(s) requestAnimationFrame(() => {
       const r = s.getBoundingClientRect(), b = el.getBoundingClientRect();
       el.scrollTop += (r.top - b.top) - (b.height - r.height) / 2;
@@ -1758,7 +1765,7 @@ function openSignPad(job, done){
     const f = fields[at], ini = f.kind === 'initial';
     const W = ini ? 300 : 600, H = ini ? 150 : 200;
     strokes = (marks[f.id] && marks[f.id].strokes) || [];
-    box.innerHTML = '<div class="sp-card' + (ini ? ' sp-ini' : '') + (pv ? ' sp-withdoc' : '') + '">' +
+    box.innerHTML = '<div class="sp-card' + (ini ? ' sp-ini' : '') + (pv ? ' sp-withdoc' : '') + (/^dpage-/.test(f.id) ? ' sp-dpage' : '') + '">' +
       '<div class="sp-step">' + (at + 1) + ' of ' + fields.length + '</div>' +
       '<h2>' + esc(f.title) + '</h2>' +
       (pv ? '<div class="sp-docwrap"><div class="sp-doc"><div class="sp-wait">Getting the page ready…</div></div>' +
@@ -2306,6 +2313,7 @@ async function contractPdf(job, opts){
       const ini = signed('ini-design');
       copied.forEach((cp, n) => { pdf.addPage(cp);
         const cw = cp.getWidth();
+        spot(cp, 'dpage-' + (n + 1), 0, 0, cw, cp.getHeight());          // 2.80: the page on its own while signing
         // 2.79: one initial, on every page of the drawings, bottom right
         const ix = cw - 28 - 84, iy = 14;
         cp.drawRectangle({x:ix - 4, y:iy - 4, width:92, height:34, color:WHITE, opacity:0.9});
@@ -8307,6 +8315,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.79 · 27 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.80 · 27 Nov 2026</div>
 </body>
 </html>
