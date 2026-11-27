@@ -209,6 +209,16 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(/PO PD.*PO PNT.*PO SHP.*PO HDW.*PO SND.*PO PKG.*PO INST/.test(await text(page, '.grid')), 'each says its PO prefix');
   if(SHOTS) await page.screenshot({path: SHOTS + '/supplies-menu.png'});
   await page.close();
+  page = await open('admin', '/');
+  await page.waitForSelector('#grid .tile');
+  const heads = await page.$$eval('#grid h2.grp', hs => hs.map(h => h.textContent));
+  const first = await page.$eval('#grid > *', e => e.textContent);
+  const gone = await page.$$eval('#grid .tile b', bs => bs.map(x => x.textContent));
+  check(heads.join('|') === 'Sales|Shop|Installation|Accounting' && /Company Dashboard/.test(first),
+    'the tools screen is grouped: the dashboard first, then Sales, Shop, Installation, Accounting (' + heads.join(', ') + ')');
+  check(!gone.some(n => /Summary Estimate|Proliner|Packing Sequencer|Export Documents/.test(n)), 'the four tools now in the portal are gone (' + gone.join(', ') + ')');
+  if(SHOTS) await page.screenshot({path: SHOTS + '/tools-grouped.png', fullPage: true});
+  await page.close();
   page = await open('installer', '/');
   await page.waitForSelector('#grid .tile');
   check(!(await page.$$eval('#grid .tile b', bs => bs.map(x => x.textContent))).includes('Order Supplies'), 'an installer does not see Order Supplies');
