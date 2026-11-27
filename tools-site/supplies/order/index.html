@@ -219,7 +219,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.4 &middot; 27 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.4.1 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -447,15 +447,16 @@ function realRows(rows){ return rows.filter(function(s){ return !s.ahead; }); }
 /* ---- packs and prices ---------------------------------------------------------
    Andrew, 27 November: Uline sells by the carton, bundle and case, and
    every item gets a price for the inventory value tool to come. The
-   price is for one pack when the item has one, else for one unit. */
+   price is always for one of the item's unit: a gallon, a roll of foam,
+   a corner protector, a piece of pine. */
 function stepOf(it){ return Number(it.order_step) > 0 ? Number(it.order_step) : 0; }
 function packText(it){
   var st = stepOf(it);
   return st ? (it.pack_name || 'pack') + ' of ' + n1(st) + ' ' + plural(st, it.unit) : '';
 }
 function roundUp(it, q){ var st = stepOf(it); return st && q > 0 ? Math.ceil(q / st - 1e-9) * st : q; }
-function money(n){ return '$' + (Number(n) || 0).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: 2}); }
-function unitPrice(it){ var p = Number(it.price); if(!(it.price != null && p >= 0)) return null; var st = stepOf(it); return st ? p / st : p; }
+function money(n, places){ return '$' + (Number(n) || 0).toLocaleString('en-CA', {minimumFractionDigits: 2, maximumFractionDigits: places || 2}); }
+function unitPrice(it){ var p = Number(it.price); return it.price != null && it.price !== '' && p >= 0 ? p : null; }
 
 /* ---- stock ----------------------------------------------------------------
    As paint: the last count (stock at the end of that day), plus what was
@@ -528,7 +529,7 @@ function card(it){
       '<dt>Standard order</dt><dd>' + (Number(it.standard_order) ? n1(it.standard_order) : 'not set') + '</dd>' +
       (stepOf(it) ? '<dt>Comes in</dt><dd>' + esc(packText(it)) + '</dd>' : '') +
       '<dt>Price</dt><dd>' + (unitPrice(it) == null ? 'not set'
-        : esc(money(it.price)) + ' a ' + esc(stepOf(it) ? (it.pack_name || 'pack') : it.unit)) + '</dd>' +
+        : esc(money(it.price, 4)) + ' a ' + esc(it.unit)) + '</dd>' +
       (unitPrice(it) != null && s.now != null ? '<dt>Stock value</dt><dd>' + esc(money(Math.max(0, s.now) * unitPrice(it))) + '</dd>' : '') +
     '</dl>' +
     (s.suggest ? '<div class="suggest">Suggest ordering ' + esc(qtyText(s.suggest, u)) +
@@ -727,7 +728,7 @@ function drawFresh(){
   if(ITEMS.some(isPallet) && !ITEMS.some(function(it){ return it.uses && !isPallet(it); })){
     el.className = 'fresh' + (PALLETS ? '' : ' stale');
     el.textContent = PALLETS ? 'Taken down by the pallets packed in the dealer portal: one shipping pallet, 4 corner protectors, 10 strap guards, ' +
-      '2 cones and the wrap for each pallet, and foam for each door on it at its height plus 12".'
+      '2 cones, the wrap and the tape for each pallet, and foam for each door on it at its height plus 12" (a double is two doors).'
       : 'Could not read the pallets from the dealer portal' + (PALLET_ERR ? ': ' + PALLET_ERR : '') + '. Has supplies.sql been run again?';
     return;
   }
@@ -807,7 +808,7 @@ function drawPanel(){
     '<div id="i-wastewrap"' + (uses ? '' : ' class="hide"') + '><label for="i-waste">Waste allowance, %</label><input id="i-waste" inputmode="decimal" value="' + esc(e.waste_pct == null ? 10 : e.waste_pct) + '"></div>' +
     '<div><label for="i-step">Comes in packs of</label><input id="i-step" inputmode="decimal" value="' + esc(e.order_step == null ? '' : n1(e.order_step)) + '" placeholder="Blank if sold one at a time"></div>' +
     '<div><label for="i-pack">Pack is called</label><input id="i-pack" value="' + esc(e.pack_name || '') + '" placeholder="carton, bundle, case"></div>' +
-    '<div><label for="i-price">Price, for one pack (or one unit if no pack)</label><input id="i-price" inputmode="decimal" value="' + esc(e.price == null ? '' : Number(e.price).toFixed(2)) + '" placeholder="$"></div>' +
+    '<div><label for="i-price">Price for one ' + esc(e.unit || 'piece') + '</label><input id="i-price" inputmode="decimal" value="' + esc(e.price == null ? '' : String(Number(e.price))) + '" placeholder="$"></div>' +
     (panel.id && askRemove !== e.id ? '' : '') +
     '<div class="acts"><button class="save" id="i-save">' + (panel.id ? 'Save' : 'Add item') + '</button><button class="plain" data-close>Cancel</button>' +
       (panel.id ? '<button class="plain" data-remove="' + esc(e.id) + '">Remove item</button>' : '') +
@@ -875,7 +876,7 @@ function saveItem(){
              uses: uses, per_unit: uses ? per : null, waste_pct: uses ? waste : 0,
              spec: uses && USES[uses].spec ? $('i-spec').value.trim() : '',
              order_step: step, pack_name: step ? ($('i-pack').value.trim() || null) : null,
-             price: price == null ? null : Math.round(price * 100) / 100};
+             price: price == null ? null : Math.round(price * 10000) / 10000};
   if(!panel.id){ row.category = CODE; row.sort = (ITEMS.reduce(function(m, i){ return Math.max(m, i.sort || 0); }, 0) || 0) + 10; }
   busy = true;
   (panel.id ? send('PATCH', '/rest/v1/supply_items?id=eq.' + encodeURIComponent(panel.id), row) : send('POST', '/rest/v1/supply_items', row))

@@ -70,12 +70,12 @@ function reset(){
       waste_pct:'0.0', warn_qty:'0', standard_order:std == null ? null : String(std), order_step:step == null ? null : String(step),
       pack_name:pack, price:price == null ? null : String(price), sort});
   ITEMS.push(K('k1', 'Shipping pallet 99 x 40', '99" x 40" new block pallet, solid top', 'pallet', 'pallet', 1, null, null, null, 's5', 10),
-             K('k2', 'Door foam', 'S-1098 Foam roll', 'roll', 'door_foam', 15000, 2, 'bundle', 2, 's4', 20, 364),
-             K('k3', 'Corner protectors', 'S-14337 Heavy duty edge protectors', 'piece', 'pallet', 4, 30, 'carton', 30, 's4', 30, 128),
-             K('k4', 'Strap guards', 'S-765 Strap guards', 'piece', 'pallet', 10, 1000, 'carton', 1000, 's4', 40),
+             K('k2', 'Door foam', 'S-1098 Foam roll', 'roll', 'door_foam', 15000, 2, 'bundle', 2, 's4', 20, 182),
+             K('k3', 'Corner protectors', 'S-14337 Heavy duty edge protectors', 'piece', 'pallet', 4, 30, 'carton', 30, 's4', 30, 4.27),
+             K('k4', 'Strap guards', 'S-765 Strap guards', 'piece', 'pallet', 10, 1000, 'carton', 1000, 's4', 40, 0.147),
              K('k5', 'No Stack cones', 'S-22361 No Stack pallet cones', 'piece', 'pallet', 2, 50, 'bundle', 50, 's4', 50),
              K('k6', 'Stretch wrap', 'S-2187 Stretch wrap', 'roll', 'pallet', 0.1333, 4, 'case', 4, 's4', 60),
-             K('k7', 'Packing tape', 'Uline industrial tape (part number to confirm)', 'roll', null, null, null, null, null, 's4', 70));
+             K('k7', 'Packing tape', 'S-200 Uline industrial tape', 'roll', 'pallet', 0.303, 36, 'case', 36, 's4', 70));
   COUNTS = [{id:'c1', item_id:'i1', qty:'30.00', counted_on:'2026-11-17', created_at:'2026-11-17T22:00:00Z', created_by:'Nick'},
             {id:'c2', item_id:'i2', qty:'3.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
             {id:'c3', item_id:'i3', qty:'5.00', counted_on:'2026-11-18', created_at:'2026-11-18T22:00:00Z', created_by:'Nick'},
@@ -376,22 +376,25 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   check(/12 pieces in stock/.test(c) && /less 8 used since/.test(c),
     'corner protectors: 20 counted Nov 10, two pallets since at 4 each (' + c + ')');
   check(/Next 2 weeks 8 \(2 pallets at the last 2 weeks/.test(c), 'the next two weeks are taken to be like the last two: two pallets, 8 (' + c + ')');
-  check(/Comes in carton of 30 pieces/.test(c) && /Price \$128\.00 a carton/.test(c) && /Stock value \$51\.20/.test(c),
-    'the pack, the price a carton and the stock value at 128 / 30 a piece (' + c + ')');
+  check(/Comes in carton of 30 pieces/.test(c) && /Price \$4\.27 a piece/.test(c) && /Stock value \$51\.24/.test(c),
+    'the pack, the price of one piece and the stock value, 12 at 4.27 (' + c + ')');
   c = await card(page, 'Door foam');
   // 9200 + 5800 inches used = 15000 = one roll
   check(/1 roll in stock/.test(c) && /less 1 used since/.test(c), 'foam: 2 rolls counted, 15,000 inches of foam used, one roll left (' + c + ')');
+  c = await card(page, 'Strap guards');
+  check(/Price \$0\.147 a piece/.test(c), 'a price under a dollar keeps its places (' + c + ')');
   c = await card(page, 'Shipping pallet');
   check(/Not counted yet/.test(c) && /Next 2 weeks 2 \(2 pallets/.test(c) && /Price not set/.test(c), 'pallets: not counted, two in the next two weeks, no price yet (' + c + ')');
   c = await card(page, 'Packing tape');
-  check(/not predicted/.test(c), 'tape: counted only for now (' + c + ')');
+  check(/Next 2 weeks 0\.6 \(2 pallets/.test(c) && /case of 36 rolls/.test(c), 'tape: 50 ft of a 165 ft roll a pallet, cases of 36 (' + c + ')');
   check(!(await page.$eval('#pal-wrap', e => e.classList.contains('hide'))) &&
         /Wed Nov 18 Chicago 3 6 483\.3/.test(await text(page, '#pals')) && /Four weeks 2 pallets 16 1,?250/.test(await text(page, '#pals')),
     'Pallets packed lists the last four weeks with doors and feet of foam (' + await text(page, '#pals') + ')');
   check(await page.$eval('#sched-wrap', e => e.classList.contains('hide')), 'there is no Access schedule on this list');
   // a low item suggests whole packs
   await page.click('[data-edit="k3"]');
-  check(await page.inputValue('#i-step') === '30' && await page.inputValue('#i-pack') === 'carton' && await page.inputValue('#i-price') === '128.00',
+  check(await page.inputValue('#i-step') === '30' && await page.inputValue('#i-pack') === 'carton' && await page.inputValue('#i-price') === '4.27' &&
+        /Price for one piece/i.test(await text(page, '#panel')),
     'the item form shows the pack and the price');
   await page.fill('#i-warn', '40'); await page.fill('#i-price', '$1,150.5'); await page.click('#i-save'); await page.waitForTimeout(300);
   check(posted.some(x => x[0] === 'itemedit' && x[1].price === 1150.5 && x[1].order_step === 30 && x[1].pack_name === 'carton' && x[1].warn_qty === 40),

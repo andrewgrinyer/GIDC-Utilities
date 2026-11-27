@@ -163,11 +163,12 @@ create table if not exists public.supply_items (
 -- inventory value tool to come, and Uline sells by the carton, bundle
 -- and case). order_step is how many of the item's unit come in one pack
 -- (30 corner protectors a carton); pack_name is what the pack is called.
--- price is for one pack when there is a pack, else for one unit, so it
--- reads the way the invoice does. Blank until somebody types it.
+-- price is for one of the item's unit (Andrew, 27 November: per gallon
+-- of paint, per roll of foam, per corner protector, per piece of pine),
+-- never per pack. Blank until somebody types it.
 -- per_unit takes four places now: stretch wrap is 200 ft of a 1,500 ft
 -- roll on each pallet, 0.1333 of a roll.
-alter table public.supply_items add column if not exists price      numeric(12,2);
+alter table public.supply_items add column if not exists price      numeric(12,4);
 alter table public.supply_items add column if not exists order_step numeric(9,2);
 alter table public.supply_items add column if not exists pack_name  text;
 do $$
@@ -175,6 +176,11 @@ begin
   if (select numeric_scale from information_schema.columns
        where table_schema = 'public' and table_name = 'supply_items' and column_name = 'per_unit') < 4 then
     alter table public.supply_items alter column per_unit type numeric(12,4);
+  end if;
+  -- a strap guard is about 15 cents, so a price per item takes four places
+  if (select numeric_scale from information_schema.columns
+       where table_schema = 'public' and table_name = 'supply_items' and column_name = 'price') < 4 then
+    alter table public.supply_items alter column price type numeric(12,4);
   end if;
 end $$;
 alter table public.supply_items drop constraint if exists supply_items_ok;
@@ -374,8 +380,9 @@ update public.supply_items set uses = 'doors', per_unit = 500, waste_pct = 0
 -- Uline's packs (uline.com, 27 November): foam S-1098 2 rolls a bundle
 -- (Andrew orders rolls in pairs), corner protectors S-14337 30 a carton,
 -- strap guards S-765 1,000 a carton, cones S-22361 50 a bundle, stretch
--- wrap S-2187 4 rolls a case. The tape's part number is not known yet,
--- so it is counted only until it is.
+-- wrap S-2187 4 rolls a case, tape S-200 (2" x 55 yds, 165 ft a roll)
+-- 36 rolls a case. Only dealer orders are packed on pallets; a double
+-- door is two doors, so two lengths of foam.
 -- per_unit for 'pallet' is how much of the item's unit one pallet uses;
 -- for 'door_foam' it is the length of one roll in inches (1,250 ft).
 insert into public.supply_suppliers (name, email, note)
@@ -406,9 +413,16 @@ begin
          'piece', 'pallet', 2, 0, 50, 'bundle', 50, 50, ul),
       ('packaging', 'Stretch wrap', 'S-2187 Stretch wrap, cast, 70 gauge, 18" x 1,500''',
          'roll', 'pallet', 0.1333, 0, 4, 'case', 4, 60, ul),
-      ('packaging', 'Packing tape', 'Uline industrial tape (part number to confirm)',
-         'roll', null, null, 0, null, null, null, 70, ul);
+      ('packaging', 'Packing tape', 'S-200 Uline industrial tape, 2 mil, 2" x 55 yds, clear',
+         'roll', 'pallet', 0.3030, 0, 36, 'case', 36, 70, ul);
   end if;
+  -- a list filled before the tape's part number was known (3.10)
+  update public.supply_items
+     set supplier_item = 'S-200 Uline industrial tape, 2 mil, 2" x 55 yds, clear',
+         uses = 'pallet', per_unit = 0.3030, waste_pct = 0, order_step = 36, pack_name = 'case',
+         standard_order = coalesce(standard_order, 36)
+   where category = 'packaging' and uses is null
+     and supplier_item = 'Uline industrial tape (part number to confirm)';
 end $$;
 
 -- ---------- 4. the schedule from Access -----------------------------------
