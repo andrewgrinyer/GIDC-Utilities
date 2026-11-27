@@ -723,6 +723,11 @@ begin
     -- Only who is copied may change from a page.
     new.code := old.code; new.name := old.name; new.po_prefix := old.po_prefix; new.sort := old.sort;
     new.copy_to := nullif(btrim(coalesce(new.copy_to, '')), '');
+    -- Andrew, 27 November: Ashley is copied on ALL orders. Taking her
+    -- off on a page puts her straight back; anybody else may be added.
+    if coalesce(new.copy_to, '') !~* '(^|[\s,])ashley@grinyer\.ca($|[\s,])' then
+      new.copy_to := coalesce(new.copy_to || ', ', '') || 'ashley@grinyer.ca';
+    end if;
   elsif tg_table_name = 'supply_suppliers' then
     new.name := btrim(regexp_replace(coalesce(new.name, ''), '\s+', ' ', 'g'));
     new.email := nullif(lower(btrim(coalesce(new.email, ''))), '');
@@ -771,6 +776,13 @@ create trigger supply_counts_stamp before insert on public.supply_counts
 drop trigger if exists supply_orders_stamp on public.supply_orders;
 create trigger supply_orders_stamp before update on public.supply_orders
   for each row execute function public.supply_stamp();
+
+-- Ashley copied on every list there now (Andrew, 27 November: ALL
+-- orders). Anybody else already copied stays copied.
+update public.supply_categories
+   set copy_to = case when coalesce(btrim(copy_to), '') = '' then 'ashley@grinyer.ca'
+                      else copy_to || ', ashley@grinyer.ca' end
+ where coalesce(copy_to, '') !~* '(^|[\s,])ashley@grinyer\.ca($|[\s,])';
 
 -- ---------- 8. the rules ----------------------------------------------------
 alter table public.supply_categories  enable row level security;

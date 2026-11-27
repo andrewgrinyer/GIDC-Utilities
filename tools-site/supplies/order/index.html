@@ -222,7 +222,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.4.6 &middot; 27 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.4.7 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -623,7 +623,14 @@ function groupsOf(list){
   });
   return order.map(function(k){ return g[k]; });
 }
-function copyList(){ return String(CAT && CAT.copy_to || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean); }
+/* Andrew, 27 November: Ashley is copied on ALL orders, whatever the list
+   has saved (the database puts her back if she is taken off). */
+var ASHLEY = 'ashley@grinyer.ca';
+function copyList(){
+  var l = String(CAT && CAT.copy_to || '').split(',').map(function(s){ return s.trim(); }).filter(Boolean);
+  if(!l.some(function(a){ return a.toLowerCase() === ASHLEY; })) l.unshift(ASHLEY);
+  return l;
+}
 function drawOrderForm(){
   if(!ITEMS.length){ $('ord').innerHTML = '<tr><td><div class="empty">Add items first.</div></td></tr>'; drawGroups(); return; }
   $('ord').innerHTML = '<thead><tr><th>Item</th><th>Supplier</th><th style="text-align:right">In stock</th>' +
@@ -784,7 +791,7 @@ function drawSettings(){
   }).join('');
   $('setbody').innerHTML =
     '<h2>Who is copied on every order</h2><div class="form">' +
-      '<div class="wide"><label for="s-copy">Purchasing manager, commas for several</label><input id="s-copy" value="' + esc(CAT && CAT.copy_to || '') + '" placeholder="ashley@grinyer.ca"></div>' +
+      '<div class="wide"><label for="s-copy">Copied on every order, commas for several (Ashley always is)</label><input id="s-copy" value="' + esc(CAT && CAT.copy_to || '') + '" placeholder="ashley@grinyer.ca"></div>' +
       '<div class="acts"><button class="save" id="s-savecopy">Save</button><span class="total">Copied on every ' + esc(CAT ? CAT.po_prefix : '') + ' PO, and where the supplier’s reply goes.</span></div></div>' +
     '<h2 class="withbtn">Suppliers <button class="plain small" id="newsupplier">New supplier</button></h2>' +
     '<p class="sub">Shared by Shop, Sanding and Install Supplies. Each PO is emailed to the supplier’s address.</p>' +
@@ -1001,7 +1008,7 @@ function saveCopy(){
   if(v && !/^[^@\s,]+@[^@\s,]+\.[^@\s,]+(\s*,\s*[^@\s,]+@[^@\s,]+\.[^@\s,]+)*$/.test(v)) return message('bad', 'That email address does not look right. Use commas between several.');
   busy = true;
   send('PATCH', '/rest/v1/supply_categories?code=eq.' + encodeURIComponent(CODE), {copy_to: v || null})
-    .then(function(row){ CAT = row; draw(); $('settings').open = true; message('good', v ? 'Every order will copy ' + v + '.' : 'Nobody will be copied.'); })
+    .then(function(row){ CAT = row; draw(); $('settings').open = true; message('good', 'Every order will copy ' + copyList().join(', ') + '.'); })
     .catch(function(err){ message('bad', err.message); })
     .then(function(){ busy = false; });
 }

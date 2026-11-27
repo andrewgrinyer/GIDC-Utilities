@@ -69,10 +69,15 @@ insert into supply_items(category, shop_name, unit, uses) values ('shop', 'Bad',
 update supply_categories set copy_to = 'buyer@grinyer.ca', po_prefix = 'XX', name = 'Changed' where code = 'shop';
 insert into supply_counts(item_id, qty, counted_on, created_by) select id, 12, '2026-11-18', 'someone else' from supply_items where shop_name like 'Pine%';
 reset role;
-\echo -- want: Lumber Yard orders@lumber.ca, duplicate refused, bad email refused, Bad refused, shop copy buyer@ prefix SHP name Shop Supplies, count by manufacturing
+\echo -- want: Lumber Yard orders@lumber.ca, duplicate refused, bad email refused, Bad refused, shop copy buyer@ and ashley@ prefix SHP name Shop Supplies, count by manufacturing
 select name, email, updated_by from supply_suppliers order by name;
 select shop_name, supplier_item, updated_by from supply_items where supplier_id is not null order by sort limit 2;
 select code, name, po_prefix, copy_to from supply_categories where code = 'shop';
+\echo -- want: Ashley cannot be taken off; blank puts her back alone
+set role authenticated; select pg_temp.as_who('manufacturing');
+update supply_categories set copy_to = '' where code = 'hardware';
+reset role;
+select code, copy_to from supply_categories where code in ('shop', 'hardware') order by code;
 select qty, created_by from supply_counts;
 
 \echo -- orders: one per supplier, numbered SHP00001, SHP00002; a refused one leaves no gap
