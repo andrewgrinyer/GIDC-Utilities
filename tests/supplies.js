@@ -149,11 +149,38 @@ async function mock(page){
     }
     if(p === '/rest/v1/rpc/supply_pallet_use'){ posted.push(['pallets', body]); return j(PALLETS); }
     if(p === '/rest/v1/rpc/supply_pallet_ahead'){ posted.push(['ahead', body]); return j(AHEAD); }
+    if(p === '/rest/v1/supply_receipts'){
+      const lineOf = id => { for(const o of ORDERS) for(const l of (o.supply_order_lines || [])) if(l.id === id) return [o, l]; return []; };
+      if(m === 'POST'){
+        const [o, l] = lineOf(body.line_id); l.supply_receipts = l.supply_receipts || [];
+        const got = l.supply_receipts.reduce((a, r) => a + Number(r.qty), 0);
+        if(body.qty > Number(l.qty) - got) return j({message:'Only ' + (Number(l.qty) - got) + ' of ' + l.shop_name + ' is still to come on ' + o.po_no + '.'}, 400);
+        const r = {id:'r' + (++n), line_id:l.id, qty:String(body.qty), received_on:body.received_on};
+        l.supply_receipts.push(r); posted.push(['receipt', body]);
+        if(o.supply_order_lines.every(x => (x.supply_receipts || []).reduce((a, y) => a + Number(y.qty), 0) >= Number(x.qty))){ o.status = 'received'; o.received_on = body.received_on; }
+        return jw([r], 201);
+      }
+      if(m === 'DELETE'){
+        const id = eqv(u, 'id'); let gone = [];
+        for(const o of ORDERS) for(const l of (o.supply_order_lines || [])){
+          const i = (l.supply_receipts || []).findIndex(r => r.id === id);
+          if(i >= 0){ gone = l.supply_receipts.splice(i, 1); if(o.status === 'received') { o.status = 'requested'; o.received_on = null; } posted.push(['unreceipt', id]); }
+        }
+        return jw(gone);
+      }
+    }
     if(p === '/rest/v1/supply_schedule') return j(+(u.searchParams.get('offset') || 0) ? [] : SCHED);
     if(p === '/rest/v1/supply_orders'){
       if(m === 'PATCH'){
         const o = ORDERS.find(x => x.id === eqv(u, 'id'));
-        o.status = body.status; if(body.status === 'received') o.received_on = '2026-11-20';
+        o.status = body.status;
+        if(body.status === 'received'){
+          o.received_on = body.received_on || '2026-11-20';
+          // as the database does: what is still to come arrives that day
+          (o.supply_order_lines || []).forEach(l => { l.supply_receipts = l.supply_receipts || [];
+            const got = l.supply_receipts.reduce((a, r) => a + Number(r.qty), 0);
+            if(Number(l.qty) > got) l.supply_receipts.push({id:'r' + (++n), qty:String(Number(l.qty) - got), received_on:o.received_on}); });
+        }
         posted.push(['status', o.po_no, body]); return jw([o]);
       }
       return j(ORDERS);
@@ -295,7 +322,22 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
   await page.click('[data-received="00000000-0000-0000-0000-00000000000a"]'); await page.waitForTimeout(300);
   c = await card(page, 'Pine');
   check(/48\.9 pieces in stock/.test(c) && /plus 20 received/.test(c) && /On order 15/.test(c), 'Received adds the 20 pieces of pine (' + c + ')');
-  check(/SHP00001 received, and added to stock/.test(await text(page, '#msg')), 'and says so');
+  check(/SHP00001: the rest received, and added to stock/.test(await text(page, '#msg')), 'and says so (' + await text(page, '#msg') + ')');
+  // part of a PO: 5 of the 15 pine on SHP00002
+  const pineLine = ORDERS.find(x => x.po_no === 'SHP00002').supply_order_lines.find(l => /^Pine/.test(l.shop_name)).id;
+  check(await page.inputValue('[data-recvqty="' + pineLine + '"]') === '15', 'each line offers what is still to come');
+  await page.fill('[data-recvqty="' + pineLine + '"]', '5');
+  await page.click('[data-recvline="' + pineLine + '"]'); await page.waitForTimeout(300);
+  o = await text(page, '#orders');
+  check(/Part received/.test(o) && /5 in Nov 20/.test(o) && /10 to come/.test(o), 'a part delivery shows on the PO, which stays on order (' + o.slice(0, 300) + ')');
+  c = await card(page, 'Pine');
+  check(/plus 25 received/.test(c) && /On order 10/.test(c), 'stock takes the 5, on order is the 10 still to come (' + c + ')');
+  await page.fill('[data-recvqty="' + pineLine + '"]', '11');
+  await page.click('[data-recvline="' + pineLine + '"]'); await page.waitForTimeout(300);
+  check(/Only 10 of Pine/.test(await text(page, '#msg')), 'more than is still to come is refused (' + await text(page, '#msg') + ')');
+  await page.click('[data-unreceive]'); await page.waitForTimeout(300);
+  c = await card(page, 'Pine');
+  check(/On order 15/.test(c) && /plus 20 received/.test(c) && /Taken back/.test(await text(page, '#msg')), 'a delivery typed wrong can be taken back (' + c + ')');
 
   // a failed email
   MAIL_OK = false;

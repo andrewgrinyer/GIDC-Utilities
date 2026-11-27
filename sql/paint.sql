@@ -322,9 +322,13 @@ begin
     update public.paint_orders set po_no = public.paint_next_po() where id = r.id;
   end loop;
 end $$;
-create unique index if not exists paint_orders_po on public.paint_orders (po_no);
+-- Andrew, 27 November: paint ordered the same day goes on one PO, so a
+-- PO number is no longer one order each.
+drop index if exists public.paint_orders_po;
+create index if not exists paint_orders_po_no on public.paint_orders (po_no);
 comment on column public.paint_orders.po_no is
-  'Purchase order number, PD and five digits from PD00001. Set by the database.';
+  'Purchase order number, PD and five digits from PD00001. Set by the database. '
+  'Every colour ordered the same day (Toronto time) shares one, until that PO is cancelled.';
 
 -- THE CUSTOMER
 -- Andrew, 19 November: the customer is required for a custom colour and
@@ -367,7 +371,13 @@ begin
   elsif tg_table_name = 'paint_orders' then
     if tg_op = 'INSERT' then
       new.requested_at := now(); new.requested_by := who;
-      new.po_no := public.paint_next_po();
+      -- the same day's PO if there is one still open, else the next number
+      perform pg_advisory_xact_lock(hashtext('gidc paint po'));
+      select o.po_no into new.po_no from public.paint_orders o
+       where o.status <> 'cancelled' and o.po_no is not null
+         and (o.requested_at at time zone 'America/Toronto')::date = (now() at time zone 'America/Toronto')::date
+       order by o.requested_at limit 1;
+      if new.po_no is null then new.po_no := public.paint_next_po(); end if;
       -- Which colour on the shelf this adds to when it arrives. A custom
       -- colour not on the shelf yet is put there now, with nothing in
       -- stock, so it shows as on order (Andrew, 19 November).
@@ -423,11 +433,112 @@ drop trigger if exists paint_orders_stamp on public.paint_orders;
 create trigger paint_orders_stamp before insert or update on public.paint_orders
   for each row execute function public.paint_stamp();
 
+-- RECEIVING IN PARTS (Andrew, 27 November): the supplier may ship part of
+-- an order. Each delivery is a receipt with its own day, and stock adds
+-- each one on the day it came. The order is received once all of it has
+-- come; Received on the whole order takes in whatever is still to come.
+create table if not exists public.paint_receipts (
+  id           uuid primary key default gen_random_uuid(),
+  order_id     uuid not null references public.paint_orders(id) on delete cascade,
+  pails_5      integer not null default 0,
+  pails_1      integer not null default 0,
+  gallons      numeric(8,2) generated always as (pails_5 * 5 + pails_1) stored,
+  received_on  date not null default current_date,
+  received_by  text,
+  created_at   timestamptz not null default now()
+);
+alter table public.paint_receipts drop constraint if exists paint_receipts_ok;
+alter table public.paint_receipts add constraint paint_receipts_ok
+  check (pails_5 >= 0 and pails_1 >= 0 and pails_5 + pails_1 > 0 and pails_5 < 1000 and pails_1 < 1000);
+create index if not exists paint_receipts_order on public.paint_receipts (order_id);
+comment on table public.paint_receipts is
+  'Each delivery of a paint order, in pails, with the day it came. Stock adds these.';
+
+create or replace function public.paint_receipt_stamp()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare o public.paint_orders; g5 int; g1 int; who text;
+begin
+  select * into o from paint_orders where id = new.order_id;
+  if current_setting('gidc.receiving', true) is distinct from 'all' then
+    if o.status <> 'requested' then raise exception '% % is not on order any more.', o.po_no, o.colour; end if;
+    select coalesce(sum(pails_5), 0), coalesce(sum(pails_1), 0) into g5, g1 from paint_receipts where order_id = o.id;
+    if new.pails_5 > o.pails_5 - g5 or new.pails_1 > o.pails_1 - g1 then
+      raise exception 'Only % x 5 gal and % x 1 gal of % are still to come.', o.pails_5 - g5, o.pails_1 - g1, o.colour;
+    end if;
+  end if;
+  if new.received_on > (now() at time zone 'America/Toronto')::date then
+    raise exception 'Pick the day it came, today or earlier.';
+  end if;
+  select coalesce(nullif(p.name, ''), p.email) into who from profiles p where p.id = auth.uid();
+  new.received_by := coalesce(who, new.received_by); new.created_at := now();
+  return new;
+end $$;
+
+create or replace function public.paint_receipt_after()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare oid uuid := coalesce(new.order_id, old.order_id); o public.paint_orders; g5 int; g1 int; last date;
+begin
+  if current_setting('gidc.receiving', true) = 'all' then return null; end if;
+  select * into o from paint_orders where id = oid;
+  select coalesce(sum(pails_5), 0), coalesce(sum(pails_1), 0), max(received_on) into g5, g1, last
+    from paint_receipts where order_id = oid;
+  perform set_config('gidc.receiving', 'parts', true);
+  if g5 >= o.pails_5 and g1 >= o.pails_1 and o.status = 'requested' then
+    update paint_orders set status = 'received', received_on = last where id = oid;
+  elsif (g5 < o.pails_5 or g1 < o.pails_1) and o.status = 'received' then
+    update paint_orders set status = 'requested' where id = oid;
+  end if;
+  perform set_config('gidc.receiving', '', true);
+  return null;
+end $$;
+
+-- Received on the whole order: whatever is still to come arrives that day.
+create or replace function public.paint_order_after()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare g5 int; g1 int;
+begin
+  if new.status = 'received' and old.status <> 'received'
+     and coalesce(current_setting('gidc.receiving', true), '') = '' then
+    select coalesce(sum(pails_5), 0), coalesce(sum(pails_1), 0) into g5, g1 from paint_receipts where order_id = new.id;
+    if new.pails_5 > g5 or new.pails_1 > g1 then
+      perform set_config('gidc.receiving', 'all', true);
+      insert into paint_receipts (order_id, pails_5, pails_1, received_on)
+      values (new.id, greatest(new.pails_5 - g5, 0), greatest(new.pails_1 - g1, 0), coalesce(new.received_on, current_date));
+      perform set_config('gidc.receiving', '', true);
+    end if;
+  end if;
+  return null;
+end $$;
+
+drop trigger if exists paint_orders_after on public.paint_orders;
+create trigger paint_orders_after after update on public.paint_orders
+  for each row execute function public.paint_order_after();
+drop trigger if exists paint_receipts_stamp on public.paint_receipts;
+create trigger paint_receipts_stamp before insert on public.paint_receipts
+  for each row execute function public.paint_receipt_stamp();
+drop trigger if exists paint_receipts_after on public.paint_receipts;
+create trigger paint_receipts_after after insert or delete on public.paint_receipts
+  for each row execute function public.paint_receipt_after();
+
+-- An order received before receipts existed gets one receipt for all of
+-- it, on the day it was marked received, so stock reads as before.
+do $$
+begin
+  perform set_config('gidc.receiving', 'all', true);
+  insert into public.paint_receipts (order_id, pails_5, pails_1, received_on, received_by)
+  select o.id, o.pails_5, o.pails_1, coalesce(o.received_on, o.requested_at::date), o.received_by
+    from public.paint_orders o
+   where o.status = 'received'
+     and not exists (select 1 from public.paint_receipts r where r.order_id = o.id);
+  perform set_config('gidc.receiving', '', true);
+end $$;
+
 -- ---------- 6. the rules ----------------------------------------------------
 alter table public.paint_colours  enable row level security;
 alter table public.paint_schedule enable row level security;
 alter table public.paint_counts   enable row level security;
 alter table public.paint_orders   enable row level security;
+alter table public.paint_receipts enable row level security;
 
 drop policy if exists paint_colours_read   on public.paint_colours;
 drop policy if exists paint_colours_change on public.paint_colours;
@@ -469,9 +580,22 @@ create policy paint_orders_add on public.paint_orders
 create policy paint_orders_change on public.paint_orders
   for update to authenticated using (public.can_use_paint()) with check (public.can_use_paint());
 
+-- A delivery is typed on the page; one typed wrong can be taken back.
+drop policy if exists paint_receipts_read   on public.paint_receipts;
+drop policy if exists paint_receipts_add    on public.paint_receipts;
+drop policy if exists paint_receipts_remove on public.paint_receipts;
+create policy paint_receipts_read on public.paint_receipts
+  for select to authenticated using (public.can_use_paint());
+create policy paint_receipts_add on public.paint_receipts
+  for insert to authenticated with check (public.can_use_paint());
+create policy paint_receipts_remove on public.paint_receipts
+  for delete to authenticated using (public.can_use_paint());
+
 revoke all on public.paint_colours, public.paint_schedule, public.paint_counts, public.paint_orders
   from anon, public;
 revoke all on public.paint_schedule_lines from anon, public;
+revoke all on public.paint_receipts from anon, public;
+grant select, insert, delete         on public.paint_receipts to authenticated;
 grant select, insert, update, delete on public.paint_colours  to authenticated;
 grant select                         on public.paint_schedule to authenticated;
 grant select                         on public.paint_schedule_lines to authenticated;
@@ -482,6 +606,7 @@ grant execute on function public.paint_colour_of(text) to authenticated;
 do $$ begin
   execute 'grant all on public.paint_colours, public.paint_schedule, public.paint_counts, public.paint_orders to service_role';
   execute 'grant select on public.paint_schedule_lines to service_role';
+  execute 'grant all on public.paint_receipts to service_role';
   execute 'grant execute on function public.paint_colour_of(text) to service_role';
 exception when undefined_object then null;
 end $$;

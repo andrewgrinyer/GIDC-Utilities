@@ -108,6 +108,47 @@ update supply_orders set status = 'received', po_no = 'SHP12345', needed_by = '2
 reset role;
 \echo -- want SHP00001 received today by manufacturing, needed 2026-11-28, emailed_at blank
 select po_no, status, received_on = current_date as today, received_by, needed_by, emailed_at, sent_to from supply_orders where po_no = 'SHP00001';
+\echo -- want: whole PO received makes one receipt a line, for what was ordered (5 and 5)
+select r.qty, r.received_by, r.received_on = current_date as today from supply_receipts r join supply_orders o on o.id = r.order_id where o.po_no = 'SHP00001' order by r.qty;
+
+\echo -- same day, same supplier: one PO (Andrew, 27 November). Glue again goes on SHP00002, adding to the line not yet emailed
+set role authenticated; select pg_temp.as_who('manufacturing');
+select po_no from supply_place_order('shop', null, (select jsonb_agg(jsonb_build_object('item_id', id, 'qty', 3)) from supply_items where shop_name = 'Glue'), null, 'More glue');
+reset role;
+update supply_order_lines set emailed_at = now() where order_id = (select id from supply_orders where po_no = 'SHP00002');
+set role authenticated; select pg_temp.as_who('manufacturing');
+\echo -- want SHP00002 again; once emailed, more glue is a new line
+select po_no from supply_place_order('shop', null, (select jsonb_agg(jsonb_build_object('item_id', id, 'qty', 4)) from supply_items where shop_name = 'Glue'));
+reset role;
+\echo -- want two glue lines on SHP00002: 5 emailed, 4 not; note More glue
+select l.qty, l.emailed_at is not null as emailed, o.note from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' order by l.qty desc;
+
+\echo -- receiving in parts: 2 of the 5 now, the PO stays on order
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into supply_receipts (line_id, qty, received_on) select l.id, 2, current_date - 1 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 5;
+\echo -- want refused: only 3 still to come
+insert into supply_receipts (line_id, qty) select l.id, 4 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 5;
+\echo -- want refused: a day still to come
+insert into supply_receipts (line_id, qty, received_on) select l.id, 1, current_date + 1 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 5;
+reset role;
+select po_no, status from supply_orders where po_no = 'SHP00002';
+\echo -- the rest of both lines: the PO is received, on the last day
+set role authenticated; select pg_temp.as_who('manufacturing');
+insert into supply_receipts (line_id, qty) select l.id, 3 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 5;
+insert into supply_receipts (line_id, qty) select l.id, 4 from supply_order_lines l join supply_orders o on o.id = l.order_id where o.po_no = 'SHP00002' and l.qty = 4;
+reset role;
+\echo -- want received today by manufacturing
+select po_no, status, received_on = current_date as today, received_by from supply_orders where po_no = 'SHP00002';
+\echo -- taking a receipt back puts it on order again
+set role authenticated; select pg_temp.as_who('manufacturing');
+delete from supply_receipts where qty = 4 and order_id = (select id from supply_orders where po_no = 'SHP00002');
+reset role;
+select po_no, status, received_on from supply_orders where po_no = 'SHP00002';
+\echo -- a stranger sees no receipts and cannot add one
+set role authenticated; select pg_temp.as_who('stranger');
+select count(*) from supply_receipts;
+insert into supply_receipts (line_id, qty) select id, 1 from supply_order_lines limit 1;
+reset role;
 
 \echo -- removing an item keeps the order lines, drops its counts
 set role authenticated; select pg_temp.as_who('manufacturing');

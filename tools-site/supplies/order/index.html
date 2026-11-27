@@ -118,6 +118,10 @@ button.small{min-height:32px;padding:6px 10px;font-size:13px}
 .row .what{flex:1 1 260px;min-width:0}
 .row .t{font-weight:600}
 .row .meta{color:var(--muted);font-size:13.5px}
+.row .pl{margin:3px 0}
+.row .pl .qty{width:70px;padding:4px 6px}
+.row .day{padding:4px 6px;border:1px solid var(--rule);border-radius:7px;font:inherit;font-size:13px;background:var(--card);color:var(--ink)}
+button.linkish{background:none;border:0;padding:0;color:var(--info);text-decoration:underline;cursor:pointer;font:inherit;font-size:12.5px}
 .row .acts{display:flex;gap:6px;flex:none;flex-wrap:wrap;align-items:center}
 .row.none{opacity:.6}
 
@@ -222,7 +226,7 @@ h3.grp{grid-column:1 / -1;margin:10px 0 -2px;font-size:14px;color:var(--muted);t
     <div id="setbody"></div>
   </details>
 </div>
-<div class="gidc-build">Order Supplies 1.4.7 &middot; 27 Nov 2026</div>
+<div class="gidc-build">Order Supplies 1.5 &middot; 27 Nov 2026</div>
 
 <script>
 (function(){
@@ -359,8 +363,10 @@ function load(){
       get('/rest/v1/supply_suppliers?select=*&order=name.asc'),
       get('/rest/v1/supply_counts?select=*,supply_items!inner(category)&supply_items.category=eq.' + encodeURIComponent(CODE) +
           '&order=counted_on.desc,created_at.desc&limit=500'),
-      get('/rest/v1/supply_orders?select=*,supply_order_lines(*)&category=eq.' + encodeURIComponent(CODE) +
-          '&order=requested_at.desc&limit=300'),
+      get('/rest/v1/supply_orders?select=*,supply_order_lines(*,supply_receipts(*))&category=eq.' + encodeURIComponent(CODE) +
+          '&order=requested_at.desc&limit=300')
+        .catch(function(){ return get('/rest/v1/supply_orders?select=*,supply_order_lines(*)&category=eq.' + encodeURIComponent(CODE) +
+          '&order=requested_at.desc&limit=300'); }),
       getAll('/rest/v1/supply_schedule?select=*&need_on=gte.' + addDays(TODAY, -400) + '&order=need_on.asc,access_order_id.asc')
     ]);
   }).then(function(r){
@@ -509,7 +515,24 @@ function unitPrice(it){ var p = Number(it.price); return it.price != null && it.
    As paint: the last count (stock at the end of that day), plus what was
    received after it, less what the schedule used on every day after it up
    to yesterday. Today's need is still to come. */
-function received(o){ return o.status === 'received'; }
+/* Andrew, 27 November: a supplier may ship part of a PO, so each
+   delivery of a line is a receipt with its own day. Stock adds each
+   receipt on its day; what has not come yet stays on order. A line from
+   before receipts existed, on a PO marked received, counts as all of it
+   on the day the PO was received. */
+function receiptsOf(o, l){
+  if(Array.isArray(l.supply_receipts) && (l.supply_receipts.length || o.status !== 'received')) return l.supply_receipts;
+  return o.status === 'received' ? [{qty: l.qty, received_on: o.received_on, legacy: true}] : [];
+}
+function gotOf(o, l){ return sum(receiptsOf(o, l), function(r){ return r.qty; }); }
+function toCome(o, l){ return o.status === 'requested' ? Math.max(0, Math.round((Number(l.qty) - gotOf(o, l)) * 100) / 100) : 0; }
+function receiptsFor(it){
+  var out = [];
+  ORDERS.forEach(function(o){ (o.supply_order_lines || []).forEach(function(l){
+    if(l.item_id === it.id) receiptsOf(o, l).forEach(function(r){ if(r.received_on) out.push(r); });
+  }); });
+  return out;
+}
 function linesFor(it, test){
   var out = [];
   ORDERS.forEach(function(o){ if(test(o)) (o.supply_order_lines || []).forEach(function(l){ if(l.item_id === it.id) out.push({o: o, l: l}); }); });
@@ -519,11 +542,12 @@ function stockOf(it){
   var last = COUNTS.filter(function(x){ return x.item_id === it.id; })[0] || null;
   var since = last ? last.counted_on : null;
   var firstIn = null;
-  if(!last) linesFor(it, received).forEach(function(x){ if(x.o.received_on && (!firstIn || x.o.received_on < firstIn)) firstIn = x.o.received_on; });
+  var ins = receiptsFor(it);
+  if(!last) ins.forEach(function(r){ if(!firstIn || r.received_on < firstIn) firstIn = r.received_on; });
   if(!last && firstIn) since = addDays(firstIn, -1);
-  var got = sum(linesFor(it, function(o){ return received(o) && (!since || o.received_on > since); }), function(x){ return x.l.qty; });
+  var got = sum(ins.filter(function(r){ return !since || r.received_on > since; }), function(r){ return r.qty; });
   var used = since ? unitsFor(it, realRows(rowsFor(it, addDays(since, 1), addDays(TODAY, -1)))) : 0;
-  var onOrder = sum(linesFor(it, function(o){ return o.status === 'requested'; }), function(x){ return x.l.qty; });
+  var onOrder = sum(linesFor(it, function(o){ return o.status === 'requested'; }), function(x){ return toCome(x.o, x.l); });
   var now = last ? Number(last.qty) + got - used : firstIn ? got - used : null;
 
   var two = addDays(TODAY, 13);
@@ -748,22 +772,39 @@ function drawOrders(){
   var cut = addDays(TODAY, -90);
   var list = ORDERS.filter(function(o){ return o.status === 'requested' || o.requested_at.slice(0, 10) >= cut; });
   $('orders').innerHTML = list.map(function(o){
-    var lines = (o.supply_order_lines || []).map(function(l){ return qtyText(l.qty, l.unit) + ' ' + l.shop_name; }).join(', ');
+    var ls = o.supply_order_lines || [];
+    var open = o.status === 'requested';
+    var part = open && ls.some(function(l){ return gotOf(o, l) > 0; });
+    var lines = ls.map(function(l){
+      var got = gotOf(o, l), come = toCome(o, l), rs = receiptsOf(o, l).filter(function(r){ return !r.legacy; });
+      return '<div class="pl">' + esc(qtyText(l.qty, l.unit) + ' ' + l.shop_name) +
+        (rs.length && (open || got < Number(l.qty)) ? ' <span class="tiny">' + rs.map(function(r){
+          return esc(n1(r.qty) + ' in ' + nice(r.received_on)) + (open ? ' <button class="linkish" data-unreceive="' + esc(r.id) + '" title="Typed wrong? Take it back">take back</button>' : '');
+        }).join(', ') + '</span>' : '') +
+        (open && come > 0 ? ' <span class="tiny">' + esc(n1(come)) + ' to come</span>' +
+          ' <input class="qty" data-recvqty="' + esc(l.id) + '" inputmode="decimal" value="' + esc(n1(come)) + '" aria-label="How many of ' + esc(l.shop_name) + ' came">' +
+          ' <button class="plain small" data-recvline="' + esc(l.id) + '" data-order="' + esc(o.id) + '">Received</button>' : '') +
+        (open && come <= 0 ? ' <span class="chip ok">All in</span>' : '') + '</div>';
+    }).join('');
     var chip = o.status === 'received' ? '<span class="chip ok">Received ' + esc(nice(o.received_on)) + '</span>'
              : o.status === 'cancelled' ? '<span class="chip grey">Cancelled</span>'
+             : part ? '<span class="chip low">Part received</span>'
              : '<span class="chip info">On order</span>';
-    var mail = o.emailed_at ? 'Emailed to ' + esc(o.sent_to || 'the supplier') + (o.copied_to ? ', copy ' + esc(o.copied_to) : '')
+    var unsent = ls.some(function(l){ return 'emailed_at' in l ? !l.emailed_at : !o.emailed_at; });
+    var mail = o.emailed_at ? 'Emailed to ' + esc(o.sent_to || 'the supplier') + (o.copied_to ? ', copy ' + esc(o.copied_to) : '') +
+                              (unsent ? '. <b style="color:var(--brass)">Items added since, not emailed</b>' : '')
                             : '<b style="color:var(--brass)">Email not sent</b>';
     return '<div class="row' + (o.status === 'cancelled' ? ' none' : '') + '"><div class="what">' +
       '<div class="t">' + esc(o.po_no) + ' &nbsp;' + esc(o.supplier_name || 'No supplier') + '</div>' +
-      '<div>' + esc(lines) + '</div>' +
+      '<div>' + lines + '</div>' +
       '<div class="meta">' + (o.needed_by ? 'Needed by ' + esc(nice(o.needed_by, true)) + '. ' : '') +
         'Asked by ' + esc(o.requested_by || 'someone') + ' ' + esc(nice(o.requested_at.slice(0, 10))) + '. ' + mail +
         (o.note ? '. ' + esc(o.note) : '') + '</div></div>' +
       '<div class="acts">' + chip +
         (o.status === 'requested'
-          ? (o.emailed_at ? '' : ' <button class="plain small" data-resend="' + o.id + '">Send email</button>') +
-            ' <button class="save small" data-received="' + o.id + '">Received</button>' +
+          ? (unsent ? ' <button class="plain small" data-resend="' + o.id + '">Send email</button>' : '') +
+            ' <label class="tiny">Came on <input type="date" class="day" data-recvday="' + o.id + '" value="' + TODAY + '" max="' + TODAY + '"></label>' +
+            ' <button class="save small" data-received="' + o.id + '" title="Everything still to come arrived">All arrived</button>' +
             ' <button class="plain small" data-cancel="' + o.id + '">Cancel</button>'
           : '') +
       '</div></div>';
@@ -1068,12 +1109,40 @@ function resend(id){
                  function(err){ message('bad', err.message); })
     .then(function(){ busy = false; });
 }
+function dayFor(orderId){
+  var d = document.querySelector('[data-recvday="' + orderId + '"]');
+  return d && d.value ? d.value : TODAY;
+}
+function receiveLine(lineId, orderId){
+  var q = numOf2(document.querySelector('[data-recvqty="' + lineId + '"]'));
+  if(!(q > 0)) return message('bad', 'Type how many came.');
+  var day = dayFor(orderId);
+  if(day > TODAY) return message('bad', 'Pick the day it came, today or earlier.');
+  busy = true;
+  send('POST', '/rest/v1/supply_receipts', {line_id: lineId, qty: Math.round(q * 100) / 100, received_on: day})
+    .then(function(){ return load(); })
+    .then(function(){ message('good', 'Received ' + n1(q) + ', and added to stock.'); })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function unreceive(id){
+  busy = true;
+  send('DELETE', '/rest/v1/supply_receipts?id=eq.' + encodeURIComponent(id))
+    .then(function(){ return load(); })
+    .then(function(){ message('good', 'Taken back. It is on order again.'); })
+    .catch(function(err){ message('bad', err.message); })
+    .then(function(){ busy = false; });
+}
+function numOf2(el){ var v = Number(String(el && el.value || '').trim().replace(',', '.')); return isFinite(v) ? v : NaN; }
 function setStatus(id, status){
   busy = true;
-  send('PATCH', '/rest/v1/supply_orders?id=eq.' + encodeURIComponent(id) + '&select=*,supply_order_lines(*)', {status: status})
+  var body = {status: status};
+  if(status === 'received'){ body.received_on = dayFor(id); if(body.received_on > TODAY) { busy = false; return message('bad', 'Pick the day it came, today or earlier.'); } }
+  send('PATCH', '/rest/v1/supply_orders?id=eq.' + encodeURIComponent(id), body)
     .then(function(row){
-      ORDERS = ORDERS.map(function(o){ return o.id === row.id ? row : o; }); draw();
-      message('good', status === 'received' ? row.po_no + ' received, and added to stock.' : row.po_no + ' cancelled.');
+      return load().then(function(){
+        message('good', status === 'received' ? row.po_no + ': the rest received, and added to stock.' : row.po_no + ' cancelled. Anything already received stays in stock.');
+      });
     })
     .catch(function(err){ message('bad', err.message); })
     .then(function(){ busy = false; });
@@ -1119,6 +1188,8 @@ document.addEventListener('click', function(e){
   if(t.closest('#lowonly')){ LOWONLY = !LOWONLY; drawStock(); drawOrderForm(); return; }
   if(t.closest('#s-savecopy')){ saveCopy(); return; }
   if((el = t.closest('[data-received]'))){ setStatus(el.dataset.received, 'received'); return; }
+  if((el = t.closest('[data-recvline]'))){ receiveLine(el.dataset.recvline, el.dataset.order); return; }
+  if((el = t.closest('[data-unreceive]'))){ unreceive(el.dataset.unreceive); return; }
   if((el = t.closest('[data-cancel]'))){ setStatus(el.dataset.cancel, 'cancelled'); return; }
   if((el = t.closest('[data-resend]'))){ resend(el.dataset.resend); return; }
   if((el = t.closest('[data-uncount]'))){

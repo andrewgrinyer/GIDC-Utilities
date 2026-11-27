@@ -646,6 +646,13 @@ create table if not exists public.supply_order_lines (
 alter table public.supply_order_lines drop constraint if exists supply_order_lines_ok;
 alter table public.supply_order_lines add constraint supply_order_lines_ok check (qty > 0 and qty < 100000);
 create index if not exists supply_order_lines_order on public.supply_order_lines (order_id);
+-- Andrew, 27 November: orders placed the same day to the same supplier go
+-- on one PO, so a line may be added after the PO was first emailed. Each
+-- line keeps when it went, so the next email sends only what is new.
+alter table public.supply_order_lines add column if not exists emailed_at timestamptz;
+update public.supply_order_lines l set emailed_at = o.emailed_at
+  from public.supply_orders o
+ where o.id = l.order_id and o.emailed_at is not null and l.emailed_at is null;
 comment on table public.supply_order_lines is
   'What is on each PO, with the names as they were when it was sent, so '
   'renaming or removing an item later leaves the record as it was.';
@@ -687,10 +694,25 @@ begin
   end if;
   select coalesce(nullif(p.name, ''), p.email) into who from profiles p where p.id = auth.uid();
 
-  insert into supply_orders (category, po_no, supplier_id, supplier_name, needed_by, note, requested_by)
-  values (cat.code, supply_next_po(cat.po_prefix), sup.id, sup.name, p_needed_by,
-          nullif(btrim(coalesce(p_note, '')), ''), who)
-  returning * into o;
+  -- Andrew, 27 November: everything ordered the same day from the same
+  -- supplier goes on one PO. An open PO from today takes the new lines;
+  -- otherwise a new PO. Under the PO lock, so two at once cannot both
+  -- make one.
+  perform pg_advisory_xact_lock(hashtext('gidc supply po ' || cat.po_prefix));
+  select * into o from supply_orders x
+   where x.category = cat.code and x.supplier_id is not distinct from p_supplier
+     and x.status = 'requested'
+     and (x.requested_at at time zone 'America/Toronto')::date = (now() at time zone 'America/Toronto')::date
+   order by x.requested_at limit 1;
+  if o.id is null then
+    insert into supply_orders (category, po_no, supplier_id, supplier_name, needed_by, note, requested_by)
+    values (cat.code, supply_next_po(cat.po_prefix), sup.id, sup.name, p_needed_by,
+            nullif(btrim(coalesce(p_note, '')), ''), who)
+    returning * into o;
+  elsif nullif(btrim(coalesce(p_note, '')), '') is not null then
+    update supply_orders set note = coalesce(note || '; ', '') || btrim(p_note) where id = o.id
+    returning * into o;
+  end if;
 
   for l in select * from jsonb_array_elements(p_lines) loop
     select * into it from supply_items where id = (l->>'item_id')::uuid;
@@ -700,14 +722,107 @@ begin
     end if;
     q := (l->>'qty')::numeric;
     if q is null or q <= 0 then raise exception 'Order more than nothing of %.', it.shop_name; end if;
-    insert into supply_order_lines (order_id, item_id, shop_name, supplier_item, unit, qty)
-    values (o.id, it.id, it.shop_name, it.supplier_item, it.unit, q);
+    -- the same item not yet emailed takes the extra; otherwise a new line
+    update supply_order_lines set qty = qty + q
+     where order_id = o.id and item_id = it.id and emailed_at is null;
+    if not found then
+      insert into supply_order_lines (order_id, item_id, shop_name, supplier_item, unit, qty)
+      values (o.id, it.id, it.shop_name, it.supplier_item, it.unit, q);
+    end if;
     n := n + 1;
   end loop;
   return o;
 end $$;
 revoke all on function public.supply_place_order(text, uuid, jsonb, date, text) from public, anon;
 grant execute on function public.supply_place_order(text, uuid, jsonb, date, text) to authenticated;
+
+-- RECEIVING IN PARTS (Andrew, 27 November): a supplier may ship part of
+-- an order. Each delivery of a line is a receipt, with its own day; stock
+-- adds each receipt on the day it came. The PO is received once every
+-- line has all of it, and stays on order until then. Received on the
+-- whole PO (All arrived) takes in whatever is still to come.
+create table if not exists public.supply_receipts (
+  id           uuid primary key default gen_random_uuid(),
+  line_id      uuid not null references public.supply_order_lines(id) on delete cascade,
+  order_id     uuid references public.supply_orders(id) on delete cascade,
+  item_id      uuid,
+  qty          numeric(9,2) not null,
+  received_on  date not null default current_date,
+  received_by  text,
+  created_at   timestamptz not null default now()
+);
+alter table public.supply_receipts drop constraint if exists supply_receipts_ok;
+alter table public.supply_receipts add constraint supply_receipts_ok check (qty > 0 and qty < 100000);
+create index if not exists supply_receipts_line on public.supply_receipts (line_id);
+create index if not exists supply_receipts_order on public.supply_receipts (order_id);
+comment on table public.supply_receipts is
+  'Each delivery of a PO line, with the day it came. Stock adds these. '
+  'Made on the page, or for everything still to come when the whole PO '
+  'is marked received.';
+
+-- what a receipt may be, and the PO it belongs to kept up to date
+create or replace function public.supply_receipt_stamp()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare l public.supply_order_lines; o public.supply_orders; got numeric; who text;
+begin
+  if tg_op = 'INSERT' then
+    select * into l from supply_order_lines where id = new.line_id;
+    select * into o from supply_orders where id = l.order_id;
+    if current_setting('gidc.receiving', true) is distinct from 'all' then
+      if o.status <> 'requested' then raise exception '% is not on order any more.', o.po_no; end if;
+      select coalesce(sum(qty), 0) into got from supply_receipts where line_id = l.id;
+      if new.qty > l.qty - got + 0.001 then
+        raise exception 'Only % of % is still to come on %.', round(l.qty - got, 2), l.shop_name, o.po_no;
+      end if;
+    end if;
+    if new.received_on > (now() at time zone 'America/Toronto')::date then
+      raise exception 'Pick the day it came, today or earlier.';
+    end if;
+    select coalesce(nullif(p.name, ''), p.email) into who from profiles p where p.id = auth.uid();
+    new.order_id := l.order_id; new.item_id := l.item_id;
+    new.received_by := coalesce(who, new.received_by); new.created_at := now();
+    return new;
+  end if;
+  return old;
+end $$;
+
+create or replace function public.supply_receipt_after()
+returns trigger language plpgsql security definer set search_path = public as $$
+declare oid uuid := coalesce(new.order_id, old.order_id); short int; last date; st text;
+begin
+  if current_setting('gidc.receiving', true) = 'all' then return null; end if;
+  select count(*) into short from supply_order_lines l
+   where l.order_id = oid
+     and l.qty > coalesce((select sum(r.qty) from supply_receipts r where r.line_id = l.id), 0) + 0.001;
+  select max(received_on) into last from supply_receipts where order_id = oid;
+  select status into st from supply_orders where id = oid;
+  perform set_config('gidc.receiving', 'parts', true);
+  if short = 0 and st = 'requested' then
+    update supply_orders set status = 'received', received_on = last where id = oid;
+  elsif short > 0 and st = 'received' then
+    update supply_orders set status = 'requested' where id = oid;
+  end if;
+  perform set_config('gidc.receiving', '', true);
+  return null;
+end $$;
+
+-- Received on the whole PO: whatever is still to come arrives that day.
+create or replace function public.supply_order_after()
+returns trigger language plpgsql security definer set search_path = public as $$
+begin
+  if new.status = 'received' and old.status <> 'received'
+     and coalesce(current_setting('gidc.receiving', true), '') = '' then
+    perform set_config('gidc.receiving', 'all', true);
+    insert into supply_receipts (line_id, qty, received_on)
+    select l.id, l.qty - coalesce((select sum(r.qty) from supply_receipts r where r.line_id = l.id), 0),
+           coalesce(new.received_on, current_date)
+      from supply_order_lines l
+     where l.order_id = new.id
+       and l.qty > coalesce((select sum(r.qty) from supply_receipts r where r.line_id = l.id), 0) + 0.001;
+    perform set_config('gidc.receiving', '', true);
+  end if;
+  return null;
+end $$;
 
 -- ---------- 7. who changed it, set by the database ----------------------
 create or replace function public.supply_stamp()
@@ -776,6 +891,28 @@ create trigger supply_counts_stamp before insert on public.supply_counts
 drop trigger if exists supply_orders_stamp on public.supply_orders;
 create trigger supply_orders_stamp before update on public.supply_orders
   for each row execute function public.supply_stamp();
+drop trigger if exists supply_orders_after on public.supply_orders;
+create trigger supply_orders_after after update on public.supply_orders
+  for each row execute function public.supply_order_after();
+drop trigger if exists supply_receipts_stamp on public.supply_receipts;
+create trigger supply_receipts_stamp before insert on public.supply_receipts
+  for each row execute function public.supply_receipt_stamp();
+drop trigger if exists supply_receipts_after on public.supply_receipts;
+create trigger supply_receipts_after after insert or delete on public.supply_receipts
+  for each row execute function public.supply_receipt_after();
+
+-- An order received before receipts existed gets one receipt a line, on
+-- the day it was marked received, so stock reads the same as before.
+do $$
+begin
+  perform set_config('gidc.receiving', 'all', true);
+  insert into public.supply_receipts (line_id, qty, received_on, received_by)
+  select l.id, l.qty, coalesce(o.received_on, o.requested_at::date), o.received_by
+    from public.supply_order_lines l join public.supply_orders o on o.id = l.order_id
+   where o.status = 'received'
+     and not exists (select 1 from public.supply_receipts r where r.order_id = o.id);
+  perform set_config('gidc.receiving', '', true);
+end $$;
 
 -- Ashley copied on every list there now (Andrew, 27 November: ALL
 -- orders). Anybody else already copied stays copied.
@@ -792,12 +929,13 @@ alter table public.supply_schedule    enable row level security;
 alter table public.supply_counts      enable row level security;
 alter table public.supply_orders      enable row level security;
 alter table public.supply_order_lines enable row level security;
+alter table public.supply_receipts    enable row level security;
 
 do $$
 declare t text;
 begin
   foreach t in array array['supply_categories','supply_suppliers','supply_items','supply_schedule',
-                           'supply_counts','supply_orders','supply_order_lines'] loop
+                           'supply_counts','supply_orders','supply_order_lines','supply_receipts'] loop
     execute format('drop policy if exists %I on public.%I', t || '_read', t);
     execute format('create policy %I on public.%I for select to authenticated using (public.can_use_supplies())',
                    t || '_read', t);
@@ -824,12 +962,20 @@ create policy supply_counts_add on public.supply_counts
 create policy supply_counts_remove on public.supply_counts
   for delete to authenticated using (public.can_use_supplies());
 
+-- A delivery is typed on the page; one typed wrong can be taken back.
+drop policy if exists supply_receipts_add    on public.supply_receipts;
+drop policy if exists supply_receipts_remove on public.supply_receipts;
+create policy supply_receipts_add on public.supply_receipts
+  for insert to authenticated with check (public.can_use_supplies());
+create policy supply_receipts_remove on public.supply_receipts
+  for delete to authenticated using (public.can_use_supplies());
+
 drop policy if exists supply_orders_change on public.supply_orders;
 create policy supply_orders_change on public.supply_orders
   for update to authenticated using (public.can_use_supplies()) with check (public.can_use_supplies());
 
 revoke all on public.supply_categories, public.supply_suppliers, public.supply_items, public.supply_schedule,
-              public.supply_counts, public.supply_orders, public.supply_order_lines
+              public.supply_counts, public.supply_orders, public.supply_order_lines, public.supply_receipts
   from anon, public, authenticated;
 grant select, update                 on public.supply_categories  to authenticated;
 grant select, insert, update, delete on public.supply_suppliers   to authenticated;
@@ -838,9 +984,10 @@ grant select                         on public.supply_schedule    to authenticat
 grant select, insert, delete         on public.supply_counts      to authenticated;
 grant select, update                 on public.supply_orders      to authenticated;
 grant select                         on public.supply_order_lines to authenticated;
+grant select, insert, delete         on public.supply_receipts    to authenticated;
 do $$ begin
   execute 'grant all on public.supply_categories, public.supply_suppliers, public.supply_items, '
-          'public.supply_schedule, public.supply_counts, public.supply_orders, public.supply_order_lines to service_role';
+          'public.supply_schedule, public.supply_counts, public.supply_orders, public.supply_order_lines, public.supply_receipts to service_role';
 exception when undefined_object then null;
 end $$;
 

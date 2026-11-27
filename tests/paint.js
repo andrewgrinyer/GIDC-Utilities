@@ -104,10 +104,34 @@ async function mock(page){
       }
       if(m === 'PATCH'){
         const id = u.searchParams.get('id').replace('eq.', ''); const o = ORDERS.find(x => x.id === id);
-        Object.assign(o, body); if(body.status === 'received') o.received_on = '2026-11-19';
+        Object.assign(o, body);
+        if(body.status === 'received'){
+          o.received_on = body.received_on || '2026-11-19';
+          // as the database does: what is still to come arrives that day
+          o.paint_receipts = o.paint_receipts || [];
+          const g5 = o.paint_receipts.reduce((a, r) => a + r.pails_5, 0), g1 = o.paint_receipts.reduce((a, r) => a + r.pails_1, 0);
+          if(o.pails_5 > g5 || o.pails_1 > g1) o.paint_receipts.push({id:'r' + (++n), pails_5:o.pails_5 - g5, pails_1:o.pails_1 - g1,
+            gallons:String((o.pails_5 - g5) * 5 + o.pails_1 - g1), received_on:o.received_on});
+        }
         posted.push(['status', id, body]); return jw([o]);
       }
       return j(ORDERS);
+    }
+    if(p === '/rest/v1/paint_receipts'){
+      if(m === 'POST'){
+        const o = ORDERS.find(x => x.id === body.order_id); o.paint_receipts = o.paint_receipts || [];
+        const r = Object.assign({id:'r' + (++n)}, body, {gallons:String(body.pails_5 * 5 + body.pails_1)});
+        o.paint_receipts.push(r); posted.push(['receipt', body]);
+        const g5 = o.paint_receipts.reduce((a, x) => a + x.pails_5, 0), g1 = o.paint_receipts.reduce((a, x) => a + x.pails_1, 0);
+        if(g5 >= o.pails_5 && g1 >= o.pails_1){ o.status = 'received'; o.received_on = body.received_on; }
+        return jw([r], 201);
+      }
+      if(m === 'DELETE'){
+        const id = u.searchParams.get('id').replace('eq.', ''); let gone = [];
+        ORDERS.forEach(o => { const i = (o.paint_receipts || []).findIndex(r => r.id === id);
+          if(i >= 0){ gone = o.paint_receipts.splice(i, 1); if(o.status === 'received'){ o.status = 'requested'; o.received_on = null; } } });
+        posted.push(['unreceipt', id]); return jw(gone);
+      }
     }
     if(p === '/functions/v1/paint-order'){
       posted.push(['email', body]);
@@ -231,7 +255,16 @@ const card = (page, name) => page.$$eval('.sc', (cs, nm) => (cs.find(c => c.quer
 
   // received
   const newId = ORDERS[0].id;
+  // part of it first: one 5 gallon pail
+  check(await page.inputValue('[data-recv5="' + newId + '"]') === '2' && await page.inputValue('[data-recv1="' + newId + '"]') === '1', 'offers what is still to come');
+  await page.fill('[data-recv5="' + newId + '"]', '1'); await page.fill('[data-recv1="' + newId + '"]', '0');
+  await page.click('[data-recvpart="' + newId + '"]'); await page.waitForTimeout(250);
+  c = await card(page, 'Extra White');
+  check(/plus 5\.0 received/.test(c) && /On order 6\.0 gal/.test(c), 'a part delivery adds 5 gallons, 6 still on order (' + c + ')');
+  let ol = await text(page, '#orders');
+  check(/Part received/.test(ol) && /1 x 5 gal came Nov 19/.test(ol) && /Still to come 1 x 5 gal and 1 x 1 gal/.test(ol), 'the order shows what came and what is to come (' + ol.slice(0, 300) + ')');
   await page.click('[data-received="' + newId + '"]'); await page.waitForTimeout(200);
+  check(/Extra White received: 6\.0 gal added/.test(await text(page, '#msg')), 'All arrived takes in the rest (' + await text(page, '#msg') + ')');
   c = await card(page, 'Extra White');
   check(/15\.0 gal in stock/.test(c) && /plus 11\.0 received/.test(c) && /On order none/.test(c), 'Received adds 11 gallons to stock (' + c + ')');
 
