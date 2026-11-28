@@ -6,7 +6,7 @@
    file cached whatever came back, so a single 403 from the edge could be kept
    and handed out afterwards, which is exactly what happened on 23 Sep 2026.
    A response already in the cache from that version is ignored and refetched. */
-const CACHE = 'gidc-13.0';  // 2.82, no door size button on the review, ticks on one line
+const CACHE = 'gidc-13.1';  // 2.83, bypass heights: 80 to 83 1/2, 84 to 87 1/2, build down to 91
 const SHELL = ['./', './index.html', './hyperformula-3.0.1.min.js', './icon-192.png', './icon-512.png',
                './apple-touch-icon.png', './manifest.webmanifest',
                './handle-hardware-selection.pdf', './bypass-door-overlap-guide.pdf',

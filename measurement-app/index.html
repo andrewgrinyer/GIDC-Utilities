@@ -2861,6 +2861,7 @@ function setOpeningSize(op, f, val){
  * (job.reveal, job.floorGap). A re-rail or re-stile set by hand stays. */
 const SIZING = 2;
 const REVEAL = 0.094, FLOOR_GAP = 0.5, CUT_TOL = 0.02, GAP_EXTRA = 0.75;
+const BYPASS_HANG = 3.5;          // 2.83: a bypass door hangs in an opening up to 3 1/2" taller than it
 const SWING_OVER_SINGLE = 0.4, SWING_OVER_DOUBLE = 0.6;   // Andrew 18 Nov
 const ROUGH_W = 1.75, ROUGH_H = 1.5;                         // Andrew 19 Nov: rough opening less these
 const PORTAL_W = [12,14,16,18,20,22,24,26,28,30,32,34,36], PORTAL_BIFOLD_W = [24,30,36];
@@ -2967,7 +2968,13 @@ function openPlan(op, o){
     if(hs.indexOf(VALANCE_H) < 0){ P.so = 'no ' + (L ? L.name : 'stock') + ' door comes ' + VALANCE_H + '" high for the valance build down'; return P; }
     if(finH > VALANCE_H){ finH = VALANCE_H; P.finH = VALANCE_H; }     // built down to the door: uncut
   }
-  const bH = P.valance ? VALANCE_H : P.typedH ? tH : fits ? under : hs.find(h => real(h) >= finH - CUT_TOL);
+  /* 2.83, Andrew 28 Nov: a bypass door works in an opening up to 3 1/2" taller
+     than the door: 80" up to 83 1/2", 84" up to 87 1/2" (87 1/2" to 91" is 84"
+     with the valance built down), then the next size up (96"). Uncut where the
+     opening is 2 1/2" or more over it, otherwise cut as before. */
+  const byUp = bypass && !rough && !P.valance && !P.typedH ? hs.find(h => h >= H - BYPASS_HANG - CUT_TOL) : undefined;
+  if(byUp !== undefined && byUp < finH){ finH = byUp; P.finH = r4(finH); }
+  const bH = P.valance ? VALANCE_H : P.typedH ? tH : byUp !== undefined ? byUp : fits ? under : hs.find(h => real(h) >= finH - CUT_TOL);
   if(bH === undefined){
     P.so = 'no ' + (L ? L.name : 'stock') + ' door is tall enough: it has to be ' + sizeText(r4(finH)) + '"' +
       (hs.length ? ' and the tallest is ' + ftin(hs[hs.length - 1]) : '');
@@ -3425,14 +3432,15 @@ const pullFp = job => job.openings.map(op => op.options.filter(o => o.include &&
    the Oversized Valance Build Down form, with Andrew's photo, goes with the
    order like the other forms. Unticked, the line it made comes off. The line
    is an ordinary special materials line, so the rep can still change it. */
-/* 2.81, Andrew 27 Nov: only for an opening 83" to 91" high (above 91" a 96"
+/* 2.83, Andrew 28 Nov: over 87 1/2" up to 91" (83 1/2" to 87 1/2" takes an 84"
+   door without the build down). 2.81: only for an opening 83" to 91" high (above 91" a 96"
    door is used as normal). Ticked, the door height is 84" and cannot be
    changed by hand: the door size box shows it locked, and a typed height is
    not used. Off the range the tick is not offered and does nothing. */
-const VALANCE_ITEM = 'Oversized Bulk Head', VALANCE_PRICE = 150, VALANCE_H = 84, VALANCE_MIN = 83, VALANCE_MAX = 91;
+const VALANCE_ITEM = 'Oversized Bulk Head', VALANCE_PRICE = 150, VALANCE_H = 84, VALANCE_MIN = 87.5, VALANCE_MAX = 91;
 const valanceOpenH = op => parseFloat(sized(op) ? op.openH : op.height);
 const canValance = (op, o) => !!(op && o) && BYPASS_TYPES.indexOf(o.v.doorType) >= 0 &&
-  valanceOpenH(op) >= VALANCE_MIN - 1e-6 && valanceOpenH(op) <= VALANCE_MAX + 1e-6;
+  valanceOpenH(op) > VALANCE_MIN + 1e-6 && valanceOpenH(op) <= VALANCE_MAX + 1e-6;   // 2.83: over 87 1/2", up to 91"
 const hasValance = (op, o) => !!(o && o.v.valance && canValance(op, o));
 const valanceCount = job => ((job && job.openings) || []).reduce((n, op) => n + op.options.filter(o => o.include && hasValance(op, o)).length, 0);
 const valanceLine = job => ((job && job.materials) || []).findIndex(m => m && m.auto === 'valance');
@@ -3458,7 +3466,7 @@ function valanceFields(op, o){
     (o.v.valance ? ' checked' : '') + '> Oversized Valance Build Down</label>' +
     '<p class="hint' + (full ? ' warn-t' : '') + '">' + (full ? 'The three Special Materials and Rework lines are full. Clear one and Oversized Bulk Head goes on it.' :
       o.v.valance ? 'Doors 84" high (locked). Oversized Bulk Head, 1 at $' + VALANCE_PRICE + ', added to Special Materials. The build down form goes with the order.' :
-      'For an opening 83" to 91" high: the doors are 84" and the valance is built down to them.') + '</p></div>';
+      'For an opening over 87 1/2" up to 91" high: the doors are 84" and the valance is built down to them.') + '</p></div>';
 }
 /* the price of each location, from the line's own Door MSRP formula with
    that location's style in place of the style cell. Needs the calculator,
@@ -8334,6 +8342,6 @@ if('serviceWorker' in navigator && location.protocol === 'https:'){
   render();
 })();
 </script>
-<div class="gidc-build">Measurement app 2.82 · 27 Nov 2026</div>
+<div class="gidc-build">Measurement app 2.83 · 28 Nov 2026</div>
 </body>
 </html>
